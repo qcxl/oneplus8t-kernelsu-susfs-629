@@ -101,7 +101,7 @@ jobs:
           if [ -f "drivers/kernelsu/feature/sucompat.c" ]; then
             sed -i 's|#include <linux/pgtable.h>|/* #include <linux/pgtable.h> not available in kernel 4.19 */|' drivers/kernelsu/feature/sucompat.c
             grep -q "strncpy_from_user_nofault" drivers/kernelsu/feature/sucompat.c || \
-              sed -i '/#include <linux/ptrace.h>/a #include <linux/susfs.h>' drivers/kernelsu/feature/sucompat.c
+              sed -i '/#include <linux/ptrace.h>/a #ifndef __strncpy_from_user_nofault\nlong __strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count);\n#endif' drivers/kernelsu/feature/sucompat.c
           fi
 
           # Ensure susfs.o is in fs/Makefile
