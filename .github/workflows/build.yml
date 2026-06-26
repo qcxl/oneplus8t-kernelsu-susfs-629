@@ -233,7 +233,7 @@ jobs:
                 ;;
             esac
           done
-          exec /usr/bin/clang "${ARGS[@]}" 2>/dev/null || exec /usr/local/bin/clang "${ARGS[@]}"
+          exec "$CLANG_DIR/bin/clang" "${ARGS[@]}" 2>/dev/null || exec /usr/bin/clang "${ARGS[@]}"
           WRAPPER
           chmod +x /tmp/ksu-build/bin/clang
           export PATH="/tmp/ksu-build/bin:$PATH"
