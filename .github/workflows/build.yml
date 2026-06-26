@@ -129,6 +129,15 @@ jobs:
             cp ../kernel-patches/pkg_observer_stub.c drivers/kernelsu/manager/pkg_observer.c
           fi
 
+          # Fix TWA_RESUME and put_task_struct for kernel 4.19 compatibility
+          # TWA_RESUME was introduced in kernel 5.3, not available in 4.19
+          # put_task_struct needs linux/sched.h include in kernel 4.19
+          if [ -f "drivers/kernelsu/policy/allowlist.c" ]; then
+            sed -i 's/TWA_RESUME/0/g' drivers/kernelsu/policy/allowlist.c
+            grep -q "#include <linux/sched.h>" drivers/kernelsu/policy/allowlist.c || \
+              sed -i '/#include <linux\/task_work.h>/a #include <linux/sched.h>' drivers/kernelsu/policy/allowlist.c
+          fi
+
           # Ensure susfs.o is in fs/Makefile
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
