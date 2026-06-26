@@ -123,6 +123,12 @@ jobs:
             sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' drivers/kernelsu/infra/su_mount_ns.c
           fi
 
+          # Replace pkg_observer.c with kernel 4.19 compatible version
+          # The original uses handle_inode_event which doesn't exist in kernel 4.19
+          if [ -f "drivers/kernelsu/manager/pkg_observer.c" ]; then
+            cp ../kernel-patches/pkg_observer_stub.c drivers/kernelsu/manager/pkg_observer.c
+          fi
+
           # Ensure susfs.o is in fs/Makefile
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
