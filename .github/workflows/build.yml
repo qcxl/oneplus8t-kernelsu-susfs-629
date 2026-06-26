@@ -126,6 +126,10 @@ jobs:
               echo 'int susfs_start_sdcard_monitor_fn(void);' >> include/linux/susfs.h
             grep -q "susfs_enable_log" include/linux/susfs.h || \
               echo 'int susfs_enable_log(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_add_sus_path_loop" include/linux/susfs.h || \
+              echo 'int susfs_add_sus_path_loop(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_set_hide_sus_mnts_for_non_su_procs" include/linux/susfs.h || \
+              echo 'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' >> include/linux/susfs.h
             grep -q "susfs_add_sus_map" include/linux/susfs.h || \
               echo 'int susfs_add_sus_map(void __user *arg);' >> include/linux/susfs.h
             grep -q "susfs_set_avc_log_spoofing" include/linux/susfs.h || \

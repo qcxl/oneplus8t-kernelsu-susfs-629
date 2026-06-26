@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/device.h>
 #include <linux/susfs.h>
 
 /* Stub for susfs_add_sus_path_loop - not in kernel-4.19 */
@@ -111,9 +112,10 @@ void susfs_set_current_proc_umounted(void)
 EXPORT_SYMBOL(susfs_set_current_proc_umounted);
 
 /* Stub for susfs_start_sdcard_monitor_fn - not in kernel-4.19 */
-void susfs_start_sdcard_monitor_fn(void)
+int susfs_start_sdcard_monitor_fn(void)
 {
     pr_info("susfs: susfs_start_sdcard_monitor_fn stub (no-op)\n");
+    return 0;
 }
 EXPORT_SYMBOL(susfs_start_sdcard_monitor_fn);
 
@@ -147,11 +149,10 @@ void ksu_selinux_hide_handle_second_stage(void)
 }
 EXPORT_SYMBOL(ksu_selinux_hide_handle_second_stage);
 
-/* Stub for strncpy_from_user_nofault - may be missing in older kernels */
-long strncpy_from_user_nofault(char *dst, const char __user *unsafe_addr, long count)
+/* Stub for strncpy_from_user_nofault - wrapper for __strncpy_from_user_nofault */
+long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
 {
-    pr_info("susfs: strncpy_from_user_nofault stub (no-op)\n");
-    return -EFAULT;
+    return __strncpy_from_user_nofault(dst, unsafe_addr, count);
 }
 EXPORT_SYMBOL(strncpy_from_user_nofault);
 
