@@ -39,10 +39,10 @@ jobs:
       - name: Apply KernelSU patch
         run: |
           cd kernel
-          # Use weishu's KernelSU (official) which is compatible with SUSFS patches
+          # Use weishu's KernelSU v0.9.5 (last non-GKI version, compatible with SUSFS patches)
           git clone https://github.com/tiann/KernelSU.git KernelSU
           cd KernelSU
-          git checkout "$(git describe --abbrev=0 --tags)"
+          git checkout v0.9.5
           cd ..
           ln -sf "$(pwd)/KernelSU/kernel" drivers/kernelsu
           grep -q "kernelsu" Makefile || echo "obj-\$(CONFIG_KSU) += kernelsu/" >> Makefile
