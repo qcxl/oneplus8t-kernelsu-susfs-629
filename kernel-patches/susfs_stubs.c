@@ -122,22 +122,6 @@ int susfs_start_sdcard_monitor_fn(void)
 }
 EXPORT_SYMBOL(susfs_start_sdcard_monitor_fn);
 
-/* Stub for susfs_add_sus_kstat (static inline version in newer SUSFS) */
-int susfs_add_sus_kstat(struct st_susfs_sus_kstat __user *user_info)
-{
-    pr_info("susfs: susfs_add_sus_kstat stub (no-op)\n");
-    return 0;
-}
-EXPORT_SYMBOL(susfs_add_sus_kstat);
-
-/* Stub for susfs_update_sus_kstat (static inline version in newer SUSFS) */
-int susfs_update_sus_kstat(struct st_susfs_sus_kstat __user *user_info)
-{
-    pr_info("susfs: susfs_update_sus_kstat stub (no-op)\n");
-    return 0;
-}
-EXPORT_SYMBOL(susfs_update_sus_kstat);
-
 /* Stub for ksu_selinux_hide_handle_post_fs_data - may be missing */
 void ksu_selinux_hide_handle_post_fs_data(void)
 {
@@ -165,20 +149,6 @@ void ipa_stack_to_dts(void)
     pr_info("susfs: ipa_stack_to_dts stub called\n");
 }
 EXPORT_SYMBOL(ipa_stack_to_dts);
-
-/* Stub for fsa4480 functions - may be missing in some kernel configs */
-int fsa4480_reg_notifier(struct device *dev)
-{
-    pr_info("susfs: fsa4480_reg_notifier stub called\n");
-    return 0;
-}
-EXPORT_SYMBOL(fsa4480_reg_notifier);
-
-void fsa4480_unreg_notifier(struct device *dev)
-{
-    pr_info("susfs: fsa4480_unreg_notifier stub called\n");
-}
-EXPORT_SYMBOL(fsa4480_unreg_notifier);
 
 /* Module initialization */
 static int __init susfs_stubs_init(void)
