@@ -53,6 +53,10 @@ jobs:
           cp susfs/kernel_patches/include/linux/susfs.h include/linux/
           cp susfs/kernel_patches/include/linux/sus_su.h include/linux/
           cp susfs/kernel_patches/fs/sus_su.c fs/
+          # Fix patch paths: KernelSU files are in KernelSU/kernel/, not kernel/
+          sed -i 's|^diff --git a/kernel/|diff --git a/KernelSU/kernel/|g' KernelSU/10_enable_susfs_for_ksu.patch
+          sed -i 's|^--- a/kernel/|--- a/KernelSU/kernel/|g' KernelSU/10_enable_susfs_for_ksu.patch
+          sed -i 's|^+++ b/kernel/|+++ b/KernelSU/kernel/|g' KernelSU/10_enable_susfs_for_ksu.patch
           patch -p1 < KernelSU/10_enable_susfs_for_ksu.patch
           patch -p1 < 50_add_susfs_in_kernel-4.19.patch
 
