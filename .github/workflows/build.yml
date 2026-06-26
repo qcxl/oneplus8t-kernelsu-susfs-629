@@ -65,12 +65,10 @@ jobs:
           # Create stub core_hook.h for SUSFS compatibility
           # SukiSU-Ultra builtin branch doesn't have this file but SUSFS expects it
           if [ -L "drivers/kernelsu" ] && [ ! -f "drivers/kernelsu/core_hook.h" ]; then
-            cat > drivers/kernelsu/core_hook.h << 'EOF'
-#ifndef _CORE_HOOK_H_
-#define _CORE_HOOK_H_
-/* Stub header for SUSFS compatibility with SukiSU-Ultra builtin branch */
-#endif
-EOF
+            echo '#ifndef _CORE_HOOK_H_' > drivers/kernelsu/core_hook.h
+            echo '#define _CORE_HOOK_H_' >> drivers/kernelsu/core_hook.h
+            echo '/* Stub header for SUSFS compatibility with SukiSU-Ultra builtin branch */' >> drivers/kernelsu/core_hook.h
+            echo '#endif' >> drivers/kernelsu/core_hook.h
           fi
 
       - name: Apply SUSFS patches
