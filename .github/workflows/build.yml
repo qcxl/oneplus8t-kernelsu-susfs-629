@@ -166,6 +166,12 @@ jobs:
             cp ../kernel-patches/rules_stub.c drivers/kernelsu/selinux/rules.c
           fi
 
+          # Replace sepolicy.c with kernel 4.19 compatible stub
+          # The original uses kernel 5.x SELinux APIs (flex_array, filename_trans, etc.)
+          if [ -f "drivers/kernelsu/selinux/sepolicy.c" ]; then
+            cp ../kernel-patches/sepolicy_stub.c drivers/kernelsu/selinux/sepolicy.c
+          fi
+
           # Ensure susfs.o is in fs/Makefile
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
