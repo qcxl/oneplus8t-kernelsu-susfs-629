@@ -24,14 +24,13 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             make ncurses-dev bc flex bison libssl-dev libelf-dev
 
-      - name: Download Clang r416183b
+      - name: Install Clang toolchain
         run: |
-          mkdir -p prebuilts-master/clang/host/linux-x86
-          cd prebuilts-master/clang/host/linux-x86
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r416183b.tar.gz
-          tar -xzf clang-r416183b.tar.gz
-          rm clang-r416183b.tar.gz
-          echo "CLANG_PATH=$(pwd)/clang-r416183b/bin" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y clang-14 lld-14
+          echo "CLANG_PATH=/usr/lib/llvm-14/bin" >> $GITHUB_ENV
+          echo "LLVM=1" >> $GITHUB_ENV
+          echo "LLVM_IAS=1" >> $GITHUB_ENV
 
       - name: Download magiskboot
         run: |
@@ -104,19 +103,13 @@ jobs:
 
       - name: Package boot.img
         run: |
-          # Extract original boot.img ramdisk
-          cd kernel
-          cp arch/arm64/boot/Image.gz /tmp/Image.gz
-
-          # Use magiskboot to repack (preserves ramdisk)
-          tools/magiskboot unpack /Users/weifeng/Downloads/OnePlus8T/lineage-20.0-20240209-nightly-kebab-signed/
-          cp /tmp/Image.gz kernel
-          tools/magiskboot repack boot.img new-boot.img
-          mv new-boot.img kebab-kernelsu-susfs-a13-4.19.zip
+          mkdir -p output
+          cp kernel/arch/arm64/boot/Image.gz output/Image.gz
+          ls -lh output/Image.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kebab-kernelsu-susfs-a13-4.19
-          path: kebab-kernelsu-susfs-a13-4.19.zip
+          path: output/Image.gz
           retention-days: 30
