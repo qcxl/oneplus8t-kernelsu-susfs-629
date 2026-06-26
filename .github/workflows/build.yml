@@ -109,6 +109,13 @@ jobs:
             cp ../kernel-patches/file_wrapper_stub.c drivers/kernelsu/infra/file_wrapper.c
           fi
 
+          # Fix SECCOMP_ARCH_NATIVE_NR for kernel 4.19 compatibility
+          # This constant is not defined in kernel 4.19 headers
+          if [ -f "drivers/kernelsu/infra/seccomp_cache.c" ]; then
+            grep -q "SECCOMP_ARCH_NATIVE_NR" drivers/kernelsu/infra/seccomp_cache.c && \
+              sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 400\n#endif' drivers/kernelsu/infra/seccomp_cache.c
+          fi
+
           # Ensure susfs.o is in fs/Makefile
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
