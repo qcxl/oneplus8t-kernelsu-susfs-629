@@ -90,6 +90,36 @@ jobs:
             echo 'obj-$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
           fi
 
+          # Add SUSFS compatibility stubs for functions missing in kernel-4.19 branch
+          # SukiSU-Ultra builtin dispatch.c calls newer SUSFS APIs not in kernel-4.19
+          cp ../kernel-patches/susfs_stubs.c fs/
+          if [ -f "fs/Makefile" ] && ! grep -q "susfs_stubs.o" fs/Makefile; then
+            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs_stubs.o' >> fs/Makefile
+          fi
+
+          # Add missing SUSFS constants for kernel-4.19 compatibility
+          if [ -f "include/linux/susfs_def.h" ]; then
+            grep -q "CMD_SUSFS_ADD_SUS_PATH_LOOP" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55551' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_ADD_SUS_MAP" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ADD_SUS_MAP 0x55562' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x55563' >> include/linux/susfs_def.h
+          fi
+
+          # Fix pointer type casts in dispatch.c (void** -> typed struct pointers)
+          if [ -f "drivers/kernelsu/supercall/dispatch.c" ]; then
+            sed -i 's/susfs_add_sus_path(arg)/susfs_add_sus_path((struct st_susfs_sus_path __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_add_sus_kstat(arg)/susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_update_sus_kstat(arg)/susfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_add_sus_kstat(arg)/susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_set_uname(arg)/susfs_set_uname((struct st_susfs_uname __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_set_cmdline_or_bootconfig(arg)/susfs_set_cmdline_or_bootconfig((char __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+            sed -i 's/susfs_add_open_redirect(arg)/susfs_add_open_redirect((struct st_susfs_open_redirect __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+          fi
+
       - name: Configure kernel
         working-directory: kernel
         run: |

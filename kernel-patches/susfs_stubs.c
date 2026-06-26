@@ -1,14 +1,64 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * susfs_stubs.c - Stub implementations for missing symbols
+ * susfs_stubs.c - SUSFS compatibility stubs for kernel-4.19 branch
  *
- * This file provides stub implementations for symbols that may be missing
- * during linking when integrating SUSFS with the OnePlus 8T kernel.
- * DO NOT remove this file - it preserves functionality.
+ * SukiSU-Ultra builtin branch dispatch.c calls newer SUSFS APIs
+ * that don't exist in the kernel-4.19 branch. These stubs provide
+ * the missing symbols so the kernel can compile and link.
+ * The stubs return success without performing any operation,
+ * which is safe for features not available in kernel-4.19.
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+
+/* Stub for susfs_add_sus_path_loop - not in kernel-4.19 */
+int susfs_add_sus_path_loop(void __user *arg)
+{
+    pr_info("susfs: susfs_add_sus_path_loop stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_add_sus_path_loop);
+
+/* Stub for susfs_set_hide_sus_mnts_for_non_su_procs - not in kernel-4.19 */
+int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg)
+{
+    pr_info("susfs: susfs_set_hide_sus_mnts_for_non_su_procs stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_set_hide_sus_mnts_for_non_su_procs);
+
+/* Stub for susfs_add_sus_map - not in kernel-4.19 */
+int susfs_add_sus_map(void __user *arg)
+{
+    pr_info("susfs: susfs_add_sus_map stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_add_sus_map);
+
+/* Stub for susfs_set_avc_log_spoofing - not in kernel-4.19 */
+int susfs_set_avc_log_spoofing(void __user *arg)
+{
+    pr_info("susfs: susfs_set_avc_log_spoofing stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_set_avc_log_spoofing);
+
+/* Stub for susfs_add_sus_kstat (static inline version in newer SUSFS) */
+int susfs_add_sus_kstat(struct st_susfs_sus_kstat __user *user_info)
+{
+    pr_info("susfs: susfs_add_sus_kstat stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_add_sus_kstat);
+
+/* Stub for susfs_update_sus_kstat (static inline version in newer SUSFS) */
+int susfs_update_sus_kstat(struct st_susfs_sus_kstat __user *user_info)
+{
+    pr_info("susfs: susfs_update_sus_kstat stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(susfs_update_sus_kstat);
 
 /* Stub for ipa_stack_to_dts - may be missing in some kernel configs */
 void ipa_stack_to_dts(void)
