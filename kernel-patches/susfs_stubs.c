@@ -16,7 +16,11 @@
 #include <linux/susfs.h>
 
 /* Declare __strncpy_from_user_nofault if not available in headers */
-extern long __strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count);
+long __strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
+{
+    return -EFAULT;
+}
+EXPORT_SYMBOL(__strncpy_from_user_nofault);
 
 /* Stub for susfs_add_sus_path_loop - not in kernel-4.19 */
 int susfs_add_sus_path_loop(void __user *arg)
@@ -142,6 +146,28 @@ long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long c
     return __strncpy_from_user_nofault(dst, unsafe_addr, count);
 }
 EXPORT_SYMBOL(strncpy_from_user_nofault);
+
+/* Stub for susfs_is_allow_su - not in kernel-4.19 */
+bool susfs_is_allow_su(void)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_allow_su);
+
+/* Stub for ksu_escape_to_root - not in kernel-4.19 */
+int ksu_escape_to_root(void)
+{
+    pr_info("susfs: ksu_escape_to_root stub (no-op)\n");
+    return 0;
+}
+EXPORT_SYMBOL(ksu_escape_to_root);
+
+/* Stub for susfs_extra_works - not in kernel-4.19 */
+void susfs_extra_works(void)
+{
+    pr_info("susfs: susfs_extra_works stub (no-op)\n");
+}
+EXPORT_SYMBOL(susfs_extra_works);
 
 /* Stub for ipa_stack_to_dts - may be missing in some kernel configs */
 void ipa_stack_to_dts(void)
