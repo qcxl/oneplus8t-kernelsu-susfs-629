@@ -216,6 +216,7 @@ jobs:
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
+          export KCFLAGS="-fno-pic"
 
           # Create compiler wrapper that strips -Werror flags
           # This preserves all driver functionality while fixing compilation
