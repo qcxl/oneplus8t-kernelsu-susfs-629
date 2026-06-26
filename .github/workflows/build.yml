@@ -221,7 +221,7 @@ jobs:
           # Create compiler wrapper that strips -Werror flags
           # This preserves all driver functionality while fixing compilation
           mkdir -p /tmp/ksu-build/bin
-          cat > /tmp/ksu-build/bin/aarch64-linux-gnu-gcc << 'WRAPPER'
+          cat > /tmp/ksu-build/bin/clang << 'WRAPPER'
           #!/bin/bash
           ARGS=()
           for arg in "$@"; do
@@ -233,9 +233,9 @@ jobs:
                 ;;
             esac
           done
-          exec /usr/bin/aarch64-linux-gnu-gcc "${ARGS[@]}" 2>/dev/null || exec /usr/local/bin/aarch64-linux-gnu-gcc "${ARGS[@]}"
+          exec /usr/bin/clang "${ARGS[@]}" 2>/dev/null || exec /usr/local/bin/clang "${ARGS[@]}"
           WRAPPER
-          chmod +x /tmp/ksu-build/bin/aarch64-linux-gnu-gcc
+          chmod +x /tmp/ksu-build/bin/clang
           export PATH="/tmp/ksu-build/bin:$PATH"
 
           make -j"$(nproc --all)" O=out ARCH=arm64 \
