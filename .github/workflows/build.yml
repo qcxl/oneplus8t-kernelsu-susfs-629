@@ -52,7 +52,7 @@ jobs:
           cp susfs/kernel_patches/fs/susfs.c fs/
           cp susfs/kernel_patches/include/linux/susfs.h include/linux/
           cp susfs/kernel_patches/include/linux/sus_su.h include/linux/
-          cp susfs/kernel_patches/kernelsu/sus_su.c kernelsu/
+          cp susfs/kernel_patches/fs/sus_su.c fs/
           patch -p1 < KernelSU/10_enable_susfs_for_ksu.patch
           patch -p1 < 50_add_susfs_in_kernel-4.19.patch
 
