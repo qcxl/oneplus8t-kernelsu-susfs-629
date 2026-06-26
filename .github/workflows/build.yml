@@ -97,8 +97,11 @@ jobs:
 
           # Fix linux/pgtable.h include for kernel 4.19 compatibility
           # linux/pgtable.h was introduced in kernel 5.x, not available in 4.19
+          # Also add strncpy_from_user_nofault declaration for kernel 4.19
           if [ -f "drivers/kernelsu/feature/sucompat.c" ]; then
-            sed -i 's|#include <linux/pgtable.h>|#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)\n#include <linux/pgtable.h>\n#endif|' drivers/kernelsu/feature/sucompat.c
+            sed -i 's|#include <linux/pgtable.h>|/* #include <linux/pgtable.h> not available in kernel 4.19 */|' drivers/kernelsu/feature/sucompat.c
+            grep -q "strncpy_from_user_nofault" drivers/kernelsu/feature/sucompat.c || \
+              sed -i '/#include <linux/ptrace.h>/a #include <linux/susfs.h>' drivers/kernelsu/feature/sucompat.c
           fi
 
           # Ensure susfs.o is in fs/Makefile
