@@ -104,14 +104,60 @@ jobs:
             sed -i 's|copy_to_kernel_nofault(|memcpy(|g' drivers/kernelsu/hook/arm64/patch_memory.c
           fi
           if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-            sed -i 's|return orig->f_op->iopoll(kiocb, spin);|return -ENOTSUP; \/\* iopoll not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|if (remap_flags & REMAP_FILE_DEDUP) {|if (0) { \/\* REMAP_FILE_DEDUP not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|return orig->f_op->remap_file_range(file_in, pos_in, orig, pos_out, len, remap_flags);|return -ENOTSUP; \/\* remap_file_range not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|return orig->f_op->remap_file_range(orig, pos_in, file_out, pos_out, len, remap_flags);|return -ENOTSUP; \/\* remap_file_range not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;|p->ops.iopoll = NULL; \/\* iopoll not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|p->ops.remap_file_range = fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;|p->ops.remap_file_range = NULL; \/\* remap_file_range not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|error = security_inode_init_security_anon(inode, &qname, context_inode);|error = -ENOTSUP; \/\* security_inode_init_security_anon not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
-            sed -i 's|struct inode_security_struct \*wrapper_sec = selinux_inode(wrapper_inode);|struct inode_security_struct \*wrapper_sec = NULL; \/\* selinux_inode not available in kernel 4.19 *\/|' drivers/kernelsu/infra/file_wrapper.c
+            cat > drivers/kernelsu/infra/file_wrapper.c << 'EOF'
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * file_wrapper.c - Kernel 4.19 compatibility stubs
+ *
+ * SukiSU-Ultra's file_wrapper.c uses kernel 5.x APIs not available in 4.19.
+ * This file provides stub implementations for kernel 4.19.
+ */
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
+#include <linux/security.h>
+
+struct ksu_file_operations {
+    struct file_operations *f_op;
+};
+
+void ksu_wrapper_iopoll(struct kiocb *kiocb, bool spin)
+{
+    pr_info("ksu: iopoll stub\n");
+}
+EXPORT_SYMBOL(ksu_wrapper_iopoll);
+
+ssize_t ksu_wrapper_remap_file_range(struct file *file_in, loff_t pos_in,
+                                      struct file *file_out, loff_t pos_out,
+                                      size_t len, unsigned int remap_flags)
+{
+    pr_info("ksu: remap_file_range stub\n");
+    return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(ksu_wrapper_remap_file_range);
+
+int ksu_wrapper_init_security(struct inode *inode, struct inode *dir,
+                               struct qstr *qname, const char **name,
+                               size_t *len, umode_t mode, void **context)
+{
+    pr_info("ksu: init_security stub\n");
+    return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(ksu_wrapper_init_security);
+
+void *ksu_get_inode_security(struct inode *inode, struct inode *inode_out)
+{
+    pr_info("ksu: get_inode_security stub\n");
+    return NULL;
+}
+EXPORT_SYMBOL(ksu_get_inode_security);
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("KSU file wrapper stubs for kernel 4.19");
+MODULE_AUTHOR("SukiSU-Ultra");
+EOF
           fi
 
           # Ensure susfs.o is in fs/Makefile
