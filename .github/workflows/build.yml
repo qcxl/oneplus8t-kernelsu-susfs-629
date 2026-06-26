@@ -184,6 +184,11 @@ jobs:
             sed -i '/static int do_set_init_pgrp/,/^}$/c static int do_set_init_pgrp(void __user *arg)\n{\n    return -EOPNOTSUPP;\n}' drivers/kernelsu/supercall/dispatch.c
           fi
 
+          # Fix TWA_RESUME in supercall.c for kernel 4.19 compatibility
+          if [ -f "drivers/kernelsu/supercall/supercall.c" ]; then
+            sed -i 's/TWA_RESUME/0/g' drivers/kernelsu/supercall/supercall.c
+          fi
+
           # Ensure susfs.o is in fs/Makefile
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
