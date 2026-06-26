@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * kernel_compat.c - Kernel 4.19 compatibility stubs
+ * kernel_compat_stub.c - Kernel 4.19 compatibility stubs
  *
  * SukiSU-Ultra uses some kernel internal functions that are not available
  * in kernel 4.19. This file provides stub implementations.

@@ -197,29 +197,9 @@ jobs:
 
           # Add kernel 4.19 compatibility stubs for missing kernel internal functions
           # path_mount, path_umount, seccomp_filter_release are not available in 4.19
-          # These stubs are added to file_wrapper_stub.c which is already compiled
-          if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-            cat >> drivers/kernelsu/infra/file_wrapper.c << 'EOF'
-
-/* Kernel 4.19 compatibility stubs for missing kernel internal functions */
-int path_mount(const char *dev_name, struct path *path, const char *type_page,
-               unsigned long flags, void *data_page)
-{
-    pr_info("ksu: path_mount stub (kernel 4.19)\n");
-    return -EOPNOTSUPP;
-}
-
-int path_umount(struct path *path, int flags)
-{
-    pr_info("ksu: path_umount stub (kernel 4.19)\n");
-    return -EOPNOTSUPP;
-}
-
-void seccomp_filter_release(struct task_struct *tsk, int flags)
-{
-    pr_info("ksu: seccomp_filter_release stub (kernel 4.19)\n");
-}
-EOF
+          cp ../kernel-patches/kernel_compat_stub.c drivers/kernelsu/infra/kernel_compat_stub.c
+          if [ -f "drivers/kernelsu/infra/Makefile" ] && ! grep -q "kernel_compat_stub.o" drivers/kernelsu/infra/Makefile; then
+            echo 'obj-$(CONFIG_KSU) += kernel_compat_stub.o' >> drivers/kernelsu/infra/Makefile
           fi
 
           # Ensure susfs.o is in fs/Makefile
