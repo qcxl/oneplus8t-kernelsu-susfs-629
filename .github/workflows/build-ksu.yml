@@ -47,17 +47,21 @@ jobs:
         run: |
           git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-      - name: Clone LineageOS 20 kernel source (latest HEAD)
+      - name: Clone LineageOS 20 kernel source (device exact commit)
         run: |
-          git clone --depth 1 --branch lineage-20 \
+          git clone --depth 100 --branch lineage-20 \
             https://github.com/LineageOS/android_kernel_oneplus_sm8250.git kernel
+          cd kernel
+          git checkout 5dea892fe7e4
           echo "=== HEAD at commit ==="
-          git -C kernel log --oneline -1
+          git log --oneline -1
 
       - name: Apply kernel compatibility patches
         working-directory: kernel
         run: |
-          echo "=== Using latest lineage-20 HEAD, no extra patches needed ==="
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
+          echo "=== Patches applied ==="
 
       - name: Integrate SukiSU-Ultra
         working-directory: kernel
