@@ -37,10 +37,11 @@ jobs:
 
       - name: Download Android clang r450784d (matches original kernel)
         run: |
-          wget -q https://github.com/PixelOS-Devices/playgroundtc/raw/master-kernel-build-2023/clang-r450784d/bin/clang -O /tmp/clang-r450784d
-          chmod +x /tmp/clang-r450784d
-          ls -lh /tmp/clang-r450784d
-          /tmp/clang-r450784d --version
+          mkdir -p /tmp/clang-r450784d/bin
+          wget -q https://raw.githubusercontent.com/TheBizarreAbhishek/clang-r450784d/master/bin/clang -O /tmp/clang-r450784d/bin/clang
+          chmod +x /tmp/clang-r450784d/bin/clang
+          ls -lh /tmp/clang-r450784d/bin/clang
+          /tmp/clang-r450784d/bin/clang --version
 
       - name: Clone LineageOS 20 kernel source
         run: |
@@ -54,7 +55,7 @@ jobs:
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
-          export CLANG_PREBUILT_BIN="/tmp/clang-r450784d"
+          export CLANG_PREBUILT_BIN="/tmp/clang-r450784d/bin"
 
           make O=out ARCH=arm64 \
             CLANG_PREBUILT_BIN="$CLANG_PREBUILT_BIN" \
@@ -92,7 +93,7 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
-          export CLANG_PREBUILT_BIN="/tmp/clang-r450784d"
+          export CLANG_PREBUILT_BIN="/tmp/clang-r450784d/bin"
 
           make -j"$(nproc --all)" O=out ARCH=arm64 \
             CLANG_PREBUILT_BIN="$CLANG_PREBUILT_BIN" \
