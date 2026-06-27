@@ -67,6 +67,10 @@ jobs:
           sed -i '/^int msm_dss_get_clk/,/^}/d' techpack/display/msm/sde_io_util.c
           sed -i '/^int msm_dss_clk_set_rate/,/^}/d' techpack/display/msm/sde_io_util.c
           sed -i '/^int msm_dss_enable_clk/,/^}/d' techpack/display/msm/sde_io_util.c
+          # Disable duplicate __tracepoint_tracing_mark_write in DRM trace header
+          # (techpack display also includes it, causing duplicate at link time)
+          sed -i '/^TRACE_EVENT(tracing_mark_write/,/^);/s/^/\/\//' \
+            drivers/gpu/drm/msm/disp/dpu1/dpu_trace.h
           echo "=== Patches applied ==="
 
       - name: Configure kernel (PURE ORIGINAL CONFIG - no KSU/SUSFS)
