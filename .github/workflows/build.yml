@@ -279,7 +279,7 @@ jobs:
             sed -i 's/susfs_add_open_redirect(arg)/susfs_add_open_redirect((struct st_susfs_open_redirect __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
           fi
 
-      - name: Configure kernel
+      - name: Configure kernel (MINIMAL TEST - no SUSFS features)
         working-directory: kernel
         run: |
           export PATH="$CLANG_DIR/bin:/usr/lib/ccache:$PATH"
@@ -300,8 +300,8 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             vendor/kona-perf_defconfig
 
-          # Merge SUSFS config
-          ./scripts/kconfig/merge_config.sh -m -O out out/.config ../kernel-patches/ksu.config || true
+          # Use minimal test config (KSU only, no SUSFS features)
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config ../kernel-patches/ksu.config.minimal || true
 
           make O=out ARCH=arm64 \
             CC="ccache clang" \

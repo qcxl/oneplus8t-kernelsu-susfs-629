@@ -1,0 +1,38 @@
+# Minimal test config for OnePlus 8T (kebab) kernel 4.19
+# Goal: Identify bootloop cause by minimizing features
+# Strategy: Keep KSU core + SUSFS switch enabled, disable all SUSFS features
+
+# --- KernelSU / SukiSU core (REQUIRED) ---
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set
+
+# Manual hook is preferred over kprobes for SM8250 4.19 trees
+CONFIG_KSU_MANUAL_HOOK=y
+# CONFIG_KSU_KPROBES_HOOK is not set
+
+# --- SUSFS features: ALL DISABLED for minimal test ---
+# CONFIG_KSU_SUSFS_SUS_PATH is not set
+# CONFIG_KSU_SUSFS_SUS_MOUNT is not set
+# CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT is not set
+# CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT is not set
+# CONFIG_KSU_SUSFS_SUS_KSTAT is not set
+# CONFIG_KSU_SUSFS_TRY_UMOUNT is not set
+# CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT is not set
+# CONFIG_KSU_SUSFS_SPOOF_UNAME is not set
+# CONFIG_KSU_SUSFS_ENABLE_LOG is not set
+# CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS is not set
+# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set
+# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set
+
+# --- Required for Zygisk Next module compatibility ---
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_TMPFS_POSIX_ACL=y
+
+# Disable module signature checks that block module mounts
+# CONFIG_MODULE_SIG_FORCE is not set
+CONFIG_KERNEL_GZIP=y
