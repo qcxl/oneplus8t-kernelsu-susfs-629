@@ -61,22 +61,6 @@ jobs:
         run: |
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
-          # Remove conflicting duplicate source files from techpack/display/msm/
-          # (these exist in and are provided by drivers/gpu/drm/msm/)
-          for f in msm_atomic.c msm_fb.c msm_iommu.c msm_drv.c \
-                   msm_gem.c msm_gem_prime.c msm_gem_vma.c; do
-            echo '// SPDX-License-Identifier: GPL-2.0-only' > techpack/display/msm/$f
-          done
-          # Remove overlapping clock helper functions from sde_io_util.c
-          # (these are also defined in drivers/gpu/drm/msm/disp/dpu1/dpu_io_util.c)
-          sed -i '/^void msm_dss_put_clk/,/^}/d' techpack/display/msm/sde_io_util.c
-          sed -i '/^int msm_dss_get_clk/,/^}/d' techpack/display/msm/sde_io_util.c
-          sed -i '/^int msm_dss_clk_set_rate/,/^}/d' techpack/display/msm/sde_io_util.c
-          sed -i '/^int msm_dss_enable_clk/,/^}/d' techpack/display/msm/sde_io_util.c
-          # Disable duplicate __tracepoint_tracing_mark_write in DRM trace header
-          # (techpack display also includes it, causing duplicate at link time)
-          sed -i '/^TRACE_EVENT(tracing_mark_write/,/^);/s/^/\/\//' \
-            drivers/gpu/drm/msm/disp/dpu1/dpu_trace.h
           echo "=== Patches applied ==="
 
       - name: Integrate SukiSU-Ultra
