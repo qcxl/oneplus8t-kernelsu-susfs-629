@@ -37,11 +37,9 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             lld llvm binutils
 
-      - name: Download Android clang r450784d (matches original kernel)
+      - name: Clone Android clang r450784d toolchain
         run: |
-          mkdir -p /tmp/clang-r450784d/bin
-          wget -q https://raw.githubusercontent.com/TheBizarreAbhishek/clang-r450784d/master/bin/clang -O /tmp/clang-r450784d/bin/clang
-          chmod +x /tmp/clang-r450784d/bin/clang
+          git clone --depth 1 https://github.com/TheBizarreAbhishek/clang-r450784d.git /tmp/clang-r450784d
           ls -lh /tmp/clang-r450784d/bin/clang
           /tmp/clang-r450784d/bin/clang --version
 
