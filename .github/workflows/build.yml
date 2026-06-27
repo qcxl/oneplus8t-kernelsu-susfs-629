@@ -53,28 +53,37 @@ jobs:
       - name: Integrate SukiSU-Ultra
         working-directory: kernel
         run: |
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
-            | bash -s main
-          if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          fi
-          if ! grep -q "kernelsu/Kconfig" drivers/Kconfig 2>/dev/null; then
-            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          fi
+          if grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config 2>/dev/null || \
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null; then
+            echo "KSU config detected, integrating SukiSU-Ultra..."
+            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
+              | bash -s main
+            if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
+              echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+            fi
+            if ! grep -q "kernelsu/Kconfig" drivers/Kconfig 2>/dev/null; then
+              sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+            fi
 
-          # Create stub core_hook.h for SUSFS compatibility
-          # SukiSU-Ultra builtin branch doesn't have this file but SUSFS expects it
-          if [ -L "drivers/kernelsu" ] && [ ! -f "drivers/kernelsu/core_hook.h" ]; then
-            echo '#ifndef _CORE_HOOK_H_' > drivers/kernelsu/core_hook.h
-            echo '#define _CORE_HOOK_H_' >> drivers/kernelsu/core_hook.h
-            echo '/* Stub header for SUSFS compatibility with SukiSU-Ultra builtin branch */' >> drivers/kernelsu/core_hook.h
-            echo '#endif' >> drivers/kernelsu/core_hook.h
+            # Create stub core_hook.h for SUSFS compatibility
+            # SukiSU-Ultra builtin branch doesn't have this file but SUSFS expects it
+            if [ -L "drivers/kernelsu" ] && [ ! -f "drivers/kernelsu/core_hook.h" ]; then
+              echo '#ifndef _CORE_HOOK_H_' > drivers/kernelsu/core_hook.h
+              echo '#define _CORE_HOOK_H_' >> drivers/kernelsu/core_hook.h
+              echo '/* Stub header for SUSFS compatibility with SukiSU-Ultra builtin branch */' >> drivers/kernelsu/core_hook.h
+              echo '#endif' >> drivers/kernelsu/core_hook.h
+            fi
+          else
+            echo "Vanilla config detected, skipping SukiSU-Ultra integration"
           fi
 
       - name: Apply SUSFS patches
         working-directory: kernel
         run: |
-          set -euo pipefail
+          if grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config 2>/dev/null || \
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null; then
+            echo "KSU config detected, applying SUSFS patches..."
+            set -euo pipefail
 
           # Apply SUSFS kernel 4.19 integration patch first (adds VFS hooks)
           if [ -f "../susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch" ]; then
@@ -276,7 +285,10 @@ jobs:
             sed -i 's/susfs_add_sus_kstat(arg)/susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
             sed -i 's/susfs_set_uname(arg)/susfs_set_uname((struct st_susfs_uname __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
             sed -i 's/susfs_set_cmdline_or_bootconfig(arg)/susfs_set_cmdline_or_bootconfig((char __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
-            sed -i 's/susfs_add_open_redirect(arg)/susfs_add_open_redirect((struct st_susfs_open_redirect __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+             sed -i 's/susfs_add_open_redirect(arg)/susfs_add_open_redirect((struct st_susfs_open_redirect __user *)arg)/g' drivers/kernelsu/supercall/dispatch.c
+           fi
+          else
+            echo "Vanilla config detected, skipping SUSFS patches"
           fi
 
       - name: Configure kernel (VANILLA TEST - no KSU at all)
