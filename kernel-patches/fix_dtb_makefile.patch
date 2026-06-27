@@ -1,0 +1,26 @@
+--- a/arch/arm64/boot/dts/vendor/Makefile
++++ b/arch/arm64/boot/dts/vendor/Makefile
+@@ -1,5 +1,17 @@
+ vendor := $(srctree)/$(src)
+ 
+-ifneq "$(wildcard $(vendor)/qcom)" ""
+-	subdir-y += qcom
+-endif
++# SM8250
++# 8
++subdir-y += 19821
++# 8 tmo
++subdir-y += 19855
++# 8 pro
++subdir-y += 19811
++# 8T
++subdir-y += 19805
++# 8T tmo
++subdir-y += 20809
++# 9R
++subdir-y += 20828
++# SM7250
++# Nord
++subdir-y += 20801
++# Nord CE
++subdir-y += 20813

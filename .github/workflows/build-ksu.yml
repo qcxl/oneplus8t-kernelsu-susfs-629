@@ -56,6 +56,13 @@ jobs:
           echo "=== HEAD at commit ==="
           git log --oneline -1
 
+      - name: Apply kernel compatibility patches
+        working-directory: kernel
+        run: |
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_makefile.patch || true
+          echo "=== Patches applied ==="
+
       - name: Integrate SukiSU-Ultra
         working-directory: kernel
         run: |

@@ -10,6 +10,9 @@
 #include <linux/kernel.h>
 #include <linux/printk.h>
 
+/* Kernel 4.19 requires explicit forward declaration */
+struct selinux_state;
+
 void ksu_apply_sepolicy(struct selinux_state *state)
 {
     pr_info("ksu: ksu_apply_sepolicy stub (kernel 4.19)\n");
