@@ -60,8 +60,13 @@ jobs:
         working-directory: kernel
         run: |
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
-          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_display.patch || true
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
+          # Remove conflicting duplicates from techpack/display/msm/
+          # (these files define the same symbols as drivers/gpu/drm/msm/)
+          for f in msm_atomic.c msm_fb.c msm_iommu.c msm_drv.c \
+                   msm_gem.c msm_gem_prime.c msm_gem_vma.c; do
+            echo '// SPDX-License-Identifier: GPL-2.0-only' > techpack/display/msm/$f
+          done
           echo "=== Patches applied ==="
 
       - name: Integrate SukiSU-Ultra
