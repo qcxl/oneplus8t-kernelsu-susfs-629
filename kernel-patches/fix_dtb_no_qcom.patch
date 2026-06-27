@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/vendor/Makefile
 +++ b/arch/arm64/boot/dts/vendor/Makefile
-@@ -1,5 +1,5 @@
+@@ -1,5 +1,4 @@
  vendor := $(srctree)/$(src)
  
 -ifneq "$(wildcard $(vendor)/qcom)" ""
