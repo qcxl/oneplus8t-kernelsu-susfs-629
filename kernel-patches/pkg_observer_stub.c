@@ -42,7 +42,8 @@ static const struct fsnotify_ops ksu_ops = {
 #else
 /* Kernel 4.19 compatibility - handle_event has different signature */
 static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode, u32 mask,
-                            const void *data, int data_type, const unsigned char *name, u32 cookie)
+                            const void *data, int data_type, const unsigned char *name, u32 cookie,
+                            struct fsnotify_iter_info *iter_info)
 {
     /* In kernel 4.19, we can't easily get the file_name from the event */
     /* So we just log that an event occurred and track throne */
