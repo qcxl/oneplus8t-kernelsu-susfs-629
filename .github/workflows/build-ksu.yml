@@ -61,10 +61,7 @@ jobs:
         run: |
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_display.patch || true
-          # Fix missing camera DTSI file (not yet added in Feb 2024 ASB commit)
-          mkdir -p arch/arm64/boot/dts/vendor/qcom/camera
-          cp ../kernel-patches/kona-camera-sensor-rb5-nopop.dtsi \
-            arch/arm64/boot/dts/vendor/qcom/camera/kona-camera-sensor-rb5-nopop.dtsi
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
       - name: Integrate SukiSU-Ultra
