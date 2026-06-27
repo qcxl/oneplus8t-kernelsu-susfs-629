@@ -1,0 +1,14 @@
+# Test config: NO KernelSU, vanilla kernel
+# Goal: Verify if vanilla kernel (without KSU) boots successfully
+
+# No KSU options at all
+# CONFIG_KSU is not set
+
+# Standard Android options
+CONFIG_OVERLAY_FS=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_TMPFS_POSIX_ACL=y
+
+# Disable module signature checks
+# CONFIG_MODULE_SIG_FORCE is not set
+CONFIG_KERNEL_GZIP=y
