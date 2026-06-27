@@ -55,7 +55,8 @@ jobs:
         working-directory: kernel
         run: |
           if grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config 2>/dev/null || \
-             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null; then
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null || \
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.pure 2>/dev/null; then
             echo "KSU config detected, integrating SukiSU-Ultra..."
             curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
               | bash -s main
@@ -82,7 +83,8 @@ jobs:
         working-directory: kernel
         run: |
           if grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config 2>/dev/null || \
-             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null; then
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.minimal 2>/dev/null || \
+             grep -q "CONFIG_KSU=y" ../kernel-patches/ksu.config.pure 2>/dev/null; then
             echo "KSU config detected, applying SUSFS patches..."
             set -euo pipefail
 
@@ -292,7 +294,7 @@ jobs:
             echo "Vanilla config detected, skipping SUSFS patches"
           fi
 
-      - name: Configure kernel (VANILLA TEST - no KSU at all)
+      - name: Configure kernel (PURE ORIGINAL CONFIG - no KSU/SUSFS)
         working-directory: kernel
         run: |
           export PATH="/usr/lib/ccache:$PATH"
@@ -313,8 +315,8 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             vendor/kona-perf_defconfig
 
-          # Use vanilla test config (NO KSU, NO SUSFS)
-          ./scripts/kconfig/merge_config.sh -m -O out out/.config ../kernel-patches/ksu.config.vanilla || true
+          # Use pure original config (extracted from running device, KSU/SUSFS removed)
+          cp ../kernel-patches/ksu.config.pure out/.config
 
           make O=out ARCH=arm64 \
             CC="ccache clang" \
