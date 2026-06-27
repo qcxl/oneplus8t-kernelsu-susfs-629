@@ -31,7 +31,7 @@ jobs:
             build-essential libssl-dev bc cpio kmod ccache \
             device-tree-compiler lz4 zstd flex bison libelf-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            lld llvm objdump
+            lld llvm binutils
 
       - name: Setup toolchain
         run: |
