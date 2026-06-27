@@ -32,14 +32,14 @@ jobs:
             device-tree-compiler lz4 zstd flex bison libelf-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      - name: Clone AOSP clang toolchain
+      - name: Setup toolchain
         run: |
-          mkdir -p toolchain/clang
-          git clone --depth=1 -b master-kernel-build-2023 \
-            https://gitlab.com/PixelOS-Devices/playgroundtc.git toolchain/clang || \
-          git clone --depth=1 \
-            https://gitlab.com/LeCmnGend/clang.git toolchain/clang
-          echo "CLANG_DIR=$GITHUB_WORKSPACE/toolchain/clang" >> $GITHUB_ENV
+          # Use system clang on Ubuntu 22.04 (clang 14) to match original kernel
+          # Original kernel uses: Android (8490178, based on r450784d) clang version 14.0.6
+          echo "Using system clang: $(clang --version | head -1)"
+          which clang
+          clang --version
+          echo "CLANG_DIR=/usr" >> $GITHUB_ENV
 
       - name: Clone SUSFS (kernel-4.19 branch)
         run: |
@@ -294,7 +294,7 @@ jobs:
       - name: Configure kernel (VANILLA TEST - no KSU at all)
         working-directory: kernel
         run: |
-          export PATH="$CLANG_DIR/bin:/usr/lib/ccache:$PATH"
+          export PATH="/usr/lib/ccache:$PATH"
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
@@ -331,7 +331,7 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
-          export PATH="$CLANG_DIR/bin:/usr/lib/ccache:$PATH"
+          export PATH="/usr/lib/ccache:$PATH"
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
@@ -352,7 +352,7 @@ jobs:
                 ;;
             esac
           done
-          exec "$CLANG_DIR/bin/clang" "${ARGS[@]}" || exec /usr/bin/clang "${ARGS[@]}"
+          exec /usr/bin/clang "${ARGS[@]}"
           WRAPPER
           chmod +x /tmp/ksu-build/bin/clang
           export PATH="/tmp/ksu-build/bin:$PATH"
