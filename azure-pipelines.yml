@@ -1,0 +1,86 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+container: ubuntu:20.04
+
+steps:
+- script: |
+    apt-get update
+    apt-get install -y \
+      git curl wget zip unzip python3 python3-pip \
+      build-essential libssl-dev bc cpio kmod ccache \
+      device-tree-compiler lz4 zstd flex bison libelf-dev \
+      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+      gcc-arm-linux-gnueabi \
+      lld llvm binutils
+  displayName: 'Install build dependencies'
+
+- script: |
+    git clone --depth 1 https://github.com/TheBizarreAbhishek/clang-r450784d.git /tmp/clang-r450784d
+    /tmp/clang-r450784d/bin/clang --version
+  displayName: 'Clone Android clang'
+
+- script: |
+    git clone --depth 500 --branch lineage-20 \
+      https://github.com/LineageOS/android_kernel_oneplus_sm8250.git kernel
+    cd kernel
+    git checkout 5dea892fe7e4
+    git log --oneline -1
+  displayName: 'Clone kernel source'
+
+- script: |
+    cd kernel
+    patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
+    patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_only_dups.patch || true
+  displayName: 'Apply patches'
+
+- script: |
+    export PATH="/tmp/clang-r450784d/bin:$PATH"
+    export ARCH=arm64
+    export LLVM=1
+    export LLVM_IAS=1
+    cd kernel
+    make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi- vendor/kona-perf_defconfig
+    cp ../kernel-patches/ksu.config.pure out/.config
+    make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig
+  displayName: 'Configure kernel'
+
+- script: |
+    export PATH="/tmp/clang-r450784d/bin:$PATH"
+    export ARCH=arm64
+    export LLVM=1
+    export LLVM_IAS=1
+    cd kernel
+    make -j"$(nproc)" O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee build.log
+  displayName: 'Build kernel'
+
+- script: |
+    cd kernel
+    if [ ! -f out/arch/arm64/boot/Image.gz ] && [ ! -f out/arch/arm64/boot/Image ]; then
+      echo "Build failed"
+      tail -200 build.log
+      exit 1
+    fi
+    if [ ! -f out/arch/arm64/boot/Image.gz ] && [ -f out/arch/arm64/boot/Image ]; then
+      gzip -c out/arch/arm64/boot/Image > out/arch/arm64/boot/Image.gz
+    fi
+    ls -lh out/arch/arm64/boot/
+  displayName: 'Verify kernel'
+
+- task: PublishPipelineArtifact@1
+  inputs:
+    targetPath: kernel/out/arch/arm64/boot/Image.gz
+    artifactName: kebab-kernel
+  displayName: 'Upload artifact'
