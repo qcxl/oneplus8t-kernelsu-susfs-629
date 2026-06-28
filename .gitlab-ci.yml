@@ -28,77 +28,56 @@ build-kernel:
       - kernel/out/arch/arm64/boot/Image.gz
     expire_in: 30 days
   script:
-    # 1. 下载 LineageOS 官方预编译 GCC 4.9（aarch64）
-    - git clone --depth 1
-      https://hub.fastgit.org/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
-      /tmp/gcc-aarch64 2>/dev/null ||
-      git clone --depth 1
-      https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
-      /tmp/gcc-aarch64
-    - ls /tmp/gcc-aarch64/bin/aarch64-linux-android-*
-
-    # 2. 下载 LineageOS 官方预编译 GCC 4.9（arm32）
-    - git clone --depth 1
-      https://hub.fastgit.org/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
-      /tmp/gcc-arm 2>/dev/null ||
-      git clone --depth 1
-      https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
-      /tmp/gcc-arm
-    - ls /tmp/gcc-arm/bin/arm-linux-androideabi-*
-
-    # 3. 下载 LineageOS 官方 clang r450784d
-    - git clone --depth 1
-      https://hub.fastgit.org/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git
-      /tmp/clang 2>/dev/null ||
-      git clone --depth 1
-      https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git
-      /tmp/clang
+    # 1. 下载 clang r450784d - 尝试多个国内可用源
+    - |
+      for url in \
+        "https://github.com.cnpmjs.org/TheBizarreAbhishek/clang-r450784d.git" \
+        "https://ghproxy.com/https://github.com/TheBizarreAbhishek/clang-r450784d.git" \
+        "https://gitee.com/weifeng2026/clang-r450784d.git" \
+        "https://gitlab.com/SwapnilVicky/clang-r450784d.git"; do
+        echo "Trying: $url"
+        git clone --depth 1 "$url" /tmp/clang && break
+      done
     - /tmp/clang/bin/clang --version
 
-    # 4. 克隆内核源码（同设备精确提交）
+    # 2. 克隆内核源码 - 使用国内镜像
     - git clone --depth 500 --branch lineage-20
-      https://hub.fastgit.org/LineageOS/android_kernel_oneplus_sm8250.git kernel 2>/dev/null
-      || git clone --depth 500 --branch lineage-20
-      https://github.com/LineageOS/android_kernel_oneplus_sm8250.git kernel
+      https://github.com.cnpmjs.org/LineageOS/android_kernel_oneplus_sm8250.git kernel
     - cd kernel
     - git checkout 5dea892fe7e4
     - git log --oneline -1
 
-    # 5. 应用补丁
+    # 3. 应用补丁
     - patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
     - echo "=== Patches applied ==="
 
-    # 6. 配置内核 - 与 LineageOS 官方的 make bootimage 流程一致
+    # 4. 配置内核 - 与 LineageOS 官方一致：不用 LLVM=1 / LLVM_IAS=1
     - |
-      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
+      export PATH="/tmp/clang/bin:$PATH"
       make O=out ARCH=arm64 \
-        CC=clang \
-        LD=/tmp/clang/bin/ld.lld \
+        CC=clang LD=/tmp/clang/bin/ld.lld \
         CLANG_TRIPLE=aarch64-linux-gnu- \
-        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
-        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         vendor/kona-perf_defconfig
     - cp ../kernel-patches/ksu.config.pure out/.config
     - |
-      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
       make O=out ARCH=arm64 \
-        CC=clang \
-        LD=/tmp/clang/bin/ld.lld \
+        CC=clang LD=/tmp/clang/bin/ld.lld \
         CLANG_TRIPLE=aarch64-linux-gnu- \
-        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
-        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         olddefconfig
     - echo "=== Config ready ==="
 
-    # 7. 构建内核 - 不使用 LLVM=1，与 LineageOS 官方一致
+    # 5. 构建内核 - 不使用 LLVM=1 / LLVM_IAS=1
     - |
-      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
+      export PATH="/tmp/clang/bin:$PATH"
       make -j"$(nproc --all)" O=out ARCH=arm64 \
-        CC=clang \
-        LD=/tmp/clang/bin/ld.lld \
+        CC=clang LD=/tmp/clang/bin/ld.lld \
         CLANG_TRIPLE=aarch64-linux-gnu- \
-        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
-        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         2>&1 | tee build.log
 
     # 8. 验证
