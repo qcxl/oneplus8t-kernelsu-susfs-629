@@ -2,8 +2,8 @@ image: ubuntu:20.04
 
 variables:
   ARCH: arm64
-  LLVM: "1"
-  LLVM_IAS: "1"
+  # 注意：不使用 LLVM=1 / LLVM_IAS=1 - LineageOS 官方构建不用这个
+  # 仅设置 CC=clang + LD=ld.lld，其余工具用 GCC 工具链的
   GIT_STRATEGY: clone
 
 stages:
@@ -12,11 +12,12 @@ stages:
 before_script:
   - apt-get update
   - apt-get install -y
-    git curl wget zip unzip python3 python3-pip
+    git curl wget zip unzip python3
     build-essential libssl-dev bc cpio kmod
     device-tree-compiler lz4 zstd flex bison libelf-dev
     gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-    gcc-arm-linux-gnueabi lld llvm binutils
+    gcc-arm-linux-gnueabi
+    lld llvm binutils
 
 build-kernel:
   stage: build
@@ -27,14 +28,34 @@ build-kernel:
       - kernel/out/arch/arm64/boot/Image.gz
     expire_in: 30 days
   script:
-    # Clone Android clang r450784d（国内环境需代理）
+    # 1. 下载 LineageOS 官方预编译 GCC 4.9（aarch64）
     - git clone --depth 1
-      https://mirrors.aliyun.com/android.googlesource.com/prebuilts/clang/host/linux-x86/clang-r450784d.git
-      /tmp/clang-r450784d 2>/dev/null || git clone --depth 1
-      https://gitlab.com/SwapnilVicky/clang-r450784d.git /tmp/clang-r450784d
-    - /tmp/clang-r450784d/bin/clang --version
+      https://hub.fastgit.org/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
+      /tmp/gcc-aarch64 2>/dev/null ||
+      git clone --depth 1
+      https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
+      /tmp/gcc-aarch64
+    - ls /tmp/gcc-aarch64/bin/aarch64-linux-android-*
 
-    # Clone kernel source（使用 fastgit 镜像加速）
+    # 2. 下载 LineageOS 官方预编译 GCC 4.9（arm32）
+    - git clone --depth 1
+      https://hub.fastgit.org/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
+      /tmp/gcc-arm 2>/dev/null ||
+      git clone --depth 1
+      https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
+      /tmp/gcc-arm
+    - ls /tmp/gcc-arm/bin/arm-linux-androideabi-*
+
+    # 3. 下载 LineageOS 官方 clang r450784d
+    - git clone --depth 1
+      https://hub.fastgit.org/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git
+      /tmp/clang 2>/dev/null ||
+      git clone --depth 1
+      https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r450784d.git
+      /tmp/clang
+    - /tmp/clang/bin/clang --version
+
+    # 4. 克隆内核源码（同设备精确提交）
     - git clone --depth 500 --branch lineage-20
       https://hub.fastgit.org/LineageOS/android_kernel_oneplus_sm8250.git kernel 2>/dev/null
       || git clone --depth 500 --branch lineage-20
@@ -43,34 +64,44 @@ build-kernel:
     - git checkout 5dea892fe7e4
     - git log --oneline -1
 
-    # Apply patches
+    # 5. 应用补丁
     - patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
-    - patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_only_dups.patch || true
     - echo "=== Patches applied ==="
 
-    # Configure kernel
-    - export PATH="/tmp/clang-r450784d/bin:$PATH"
-    - make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
-      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
-      CROSS_COMPILE_ARM32=arm-linux-gnueabi- vendor/kona-perf_defconfig
+    # 6. 配置内核 - 与 LineageOS 官方的 make bootimage 流程一致
+    - |
+      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
+      make O=out ARCH=arm64 \
+        CC=clang \
+        LD=/tmp/clang/bin/ld.lld \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
+        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        vendor/kona-perf_defconfig
     - cp ../kernel-patches/ksu.config.pure out/.config
-    - make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
-      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
-      CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig
+    - |
+      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
+      make O=out ARCH=arm64 \
+        CC=clang \
+        LD=/tmp/clang/bin/ld.lld \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
+        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        olddefconfig
     - echo "=== Config ready ==="
 
-    # Build kernel
-    - export PATH="/tmp/clang-r450784d/bin:$PATH"
-    - make -j"$(nproc --all)" O=out ARCH=arm64
-      CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
-      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
-      CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-      2>&1 | tee build.log
+    # 7. 构建内核 - 不使用 LLVM=1，与 LineageOS 官方一致
+    - |
+      export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:$PATH"
+      make -j"$(nproc --all)" O=out ARCH=arm64 \
+        CC=clang \
+        LD=/tmp/clang/bin/ld.lld \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        CROSS_COMPILE=/tmp/gcc-aarch64/bin/aarch64-linux-android- \
+        CROSS_COMPILE_ARM32=/tmp/gcc-arm/bin/arm-linux-androideabi- \
+        2>&1 | tee build.log
 
-    # Verify
+    # 8. 验证
     - |
       if [ ! -f out/arch/arm64/boot/Image.gz ] && [ ! -f out/arch/arm64/boot/Image ]; then
         echo "Build failed"
