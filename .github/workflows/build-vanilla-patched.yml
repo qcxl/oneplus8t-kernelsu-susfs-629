@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'kernel-patches/ksu.config.pure'
+      - '.github/workflows/build-vanilla-patched.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -13,26 +14,22 @@ jobs:
   build:
     name: Build vanilla kebab kernel
     runs-on: ubuntu-22.04
+    container: ubuntu:20.04
     timeout-minutes: 180
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          df -h
-
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
             git curl wget zip unzip python3 python3-pip \
             build-essential libssl-dev bc cpio kmod ccache \
             device-tree-compiler lz4 zstd flex bison libelf-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
             lld llvm binutils
 
       - name: Clone Android clang r450784d toolchain
