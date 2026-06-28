@@ -1,0 +1,79 @@
+image: ubuntu:20.04
+
+variables:
+  ARCH: arm64
+  LLVM: "1"
+  LLVM_IAS: "1"
+  GIT_STRATEGY: clone
+
+stages:
+  - build
+
+before_script:
+  - apt-get update
+  - apt-get install -y
+    git curl wget zip unzip python3 python3-pip
+    build-essential libssl-dev bc cpio kmod
+    device-tree-compiler lz4 zstd flex bison libelf-dev
+    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+    gcc-arm-linux-gnueabi lld llvm binutils
+
+build-kernel:
+  stage: build
+  timeout: 2h
+  artifacts:
+    name: "kebab-kernel-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - kernel/out/arch/arm64/boot/Image.gz
+    expire_in: 30 days
+  script:
+    # Clone Android clang r450784d
+    - git clone --depth 1
+      https://github.com/TheBizarreAbhishek/clang-r450784d.git /tmp/clang-r450784d
+    - /tmp/clang-r450784d/bin/clang --version
+
+    # Clone kernel source
+    - git clone --depth 500 --branch lineage-20
+      https://github.com/LineageOS/android_kernel_oneplus_sm8250.git kernel
+    - cd kernel
+    - git checkout 5dea892fe7e4
+    - git log --oneline -1
+
+    # Apply patches
+    - patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_strnstr_msm_drv.patch || true
+    - patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_only_dups.patch || true
+    - echo "=== Patches applied ==="
+
+    # Configure kernel
+    - export PATH="/tmp/clang-r450784d/bin:$PATH"
+    - make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi- vendor/kona-perf_defconfig
+    - cp ../kernel-patches/ksu.config.pure out/.config
+    - make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig
+    - echo "=== Config ready ==="
+
+    # Build kernel
+    - export PATH="/tmp/clang-r450784d/bin:$PATH"
+    - make -j"$(nproc --all)" O=out ARCH=arm64
+      CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm
+      OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+      2>&1 | tee build.log
+
+    # Verify
+    - |
+      if [ ! -f out/arch/arm64/boot/Image.gz ] && [ ! -f out/arch/arm64/boot/Image ]; then
+        echo "Build failed"
+        tail -200 build.log
+        exit 1
+      fi
+      if [ ! -f out/arch/arm64/boot/Image.gz ] && [ -f out/arch/arm64/boot/Image ]; then
+        gzip -c out/arch/arm64/boot/Image > out/arch/arm64/boot/Image.gz
+      fi
+      ls -lh out/arch/arm64/boot/
