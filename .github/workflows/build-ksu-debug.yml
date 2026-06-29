@@ -92,13 +92,39 @@ jobs:
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read" fs/ 2>/dev/null
 
-      - name: Apply KSU 4.19 compatibility fixes
+      - name: Apply KSU + SUSFS 4.19 compatibility fixes
         working-directory: kernel
         run: |
+          # === KPM fixes ===
           # KPM: access_ok() in 5.0+ takes 2 args, 4.19 takes 3 (type, addr, size)
           if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
             echo "Fixing KPM access_ok for kernel 4.19..."
             sed -i 's/access_ok(\([^,)]*\)[[:space:]]*,[[:space:]]*\([^,)]*\))/access_ok(0, \1, \2)/g' drivers/kernelsu/kpm/kpm.c
+          fi
+
+          # === SUSFS: add missing definitions for builtin branch ===
+          if [ -f "include/linux/susfs_def.h" ]; then
+            grep -q "CMD_SUSFS_ADD_SUS_PATH_LOOP" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55551' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_ADD_SUS_MAP" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ADD_SUS_MAP 0x55562' >> include/linux/susfs_def.h
+            grep -q "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING" include/linux/susfs_def.h || \
+              echo '#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x55563' >> include/linux/susfs_def.h
+            grep -q "SUSFS_MAGIC" include/linux/susfs_def.h || \
+              echo '#define SUSFS_MAGIC 0x53485300' >> include/linux/susfs_def.h
+          fi
+          if [ -f "include/linux/susfs.h" ]; then
+            for fn in susfs_start_sdcard_monitor_fn susfs_enable_log susfs_add_sus_path_loop \
+              susfs_set_hide_sus_mnts_for_non_su_procs susfs_add_sus_map \
+              susfs_set_avc_log_spoofing susfs_get_enabled_features susfs_show_variant \
+              susfs_show_version susfs_starts_with susfs_ends_with \
+              susfs_is_current_proc_umounted susfs_set_current_proc_umounted \
+              ksu_selinux_hide_handle_post_fs_data ksu_selinux_hide_handle_second_stage; do
+              grep -q "$fn" include/linux/susfs.h || \
+                echo "extern int $fn(void);" >> include/linux/susfs.h
+            done
           fi
 
           # KPM: MODULE_IMPORT_NS not in 4.19
