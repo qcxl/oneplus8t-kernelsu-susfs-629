@@ -55,19 +55,19 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate SukiSU-Ultra (main branch + manual hook patches)
+      - name: Integrate SukiSU-Ultra (builtin branch - non-GKI 4.19)
         working-directory: kernel
         run: |
-          # main branch provides the KSU driver tree. We apply manual hook
-          # source patches ourselves (main does NOT add them automatically).
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
-            | bash -s main
-          if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          fi
-          if ! grep -q "kernelsu/Kconfig" drivers/Kconfig 2>/dev/null; then
-            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          fi
+            | bash -s builtin
+
+      - name: Apply manual hook source patches (for builtin branch)
+        working-directory: kernel
+        run: |
+          # builtin branch uses standard KernelSU manual hook functions
+          python3 ../scripts/apply-ksu-hooks.py .
+          echo "=== Verification ==="
+          grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read" fs/ 2>/dev/null
 
       - name: Apply KSU 4.19 compatibility fixes
         working-directory: kernel
