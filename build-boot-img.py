@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
 Create custom boot.img by replacing kernel in original boot.img.
-Original boot.img structure:
-- Header: 0x1000 (4096) bytes
-- Kernel: starts at 0x1000, 51998736 bytes (original)
-- Ramdisk: starts after kernel, aligned to page_size
+Usage:
+  python3 build-boot-img.py <original_boot.img> <new_kernel> <output_boot.img>
+    [--append-cmdline "extra kernel cmdline flags"]
 """
 
 import struct
 import sys
-import os
+import argparse
 
-def make_boot_img(original_boot, new_kernel, output_boot):
+def make_boot_img(original_boot, new_kernel, output_boot, extra_cmdline=""):
     with open(original_boot, 'rb') as f:
         original_data = f.read()
 
@@ -81,6 +80,22 @@ def make_boot_img(original_boot, new_kernel, output_boot):
             dtb_data = original_data[dtb_start:dtb_start + dtb_size]
             print(f"DTB: {dtb_size} bytes at 0x{dtb_start:x}")
 
+    # ---- Append extra cmdline if specified ----
+    if extra_cmdline:
+        cmdline_start = 0x40
+        cmdline_max = 0x200  # 512 bytes for v0/v1 header, might be larger for v2/v3
+        old_cmdline = bytes(header_data[cmdline_start:cmdline_start + cmdline_max])
+        old_cmdline_str = old_cmdline.split(b'\x00')[0].decode('ascii', errors='replace').strip()
+        new_cmdline_str = old_cmdline_str + ' ' + extra_cmdline
+        new_cmdline_bytes = new_cmdline_str.encode('ascii')
+        if len(new_cmdline_bytes) >= cmdline_max:
+            print(f"WARNING: Cmdline too long ({len(new_cmdline_bytes)} >= {cmdline_max}), truncating")
+            new_cmdline_bytes = new_cmdline_bytes[:cmdline_max - 1]
+        new_cmdline_bytes = new_cmdline_bytes + b'\x00' * (cmdline_max - len(new_cmdline_bytes))
+        header_data[cmdline_start:cmdline_start + cmdline_max] = new_cmdline_bytes
+        print(f"Cmdline: appended '{extra_cmdline}'")
+        print(f"  Full: {old_cmdline_str} {extra_cmdline}")
+
     # ---- Build new boot.img ----
     new_data = bytearray()
 
@@ -136,21 +151,17 @@ def make_boot_img(original_boot, new_kernel, output_boot):
         print(f"\nVerification:")
         print(f"  Kernel size in header: {verify_kernel_size}")
         print(f"  Ramdisk size in header: {verify_ramdisk_size}")
-        print(f"  Cmdline: {verify_cmdline[:120]}...")
+        print(f"  Cmdline ({len(verify_cmdline)} chars): {verify_cmdline[:150]}...")
         with open(output_boot, 'rb') as f2:
             dtb_check = f2.read().find(b'\xd0\x0d\xfe\xed')
         print(f"  DTB magic found at: 0x{dtb_check:x}" if dtb_check >= 0 else "  WARNING: DTB magic NOT found!")
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} <original_boot.img> <new_kernel> <output_boot.img>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='Create custom boot.img by replacing kernel')
+    parser.add_argument('original_boot', help='Original boot.img file')
+    parser.add_argument('new_kernel', help='New kernel Image file')
+    parser.add_argument('output_boot', help='Output boot.img file')
+    parser.add_argument('--append-cmdline', help='Extra kernel cmdline flags to append (e.g. "initcall_debug log_buf_len=16M")')
+    args = parser.parse_args()
 
-    make_boot_img(sys.argv[1], sys.argv[2], sys.argv[3])
-
-if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} <original_boot.img> <new_kernel> <output_boot.img>")
-        sys.exit(1)
-
-    make_boot_img(sys.argv[1], sys.argv[2], sys.argv[3])
+    make_boot_img(args.original_boot, args.new_kernel, args.output_boot, args.append_cmdline or "")
