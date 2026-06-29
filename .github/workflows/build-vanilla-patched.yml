@@ -58,7 +58,7 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dup_techpack_only_dups.patch || true
           echo "=== Patches applied ==="
 
-      - name: Configure kernel (PURE ORIGINAL CONFIG - no KSU/SUSFS)
+      - name: Configure kernel (PURE ORIGINAL CONFIG + debug)
         working-directory: kernel
         run: |
           export PATH="/tmp/clang-r450784d/bin:/usr/lib/ccache:$PATH"
@@ -66,40 +66,31 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
 
-          make O=out ARCH=arm64 \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
+          CFG="CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            vendor/kona-perf_defconfig
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-"
 
-          export PATH="/tmp/clang-r450784d/bin:/usr/lib/ccache:$PATH"
-          export ARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
+          make O=out ARCH=arm64 $CFG vendor/kona-perf_defconfig
 
           cp ../kernel-patches/ksu.config.pure out/.config
 
-          make O=out ARCH=arm64 \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            olddefconfig
+          # Merge debug config (pstore/ramoops + verbose boot logging)
+          # Device tree has ramoops@b0000000, size 4MB
+          if [ -f ../kernel-patches/debug.config ]; then
+            scripts/kconfig/merge_config.sh -m -O out \
+              out/.config ../kernel-patches/debug.config
+          fi
 
-          echo "=== Config ready, olddefconfig done ==="
+          make O=out ARCH=arm64 $CFG olddefconfig
+
+          echo "=== Config ready, debug + ramoops enabled ==="
+
+      - name: Save .config for debug
+        working-directory: kernel
+        run: cp out/.config /tmp/kernel-config.txt
 
       - name: Build kernel
         working-directory: kernel
@@ -144,6 +135,9 @@ jobs:
             cp kernel/out/arch/arm64/boot/Image.gz artifact/Image.gz
             cp kernel/out/arch/arm64/boot/dtb.img artifact/dtb.img 2>/dev/null || true
             cp kernel/out/arch/arm64/boot/dtbo.img artifact/dtbo.img 2>/dev/null || true
+            cp /tmp/kernel-config.txt artifact/config.txt 2>/dev/null || true
+            # Include build-boot-img.py for local boot.img packaging
+            cp build-boot-img.py artifact/
             cd artifact
             zip -r9 ../kebab-kernelsu-vanilla-a13-4.19.zip .
             cd ..

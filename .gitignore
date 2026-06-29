@@ -3,9 +3,12 @@ output/
 *.zip
 *.img
 *.gz
+*.tar
 
-# Kernel build artifacts
+# Kernel source (cloned by CI/build scripts, not stored in repo)
 kernel/
+
+# Prebuilts
 prebuilts-master/
 tools/
 
@@ -14,6 +17,8 @@ tools/
 .idea/
 *.swp
 *.swo
+*.rej
+*.orig
 
 # OS
 .DS_Store
@@ -22,3 +27,9 @@ Thumbs.db
 # Logs
 *.log
 build.log
+
+# Docker volumes
+/ccache/
+
+# Docker build output volume mount
+/out/
