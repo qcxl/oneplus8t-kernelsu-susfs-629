@@ -54,13 +54,12 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate SukiSU-Ultra (susfs-main branch, non-GKI 4.19)
+      - name: Integrate SukiSU-Ultra (builtin branch, non-GKI 4.19)
         working-directory: kernel
         run: |
-          # Use susfs-main branch: built-in manual hook + SUSFS pre-integrated
-          # This is designed for non-GKI kernels like our 4.19 sm8250
+          # Use builtin branch: designed for non-GKI kernels with manual hook
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
-            | bash -s susfs-main
+            | bash -s builtin
           if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
