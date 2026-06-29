@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * susfs_stubs.c - SUSFS compatibility stubs for kernel-4.19 branch
+ * susfs_stubs.c - SUSFS compatibility stubs for builtin branch
  *
  * SukiSU-Ultra builtin branch dispatch.c calls newer SUSFS APIs
- * that don't exist in the kernel-4.19 branch. These stubs provide
- * the missing symbols so the kernel can compile and link.
- * The stubs return success without performing any operation,
- * which is safe for features not available in kernel-4.19.
+ * that don't exist in the kernel-4.19 SUSFS branch.
+ * These stubs provide the missing symbols so the kernel can link.
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/device.h>
-#include <linux/susfs.h>
+#include <linux/types.h>
+#include <linux/uaccess.h>
 
 /* Declare __strncpy_from_user_nofault if not available in headers */
 long __strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)

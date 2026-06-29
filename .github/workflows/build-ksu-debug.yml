@@ -76,11 +76,7 @@ jobs:
           cp /tmp/susfs/kernel_patches/include/linux/sus_su.h include/linux/
           cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/
           cp ../kernel-patches/susfs_stubs.c fs/
-          if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
-            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
-            echo 'obj-$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
-            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs_stubs.o' >> fs/Makefile
-          fi
+          echo "obj-$(CONFIG_KSU_SUSFS) += susfs_stubs.o" >> fs/Makefile
           echo "=== SUSFS files applied ==="
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
@@ -116,37 +112,13 @@ jobs:
               echo '#define SUSFS_MAGIC 0x53485300' >> include/linux/susfs_def.h
           fi
           if [ -f "include/linux/susfs.h" ]; then
-            for fn_pairs in \
-              "susfs_start_sdcard_monitor_fn void" \
-              "susfs_enable_log void __user" \
-              "susfs_add_sus_path_loop void __user" \
-              "susfs_set_hide_sus_mnts_for_non_su_procs void __user" \
-              "susfs_add_sus_map void __user" \
-              "susfs_set_avc_log_spoofing void __user" \
-              "susfs_get_enabled_features void" \
-              "susfs_show_variant void" \
-              "susfs_show_version void"; do
-              set -- $fn_pairs; fn="$1"; args="${2:-void}"
-              if [ "$args" = "void" ]; then
-                grep -q "$fn" include/linux/susfs.h || \
-                  echo "extern int $fn(void);" >> include/linux/susfs.h
-              else
-                grep -q "$fn" include/linux/susfs.h || \
-                  echo "extern int $fn(${args} __user *arg);" >> include/linux/susfs.h
-              fi
-            done
-            grep -q "susfs_starts_with" include/linux/susfs.h || \
-              echo 'extern bool susfs_starts_with(const char *str, const char *prefix);' >> include/linux/susfs.h
-            grep -q "susfs_ends_with" include/linux/susfs.h || \
-              echo 'extern bool susfs_ends_with(const char *str, const char *suffix);' >> include/linux/susfs.h
-            grep -q "susfs_is_current_proc_umounted" include/linux/susfs.h || \
-              echo 'extern bool susfs_is_current_proc_umounted(void);' >> include/linux/susfs.h
-            grep -q "susfs_set_current_proc_umounted" include/linux/susfs.h || \
-              echo 'extern void susfs_set_current_proc_umounted(void);' >> include/linux/susfs.h
-            grep -q "ksu_selinux_hide_handle_post_fs_data" include/linux/susfs.h || \
-              echo 'extern void ksu_selinux_hide_handle_post_fs_data(void);' >> include/linux/susfs.h
-            grep -q "ksu_selinux_hide_handle_second_stage" include/linux/susfs.h || \
-              echo 'extern void ksu_selinux_hide_handle_second_stage(void);' >> include/linux/susfs.h
+            grep -q "susfs_start_sdcard_monitor_fn" include/linux/susfs.h || echo 'int susfs_start_sdcard_monitor_fn(void);' >> include/linux/susfs.h
+            grep -q "susfs_enable_log" include/linux/susfs.h || echo 'int susfs_enable_log(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_add_sus_path_loop" include/linux/susfs.h || echo 'int susfs_add_sus_path_loop(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_set_hide_sus_mnts_for_non_su_procs" include/linux/susfs.h || echo 'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_add_sus_map" include/linux/susfs.h || echo 'int susfs_add_sus_map(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_set_avc_log_spoofing" include/linux/susfs.h || echo 'int susfs_set_avc_log_spoofing(void __user *arg);' >> include/linux/susfs.h
+            grep -q "susfs_get_enabled_features" include/linux/susfs.h || echo 'int susfs_get_enabled_features(void);' >> include/linux/susfs.h
           fi
 
           # KPM: MODULE_IMPORT_NS not in 4.19
@@ -222,10 +194,6 @@ jobs:
           if [ -f "fs/Makefile" ] && ! grep -qE '^obj-\$\(CONFIG_KSU_SUSFS\).*susfs\.o' fs/Makefile; then
             echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
             echo 'obj-$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
-          fi
-          cp ../kernel-patches/susfs_stubs.c fs/
-          if [ -f "fs/Makefile" ] && ! grep -q "susfs_stubs.o" fs/Makefile; then
-            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs_stubs.o' >> fs/Makefile
           fi
 
           echo "=== Compatibility fixes applied ==="
