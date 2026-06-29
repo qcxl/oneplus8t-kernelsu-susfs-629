@@ -291,6 +291,11 @@ jobs:
             # KSU boot.img (with KSU+SUSFS)
             cp artifact/debug-boot.img artifact/ksu-debug-boot.img
 
+            # KSU kernel modules (for loading as modules)
+            mkdir -p artifact/modules
+            find kernel/out -name "*.ko" -exec cp {} artifact/modules/ \; 2>/dev/null || true
+            ls -lh artifact/modules/ 2>/dev/null
+
             cd artifact
             zip -r9 ../kebab-kernel-ksu-debug.zip .
             cd ..
