@@ -54,12 +54,36 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate SukiSU-Ultra (builtin branch, non-GKI 4.19)
+      - name: Integrate SukiSU-Ultra (main branch + manual hook patches)
         working-directory: kernel
         run: |
-          # Use builtin branch: designed for non-GKI kernels with manual hook
+          # main branch provides the KSU driver tree. We apply manual hook
+          # source patches ourselves (main does NOT add them automatically).
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
-            | bash -s builtin
+            | bash -s main
+          if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          fi
+          if ! grep -q "kernelsu/Kconfig" drivers/Kconfig 2>/dev/null; then
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+
+          # Apply manual hook source patches for non-GKI 4.19
+          # These insert ksu_handle_* calls into the kernel syscall path
+          echo "=== Applying manual hook source patches ==="
+
+          # 1. fs/open.c - do_faccessat (line ~356)
+          sed -i '/^long do_faccessat(int dfd/a #ifdef CONFIG_KSU\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif' fs/open.c
+
+          # 2. fs/exec.c - do_execveat_common (line ~1926)
+          sed -i '/^static int do_execveat_common(int fd/a #ifdef CONFIG_KSU\n\tksu_handle_execveat(&fd, *filename, NULL, NULL, &flags);\n#endif' fs/exec.c
+
+          # 3. fs/read_write.c - vfs_read (line ~446)
+          sed -i '/^ssize_t vfs_read(struct file/a #ifdef CONFIG_KSU\n\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n#endif' fs/read_write.c
+
+          # Verify the patches landed
+          echo "=== Verifying hook patches ==="
+          grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read" fs/ 2>/dev/null && echo "✅ Hooks applied" || echo "⚠️ Some hooks may be missing"
           if ! grep -q "drivers/kernelsu" drivers/Makefile 2>/dev/null; then
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
