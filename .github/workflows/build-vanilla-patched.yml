@@ -136,8 +136,6 @@ jobs:
             cp kernel/out/arch/arm64/boot/dtb.img artifact/dtb.img 2>/dev/null || true
             cp kernel/out/arch/arm64/boot/dtbo.img artifact/dtbo.img 2>/dev/null || true
             cp /tmp/kernel-config.txt artifact/config.txt 2>/dev/null || true
-            # Include build-boot-img.py for local boot.img packaging
-            cp build-boot-img.py artifact/
             cd artifact
             zip -r9 ../kebab-kernelsu-vanilla-a13-4.19.zip .
             cd ..
