@@ -12,22 +12,13 @@ import sys
 import os
 
 def make_boot_img(original_boot, new_kernel, output_boot):
-    PAGE_SIZE = 4096
-
     with open(original_boot, 'rb') as f:
         original_data = f.read()
 
     with open(new_kernel, 'rb') as f:
         new_kernel_data = f.read()
 
-    # Read original boot.img
     PAGE_SIZE = 4096
-
-    with open(original_boot, 'rb') as f:
-        original_data = f.read()
-
-    with open(new_kernel, 'rb') as f:
-        new_kernel_data = f.read()
 
     # Copy entire first page (header + cmdline), not just 64 bytes
     header_data = bytearray(original_data[:PAGE_SIZE])
@@ -39,6 +30,9 @@ def make_boot_img(original_boot, new_kernel, output_boot):
     ramdisk_size = struct.unpack('<I', header_data[16:20])[0]
     second_size = struct.unpack('<I', header_data[24:28])[0]
     page_size = struct.unpack('<I', header_data[36:40])[0]
+
+    # Save original ramdisk position BEFORE kernel_size_orig may change
+    orig_kernel_size = kernel_size_orig
 
     print(f"Original kernel size: {kernel_size_orig} (0x{kernel_size_orig:x})")
     print(f"New kernel size: {len(new_kernel_data)} (0x{len(new_kernel_data):x})")
@@ -55,21 +49,15 @@ def make_boot_img(original_boot, new_kernel, output_boot):
     # Pad new kernel to "original" size (now updated if larger)
     new_kernel_padded = new_kernel_data + b'\x00' * (kernel_size_orig - len(new_kernel_data))
 
-    # Calculate offsets
-    # Header: 1 page
-    # Kernel: starts at page 1 (offset 0x1000)
+    # Calculate offsets (for NEW boot.img layout, using updated kernel_size_orig)
     kernel_start = page_size
-    kernel_pages = (kernel_size_orig + page_size - 1) // page_size
     kernel_end = kernel_start + kernel_size_orig
 
     # Ramdisk starts after kernel, aligned to page boundary
-    ramdisk_start = kernel_start + kernel_size_orig
-    # Round up to page boundary
-    ramdisk_start = ((ramdisk_start + page_size - 1) // page_size) * page_size
+    ramdisk_start = ((kernel_start + kernel_size_orig + page_size - 1) // page_size) * page_size
 
     # Second starts after ramdisk
-    second_start = ramdisk_start + ramdisk_size
-    second_start = ((second_start + page_size - 1) // page_size) * page_size
+    second_start = ((ramdisk_start + ramdisk_size + page_size - 1) // page_size) * page_size
 
     print(f"\nLayout:")
     print(f"  Header: 0x0 - 0x{kernel_start:x}")
@@ -77,34 +65,12 @@ def make_boot_img(original_boot, new_kernel, output_boot):
     print(f"  Ramdisk: 0x{ramdisk_start:x} - 0x{ramdisk_start + ramdisk_size:x}")
     print(f"  Second: 0x{second_start:x}")
 
-    # Build new boot image
-    new_data = bytearray()
+    # ---- Read ramdisk from ORIGINAL boot.img (using orig_kernel_size) ----
+    orig_ramdisk_start = ((page_size + orig_kernel_size + page_size - 1) // page_size) * page_size
+    ramdisk_from_original = original_data[orig_ramdisk_start:orig_ramdisk_start + ramdisk_size]
+    print(f"  Ramdisk read from original at: 0x{orig_ramdisk_start:x}")
 
-    # Copy full first page (header + cmdline), not just 64 bytes
-    new_data.extend(header_data)
-
-    # Kernel starts after first page
-    kernel_start = page_size
-
-    # Write new kernel (padded to original size)
-    new_data.extend(new_kernel_padded)
-
-    # Pad to ramdisk start (page boundary)
-    new_data.extend(b'\x00' * (ramdisk_start - len(new_data)))
-
-    # Copy ramdisk from original
-    ramdisk_from_original = original_data[ramdisk_start:ramdisk_start + ramdisk_size]
-    new_data.extend(ramdisk_from_original)
-
-    # Pad to second start
-    new_data.extend(b'\x00' * (second_start - len(new_data)))
-
-    # Copy second from original (if any)
-    if second_size > 0:
-        second_from_original = original_data[second_start:second_start + second_size]
-        new_data.extend(second_from_original)
-
-    # Copy DTB section: search for DTB magic in original data
+    # ---- Read DTB from ORIGINAL boot.img ----
     DTB_MAGIC = b'\xd0\x0d\xfe\xed'
     dtb_start = original_data.find(DTB_MAGIC)
     dtb_size = 0
@@ -115,16 +81,41 @@ def make_boot_img(original_boot, new_kernel, output_boot):
             dtb_data = original_data[dtb_start:dtb_start + dtb_size]
             print(f"DTB: {dtb_size} bytes at 0x{dtb_start:x}")
 
-    # Place DTB in new boot.img after ramdisk
+    # ---- Build new boot.img ----
+    new_data = bytearray()
+
+    # 1. Header + cmdline (full first page)
+    new_data.extend(header_data)
+
+    # 2. Kernel
+    new_data.extend(new_kernel_padded)
+
+    # 3. Pad to ramdisk position
+    new_data.extend(b'\x00' * (ramdisk_start - len(new_data)))
+
+    # 4. Ramdisk (from original, correctly positioned)
+    new_data.extend(ramdisk_from_original)
+
+    # 5. Pad to second position
+    new_data.extend(b'\x00' * (second_start - len(new_data)))
+
+    # 6. Second stage (from original)
+    if second_size > 0:
+        second_from_original = original_data[second_start:second_start + second_size]
+        new_data.extend(second_from_original)
+
+    # 7. DTB (placed after ramdisk/second area)
     if len(dtb_data) > 0:
-        new_dtb_start = (ramdisk_start + ramdisk_size + page_size - 1) // page_size * page_size
+        new_dtb_start = ((ramdisk_start + ramdisk_size + page_size - 1) // page_size) * page_size
+        if second_size > 0:
+            new_dtb_start = ((second_start + second_size + page_size - 1) // page_size) * page_size
         new_data.extend(b'\x00' * (new_dtb_start - len(new_data)))
         new_data.extend(dtb_data)
         print(f"DTB: placed at 0x{new_dtb_start:x} ({dtb_size} bytes)")
     else:
         print("No DTB found")
 
-    # Copy any remaining data after DTB from original (bootloader sig, padding, etc.)
+    # 8. Pad to original file size
     if len(new_data) < len(original_data):
         print(f"Padding to original size: {len(original_data) - len(new_data)} bytes")
         new_data.extend(b'\x00' * (len(original_data) - len(new_data)))
@@ -146,13 +137,16 @@ def make_boot_img(original_boot, new_kernel, output_boot):
         print(f"  Kernel size in header: {verify_kernel_size}")
         print(f"  Ramdisk size in header: {verify_ramdisk_size}")
         print(f"  Cmdline: {verify_cmdline[:120]}...")
-        # Check if DTB is findable at expected offset
         with open(output_boot, 'rb') as f2:
             dtb_check = f2.read().find(b'\xd0\x0d\xfe\xed')
-        if dtb_check >= 0:
-            print(f"  DTB magic found at: 0x{dtb_check:x}")
-        else:
-            print("  WARNING: DTB magic not found in output!")
+        print(f"  DTB magic found at: 0x{dtb_check:x}" if dtb_check >= 0 else "  WARNING: DTB magic NOT found!")
+
+if __name__ == '__main__':
+    if len(sys.argv) != 4:
+        print(f"Usage: {sys.argv[0]} <original_boot.img> <new_kernel> <output_boot.img>")
+        sys.exit(1)
+
+    make_boot_img(sys.argv[1], sys.argv[2], sys.argv[3])
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:
