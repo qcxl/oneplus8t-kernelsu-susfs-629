@@ -79,7 +79,13 @@ jobs:
       - name: Apply KSU 4.19 compatibility fixes
         working-directory: kernel
         run: |
-          # susfs-main branch uses manual hook for non-GKI. Apply 4.19 compat fixes.
+          # KPM: access_ok() in 5.0+ takes 2 args, 4.19 takes 3 (type, addr, size)
+          if [ -f "drivers/kernelsu/kpm/kpm.c" ]; then
+            echo "Fixing KPM access_ok for kernel 4.19..."
+            sed -i 's/access_ok(\([^,)]*\)[[:space:]]*,[[:space:]]*\([^,)]*\))/access_ok(0, \1, \2)/g' drivers/kernelsu/kpm/kpm.c
+          fi
+
+          # KPM: MODULE_IMPORT_NS not in 4.19
           if [ -f "drivers/kernelsu/core/init.c" ]; then
             sed -i 's/^MODULE_IMPORT_NS.*$/\/\/ MODULE_IMPORT_NS not supported in kernel 4.19/' drivers/kernelsu/core/init.c
           fi
