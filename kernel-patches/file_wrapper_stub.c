@@ -47,13 +47,13 @@ void *ksu_get_inode_security(struct inode *inode, struct inode *inode_out)
 }
 EXPORT_SYMBOL(ksu_get_inode_security);
 
-int __init ksu_file_wrapper_init(void)
+int ksu_file_wrapper_init(void)
 {
     pr_info("ksu: file_wrapper_init stub (kernel 4.19)\n");
     return 0;
 }
 
-void __exit ksu_file_wrapper_exit(void)
+void ksu_file_wrapper_exit(void)
 {
     pr_info("ksu: file_wrapper_exit stub (kernel 4.19)\n");
 }

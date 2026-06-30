@@ -112,13 +112,24 @@ jobs:
               echo '#define SUSFS_MAGIC 0x53485300' >> include/linux/susfs_def.h
           fi
           if [ -f "include/linux/susfs.h" ]; then
-            grep -q "susfs_start_sdcard_monitor_fn" include/linux/susfs.h || echo 'int susfs_start_sdcard_monitor_fn(void);' >> include/linux/susfs.h
-            grep -q "susfs_enable_log" include/linux/susfs.h || echo 'int susfs_enable_log(void __user *arg);' >> include/linux/susfs.h
-            grep -q "susfs_add_sus_path_loop" include/linux/susfs.h || echo 'int susfs_add_sus_path_loop(void __user *arg);' >> include/linux/susfs.h
-            grep -q "susfs_set_hide_sus_mnts_for_non_su_procs" include/linux/susfs.h || echo 'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' >> include/linux/susfs.h
-            grep -q "susfs_add_sus_map" include/linux/susfs.h || echo 'int susfs_add_sus_map(void __user *arg);' >> include/linux/susfs.h
-            grep -q "susfs_set_avc_log_spoofing" include/linux/susfs.h || echo 'int susfs_set_avc_log_spoofing(void __user *arg);' >> include/linux/susfs.h
-            grep -q "susfs_get_enabled_features" include/linux/susfs.h || echo 'int susfs_get_enabled_features(void);' >> include/linux/susfs.h
+            # Add missing SUSFS declarations needed by builtin branch
+            for decl in \
+              'int susfs_start_sdcard_monitor_fn(void);' \
+              'int susfs_enable_log(void __user *arg);' \
+              'int susfs_add_sus_path_loop(void __user *arg);' \
+              'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' \
+              'int susfs_add_sus_map(void __user *arg);' \
+              'int susfs_set_avc_log_spoofing(void __user *arg);' \
+              'int susfs_get_enabled_features(void __user *arg);' \
+              'bool susfs_starts_with(const char *str, const char *prefix);' \
+              'bool susfs_ends_with(const char *str, const char *suffix);' \
+              'bool susfs_is_current_proc_umounted(void);' \
+              'void susfs_set_current_proc_umounted(void);' \
+              'void ksu_selinux_hide_handle_post_fs_data(void);' \
+              'void ksu_selinux_hide_handle_second_stage(void);'; do
+              func="${decl#* }"; func="${func%%(*}"
+              grep -q "$func" include/linux/susfs.h 2>/dev/null || echo "$decl" >> include/linux/susfs.h
+            done
           fi
 
           # KPM: MODULE_IMPORT_NS not in 4.19
@@ -132,9 +143,8 @@ jobs:
           if [ -f "drivers/kernelsu/hook/arm64/patch_memory.c" ]; then
             sed -i 's|copy_to_kernel_nofault(|memcpy(|g' drivers/kernelsu/hook/arm64/patch_memory.c
           fi
-          if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-            cp ../kernel-patches/file_wrapper_stub.c drivers/kernelsu/infra/file_wrapper.c
-          fi
+          # builtin branch has its own file_wrapper, seccomp_cache, etc.
+          # No stub replacement needed - only compatibility fixes
           if [ -f "drivers/kernelsu/infra/seccomp_cache.c" ]; then
             grep -q "SECCOMP_ARCH_NATIVE_NR" drivers/kernelsu/infra/seccomp_cache.c && \
               sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 400\n#endif' drivers/kernelsu/infra/seccomp_cache.c
@@ -143,7 +153,8 @@ jobs:
             sed -i 's|#include <uapi/linux/mount.h>|#include <linux/mount.h>|' drivers/kernelsu/infra/su_mount_ns.c
           fi
           if [ -f "drivers/kernelsu/manager/pkg_observer.c" ]; then
-            cp ../kernel-patches/pkg_observer_stub.c drivers/kernelsu/manager/pkg_observer.c
+            # builtin branch has its own pkg_observer - no stub needed
+            true
           fi
           if [ -f "drivers/kernelsu/policy/allowlist.c" ]; then
             sed -i 's/TWA_RESUME/0/g' drivers/kernelsu/policy/allowlist.c
@@ -163,13 +174,16 @@ jobs:
             sed -i 's/selinux_cred(cred)/((struct task_security_struct *)cred->security)/g' drivers/kernelsu/selinux/selinux.c
           fi
           if [ -f "drivers/kernelsu/selinux/rules.c" ]; then
-            cp ../kernel-patches/rules_stub.c drivers/kernelsu/selinux/rules.c
+            # builtin branch has its own selinux rules
+            true
           fi
           if [ -f "drivers/kernelsu/selinux/sepolicy.c" ]; then
-            cp ../kernel-patches/sepolicy_stub.c drivers/kernelsu/selinux/sepolicy.c
+            # builtin branch has its own sepolicy
+            true
           fi
           if [ -f "drivers/kernelsu/sulog/event.c" ]; then
-            cp ../kernel-patches/event_stub.c drivers/kernelsu/sulog/event.c
+            # builtin branch has its own sulog events
+            true
           fi
           if [ -f "drivers/kernelsu/supercall/dispatch.c" ]; then
             sed -i '/static int do_set_init_pgrp/,/^}$/c static int do_set_init_pgrp(void __user *arg)\n{\n    return -EOPNOTSUPP;\n}' drivers/kernelsu/supercall/dispatch.c
@@ -184,10 +198,12 @@ jobs:
             sed -i 's/TWA_RESUME/0/g' drivers/kernelsu/supercall/supercall.c
           fi
           if [ -f "drivers/kernelsu/feature/selinux_hide.c" ]; then
-            cp ../kernel-patches/selinux_hide_stub.c drivers/kernelsu/feature/selinux_hide.c
+            # builtin branch has its own selinux_hide
+            true
           fi
           if [ -f "drivers/kernelsu/feature/ksu_compat.c" ]; then
-            cp ../kernel-patches/kernel_compat_stub.c drivers/kernelsu/feature/ksu_compat.c 2>/dev/null || true
+            # builtin branch has its own ksu_compat
+            true
           fi
 
           # Ensure SUSFS is added to fs/Makefile (susfs-main should have it, but check)
