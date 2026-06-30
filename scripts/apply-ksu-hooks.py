@@ -8,10 +8,11 @@ KERNEL_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
 # Extern declarations to add (the KSU header path isn't available in-tree)
 EXTERNS = (
     '\n'
-    'extern void ksu_handle_faccessat(int *dfd, const char __user **filename, int *mode, void *);\n'
-    'extern void ksu_handle_execveat(int *fd, const char __user **filename, void *argv, void *envp, int *flags);\n'
-    'extern void ksu_handle_vfs_read(struct file **file, char __user **buf, size_t *count, loff_t **pos);\n'
-    'extern void ksu_handle_sys_reboot(void *);\n'
+    '/* KernelSU manual hook declarations (KSUN-legacy compatible) */\n'
+    'extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n'
+    'extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n'
+    'extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n'
+    'extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg);\n'
 )
 
 INCLUDES = {}  # Not used - extern declarations serve the same purpose
@@ -25,7 +26,7 @@ HOOKS = [
     {
         "file": "fs/exec.c",
         "func_pattern": r"^static int __do_execve_file\(int fd",
-        "code": '\tksu_handle_execveat(&fd, &filename->name, NULL, NULL, &flags);\n',
+        "code": '\tksu_handle_execveat(&fd, &filename, NULL, NULL, &flags);\n',
     },
     {
         "file": "fs/read_write.c",
@@ -134,7 +135,7 @@ def main():
 
             # Add hook call inside __orderly_poweroff after variable declarations
             marker = 'static int __orderly_poweroff(bool force)\n{'
-            hook = '\n\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(NULL);\n'
+            hook = '\n\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(0, 0, 0, NULL);\n'
             if marker in content:
                 insert_pos = content.index(marker) + len(marker)
                 # Find the first non-var-decl line after the opening brace
