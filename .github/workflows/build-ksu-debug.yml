@@ -97,87 +97,23 @@ jobs:
           if grep -q "config KSU_SUSFS" KernelSU/kernel/Kconfig 2>/dev/null; then
             echo "Already present, skipping"
           else
-            # Append SUSFS Kconfig menu directly to KernelSU/kernel/Kconfig
-            cat >> KernelSU/kernel/Kconfig << 'KCONFIG_EOF'
-
-menu "KernelSU - SUSFS"
-config KSU_SUSFS
-    bool "KernelSU addon - SUSFS"
-    depends on KSU
-    default y
-
-config KSU_SUSFS_HAS_MAGIC_MOUNT
-    bool "Magic mount support"
-    depends on KSU
-    default n
-
-config KSU_SUSFS_SUS_PATH
-    bool "Hide suspicious path"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_MOUNT
-    bool "Hide suspicious mounts"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-    bool "Auto-hide KSU default mounts"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-    bool "Auto-hide bind mounts"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
-
-config KSU_SUSFS_SUS_KSTAT
-    bool "Spoof kstat"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_OVERLAYFS
-    bool "Spoof overlayfs kstat"
-    depends on KSU_SUSFS
-    default n
-
-config KSU_SUSFS_TRY_UMOUNT
-    bool "Try umount"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-    bool "Auto try-umount bind mounts"
-    depends on KSU_SUSFS_TRY_UMOUNT
-    default y
-
-config KSU_SUSFS_SPOOF_UNAME
-    bool "Spoof uname"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_ENABLE_LOG
-    bool "SUSFS debug log"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-    bool "Hide KSU/SUSFS from kallsyms"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-    bool "Spoof cmdline/bootconfig"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_OPEN_REDIRECT
-    bool "Open redirect"
-    depends on KSU_SUSFS
-    default y
-
-endmenu
-KCONFIG_EOF
+            # Append SUSFS Kconfig menu (use printf to avoid YAML heredoc issues)
+            printf '\nmenu "KernelSU - SUSFS"\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS\n    bool "KernelSU addon - SUSFS"\n    depends on KSU\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SUS_PATH\n    bool "Hide suspicious path"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SUS_MOUNT\n    bool "Hide suspicious mounts"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n    bool "Auto-hide KSU default mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n    bool "Auto-hide bind mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SUS_KSTAT\n    bool "Spoof kstat"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SUS_OVERLAYFS\n    bool "Spoof overlayfs kstat"\n    depends on KSU_SUSFS\n    default n\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_TRY_UMOUNT\n    bool "Try umount"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n    bool "Auto try-umount bind mounts"\n    depends on KSU_SUSFS_TRY_UMOUNT\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SPOOF_UNAME\n    bool "Spoof uname"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_ENABLE_LOG\n    bool "SUSFS debug log"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n    bool "Hide KSU/SUSFS from kallsyms"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n    bool "Spoof cmdline/bootconfig"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            echo "endmenu" >> KernelSU/kernel/Kconfig
             echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' KernelSU/kernel/Kconfig)"
           fi
 
