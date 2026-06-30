@@ -138,7 +138,12 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     if not s_match:
         print("  ERROR: cannot find sentinel entry in dispatch table")
         return False
-    s_pos = s_match.start()
+    # Insert BEFORE the sentinel's opening brace, not before .cmd=0
+    # (the regex matches .cmd=0 but the entry also has a preceding {)
+    s_pos = content.rfind('{', pos, s_match.start())
+    if s_pos < 0:
+        print("  ERROR: cannot find sentinel opening brace")
+        return False
     
     table_entry = (
         '    {\n'
