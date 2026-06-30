@@ -102,6 +102,28 @@ jobs:
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
         run: |
+          # === add missing SUSFS declarations (kernel-4.19 branch is too old for rsuntk) ===
+          if [ -f "include/linux/susfs.h" ]; then
+            for decl in \
+              'int susfs_start_sdcard_monitor_fn(void);' \
+              'int susfs_enable_log(void __user *arg);' \
+              'int susfs_add_sus_path_loop(void __user *arg);' \
+              'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' \
+              'int susfs_add_sus_map(void __user *arg);' \
+              'int susfs_set_avc_log_spoofing(void __user *arg);' \
+              'int susfs_get_enabled_features(void __user *arg);' \
+              'int susfs_show_variant(void __user *arg);' \
+              'int susfs_show_version(void __user *arg);' \
+              'bool susfs_starts_with(const char *str, const char *prefix);' \
+              'bool susfs_ends_with(const char *str, const char *suffix);' \
+              'bool susfs_is_current_proc_umounted(void);' \
+              'void susfs_set_current_proc_umounted(void);' \
+              'void ksu_selinux_hide_handle_post_fs_data(void);' \
+              'void ksu_selinux_hide_handle_second_stage(void);'; do
+              func="${decl#* }"; func="${func%%(*}"
+              grep -q "$func" include/linux/susfs.h 2>/dev/null || echo "$decl" >> include/linux/susfs.h
+            done
+          fi
           # strncpy_from_user_nofault not in 4.19
           if [ -f "drivers/kernelsu/sulog/event.c" ]; then
             sed -i 's|strncpy_from_user_nofault(|strncpy_from_user(|g' drivers/kernelsu/sulog/event.c
