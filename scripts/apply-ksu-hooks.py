@@ -129,7 +129,7 @@ def main():
                 if line.startswith('#include'):
                     last_include = i
             if last_include >= 0:
-                extern_block = '\nextern void ksu_handle_sys_reboot(void *);\n'
+                extern_block = '\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg);\n'
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
