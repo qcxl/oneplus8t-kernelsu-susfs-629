@@ -55,11 +55,12 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate KernelSU (tiann/KernelSU - standard)
+      - name: Integrate KernelSU-Next (legacy branch - non-GKI 4.19)
         working-directory: kernel
         run: |
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" \
-            | bash -
+          # KernelSU-Next legacy: designed for non-GKI, default y if !KPROBES
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
+            | bash -s legacy
 
       - name: Apply manual hook source patches
         working-directory: kernel
