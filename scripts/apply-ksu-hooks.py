@@ -132,11 +132,23 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Add hook call inside __orderly_poweroff
+            # Add hook call inside __orderly_poweroff after variable declarations
             marker = 'static int __orderly_poweroff(bool force)\n{'
-            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(NULL);\n'
+            hook = '\n\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(NULL);\n'
             if marker in content:
                 insert_pos = content.index(marker) + len(marker)
+                # Find the first non-var-decl line after the opening brace
+                rest = content[insert_pos:]
+                lines_rest = rest.split('\n')
+                skip_lines = 0
+                for line in lines_rest:
+                    stripped = line.strip()
+                    if stripped == '' or VAR_DECL_RE.match(stripped):
+                        skip_lines += 1
+                    else:
+                        break
+                # Move insert_pos past skipped lines
+                insert_pos += sum(len(l) + 1 for l in lines_rest[:skip_lines])
                 content = content[:insert_pos] + hook + content[insert_pos:]
                 with open(reboot_path, 'w') as f:
                     f.write(content)
