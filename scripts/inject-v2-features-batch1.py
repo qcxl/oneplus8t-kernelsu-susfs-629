@@ -53,8 +53,8 @@ def inject_susfs_def_h():
     path = "include/linux/susfs_def.h"
     changes = [
         # CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING before CMD_SUSFS_ADD_SUS_MAP
-        ('CMD_SUSFS_ADD_SUS_MAP', 
-         '#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x60010\n#define CMD_SUSFS_ADD_SUS_MAP'),
+        ('#define CMD_SUSFS_ADD_SUS_MAP 0x60020', 
+         '#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x60010\n#define CMD_SUSFS_ADD_SUS_MAP 0x60020'),
         # Add size constants after SUSFS_MAX_LEN_PATHNAME
         ('#define SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE 4096',
          '#define SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE 8192\n#define SUSFS_ENABLED_FEATURES_SIZE 8192\n#define SUSFS_MAX_VERSION_BUFSIZE 16\n#define SUSFS_MAX_VARIANT_BUFSIZE 16\n'),
@@ -102,14 +102,12 @@ def inject_susfs_h():
         '#endif\n'
     )
     
-    # Insert struct after the last #endif of feature sections
+    # Insert struct AFTER the last #endif of feature sections, before 
+    # the next non-feature declaration (susfs_get_enabled_features)
     lines = open(os.path.join(KERNEL_ROOT, path)).read().split('\n')
     
-    # Find the line with #endif that closes /* sus_su */ or /* open_redirect */
-    # and insert avc struct before it
-    inserted_struct = False
-    for i in range(len(lines) - 1, -1, -1):
-        if lines[i].strip() == '#endif' and 'sus_su' in lines[i - 1] if i > 0 else False:
+    for i, line in enumerate(lines):
+        if line.strip().startswith('int susfs_get_enabled_features'):
             lines.insert(i, avc_struct)
             inserted_struct = True
             break
