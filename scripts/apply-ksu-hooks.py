@@ -8,13 +8,10 @@ KERNEL_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
 # Extern declarations to add (the KSU header path isn't available in-tree)
 EXTERNS = (
     '\n'
-    '/* KernelSU manual hook - inserted by build script */\n'
-    '#ifdef CONFIG_KSU\n'
     'extern void ksu_handle_faccessat(int *dfd, const char __user **filename, int *mode, void *);\n'
     'extern void ksu_handle_execveat(int *fd, const char __user **filename, void *argv, void *envp, int *flags);\n'
     'extern void ksu_handle_vfs_read(struct file **file, char __user **buf, size_t *count, loff_t **pos);\n'
     'extern void ksu_handle_sys_reboot(void *);\n'
-    '#endif\n'
 )
 
 INCLUDES = {
@@ -109,11 +106,7 @@ def insert_hook(filepath, func_pattern, hook_code):
             if is_blank or is_var_decl:
                 result.append(line)
             else:
-                guard = '#ifdef CONFIG_KSU\n'
-                end = '#endif /* CONFIG_KSU */\n'
-                result.append(guard)
                 result.append(hook_code)
-                result.append(end)
                 result.append(line)
                 hooked = True
                 in_func = False
@@ -145,13 +138,13 @@ def main():
                 if line.startswith('#include'):
                     last_include = i
             if last_include >= 0:
-                extern_block = '\n#ifdef CONFIG_KSU\nextern void ksu_handle_sys_reboot(void *);\n#endif /* CONFIG_KSU */\n'
+                extern_block = '\nextern void ksu_handle_sys_reboot(void *);\n'
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
             # Add hook call inside __orderly_poweroff
             marker = 'static int __orderly_poweroff(bool force)\n{'
-            hook = '\n#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(NULL);\n#endif /* CONFIG_KSU */\n'
+            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(NULL);\n'
             if marker in content:
                 insert_pos = content.index(marker) + len(marker)
                 content = content[:insert_pos] + hook + content[insert_pos:]
