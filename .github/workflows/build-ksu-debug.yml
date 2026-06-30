@@ -55,14 +55,14 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate SukiSU-Ultra (builtin branch - non-GKI 4.19)
+      - name: Integrate KernelSU (tiann/KernelSU - standard)
         working-directory: kernel
         run: |
-          # builtin = official non-GKI branch with standard ksu_handle_* functions
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
-            | bash -s builtin
+          # Standard KernelSU with manual hook + SUSFS v1.4.2
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" \
+            | bash -
 
-      - name: Apply SUSFS v1.4.2 for kernel-4.19 + stubs
+      - name: Apply SUSFS v1.4.2-kernel-4.19 + stubs
         working-directory: kernel
         run: |
           git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>/dev/null || true
@@ -76,8 +76,6 @@ jobs:
           cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
           cp ../kernel-patches/susfs_stubs.c fs/
           echo "obj-y += susfs_stubs.o" >> fs/Makefile
-          echo "=== SUSFS v1.4.2 applied ==="
-          ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
       - name: Apply manual hook source patches
         working-directory: kernel
