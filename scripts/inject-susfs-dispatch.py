@@ -284,7 +284,15 @@ def patch_core_init(kernel_root):
                             last_return_line = li
                     if last_return_line > 0:
                         indent = '\t'
-                        block = f'\n{indent}/* susfs init */\n{indent}#ifdef CONFIG_KSU_SUSFS\n{indent}    susfs_init();\n{indent}#endif\n'
+                        block = (
+                            f'\n{indent}/* susfs init */\n'
+                            f'{indent}#ifdef CONFIG_KSU_SUSFS\n'
+                            f'{indent}    susfs_init();\n'
+                            f'{indent}#endif\n'
+                            f'\n'
+                            f'{indent}/* Install KSU fd for userspace communication */\n'
+                            f'{indent}ksu_install_fd();\n'
+                        )
                         lines.insert(last_return_line, block)
                         inserted = True
                         new_lines = lines
