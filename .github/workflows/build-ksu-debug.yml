@@ -86,6 +86,29 @@ jobs:
           grep "SUSFS_VERSION" include/linux/susfs.h 2>/dev/null || echo "SUSFS_VERSION not found"
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
+      - name: Register SUSFS Kconfig and dispatch for KernelSU-Next legacy
+        working-directory: kernel
+        run: |
+          # SUSFS Kconfig symbols must be registered BEFORE merge_config.sh,
+          # otherwise CONFIG_KSU_SUSFS_* are silently ignored.
+          echo "=== Adding SUSFS Kconfig menu ==="
+          if grep -q "config KSU_SUSFS" KernelSU/kernel/Kconfig 2>/dev/null; then
+            echo "Already present, skipping"
+          else
+            # Append SUSFS menu from the dedicated patch
+            patch -p1 --forward --fuzz=5 < ../kernel-patches/susfs-kconfig-ksun.patch || {
+              echo "Kconfig patch failed, appending manually..."
+              cat ../kernel-patches/susfs-kconfig-ksun.patch | \
+                awk '/^+menu "KernelSU - SUSFS"/,/^+endmenu/' | \
+                sed 's/^+//' >> KernelSU/kernel/Kconfig
+            }
+            echo "KSU_SUSFS in Kconfig:"
+            grep -c "config KSU_SUSFS" KernelSU/kernel/Kconfig
+          fi
+
+          echo "=== Injecting SUSFS dispatch glue ==="
+          python3 ../scripts/inject-susfs-dispatch.py .
+
       - name: Apply manual hook source patches
         working-directory: kernel
         run: |
@@ -174,6 +197,8 @@ jobs:
 
           echo "=== Config ready ==="
           grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_RAMOOPS=|CONFIG_PSTORE_RAM=" out/.config
+          echo "SUSFS options:"
+          grep "CONFIG_KSU_SUSFS_" out/.config | sort
 
       - name: Save .config for debug
         working-directory: kernel
@@ -222,6 +247,11 @@ jobs:
             gzip -c "$IMAGE" > "$IMAGE_GZ"
             fi
             ls -lh out/arch/arm64/boot/
+            # Verify KSU + SUSFS symbols in vmlinux
+            if [ -f out/vmlinux ]; then
+              nm out/vmlinux | grep -c "ksu_handle" > /dev/null && echo "KSU symbols: $(nm out/vmlinux | grep -c "ksu_handle") found" || echo "WARNING: no ksu_handle symbols"
+              nm out/vmlinux | grep -c "susfs_init" > /dev/null && echo "SUSFS: susfs_init found" || echo "ERROR: susfs_init NOT in vmlinux!"
+            fi
 
       - name: Prepare artifact
         run: |
