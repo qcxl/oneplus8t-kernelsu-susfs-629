@@ -1,4 +1,4 @@
-name: Build KSU + SUSFS Kernel (debug)
+name: Build rsuntk KSU + SUSFS Kernel (debug)
 
 on:
   push:
