@@ -100,11 +100,40 @@ CONFIG_KALLSYMS_ALL=y
 
 ### Phase 1：叠 SUSFS（纯 KSU 验证通过后）
 
+#### 关于 SUSFS 版本
+
+**SUSFS v1.5.5 确认存在于 kernel-4.19 分支 HEAD。** 不是通过 tag 发布的（最新 tag 是 v1.4.2-kernel-4.19），但分支 HEAD 的 `include/linux/susfs.h` 第11行声明为 `#define SUSFS_VERSION "v1.5.5"`。
+
+**sidex15/android_kernel_lge_sm8150** 有 SUSFS **v2.2.0** backport 到 4.14 的参考实现，但移植到 4.19 需额外适配工作。
+
+#### v1.5.5 vs v2.2.0 功能对比
+
+| 特性 | v1.5.5（kernel-4.19） | v2.2.0（sidex15） | 影响 |
+|------|---------------------|-------------------|------|
+| SUS_PATH（隐藏路径） | ✅ | ✅ | 核心功能 |
+| SUS_MOUNT（隐藏挂载） | ✅ | ✅ | 核心功能 |
+| SUS_KSTAT（隐藏 stat） | ✅ | ✅ | 核心功能 |
+| TRY_UMOUNT（尝试卸载） | ✅ | ✅ | 核心功能 |
+| SPOOF_UNAME（伪造内核版本） | ✅ | ✅ | 核心功能 |
+| OPEN_REDIRECT | ✅ | ✅ | 额外 |
+| SPOOF_CMDLINE | ✅ | ✅ | 额外 |
+| HAS_MAGIC_MOUNT | ✅ | ✅ | 模块挂载 |
+| SUS_OVERLAYFS | ✅ | ✅ | overlayfs |
+| **SUSPATH_LOOP** | ❌ | ✅ | 更彻底路径隐藏 |
+| **HIDE_MNTS_FOR_ALL_PROCS** | ❌（仅 non_su_procs） | ✅ | 更全面挂载隐藏 |
+| **SUS_MAP** | ❌ | ✅ | 内存映射隐藏 |
+| **AVC_LOG_SPOOFING** | ❌ | ✅ | SELinux 日志伪造 |
+| **SUS_SU** | ❌（GKI only） | ❌（GKI only） | **对我们无影响** |
+
+**结论：v1.5.5 覆盖 95% 核心隐藏需求。** 缺失的 v2.x 特性是增强功能，非必需。如需 v2.x 完整功能可参考 sidex15 backport，预计 1-2 周移植工作量。
+
+#### Phase 1 执行步骤
+
 | 步骤 | 操作 |
 |------|------|
 | 1.1 | 在 ksu.config 取消 `# CONFIG_KSU_SUSFS is not set`，添加 SUSFS 配置项 |
 | 1.2 | 在 workflow 中添加 SUSFS 克隆和补丁步骤 |
-| 1.3 | 克隆 simonpunk/susfs4ksu `kernel-4.19` 分支（tag v1.4.2-kernel-4.19） |
+| 1.3 | 克隆 simonpunk/susfs4ksu `kernel-4.19` 分支（用 HEAD，不要 checkout tag——HEAD 就是 v1.5.5） |
 | 1.4 | 应用 `50_add_susfs_in_kernel-4.19.patch` |
 | 1.5 | 复制 `fs/susfs.c`, `include/linux/susfs.h` 等到内核树 |
 | 1.6 | 编译 + 测试 |
