@@ -142,33 +142,15 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Add hook call inside __orderly_poweroff after variable declarations
-            marker = 'static int __orderly_poweroff(bool force)\n{'
-            hook = '\n\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(0, 0, 0, NULL);\n'
-            if marker in content:
-                insert_pos = content.index(marker) + len(marker)
-                # Find the first non-var-decl line after the opening brace
-                rest = content[insert_pos:]
-                lines_rest = rest.split('\n')
-                skip_lines = 0
-                for line in lines_rest:
-                    stripped = line.strip()
-                    if stripped == '' or VAR_DECL_RE.match(stripped):
-                        skip_lines += 1
-                    else:
-                        break
-                # Move insert_pos past skipped lines
-                insert_pos += sum(len(l) + 1 for l in lines_rest[:skip_lines])
-                content = content[:insert_pos] + hook + content[insert_pos:]
+            # Add hook call inside __orderly_poweroff via simple string replacement
+            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(0, 0, 0, NULL);\n\n\tret = run_cmd(poweroff_cmd);'
+            if '\tret = run_cmd(poweroff_cmd);' in content:
+                content = content.replace('\tret = run_cmd(poweroff_cmd);', hook, 1)
                 with open(reboot_path, 'w') as f:
                     f.write(content)
                 print(f"  [OK] Hook: {reboot_path}")
             else:
-                print(f"  [WARN] No __orderly_poweroff in reboot.c")
-        else:
-            print(f"  [OK] Hook already in reboot.c")
-    else:
-        print(f"  [SKIP] reboot.c not found")
+                print(f"  [WARN] No 'ret = run_cmd' in reboot.c")
 
     # Standard insert_hook for the other files
     for hook in HOOKS:
