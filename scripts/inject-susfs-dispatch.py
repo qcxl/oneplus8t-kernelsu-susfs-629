@@ -124,26 +124,47 @@ def patch_core_init(kernel_root):
             inserted = True
 
     if not inserted:
-        # Fallback: find module_init line and insert before it
+        # Fallback: find function named by module_init and insert inside it
+        # Parse module_init(...) to get the function name
         for i, line in enumerate(lines):
-            if re.match(r'module_init\s*\(', line.strip()):
-                indent = '    '
-                lines.insert(i, f'{indent}#ifdef CONFIG_KSU_SUSFS')
-                lines.insert(i+1, f'{indent}    susfs_init();')
-                lines.insert(i+2, f'{indent}#endif')
-                inserted = True
-                new_lines = lines
+            m = re.match(r'module_init\s*\(\s*(\w+)\s*\)\s*;', line.strip())
+            if m:
+                fn_name = m.group(1)
+                # Find the function definition: look backwards for fn_name(
+                for j in range(i - 1, -1, -1):
+                    if re.search(r'\b' + re.escape(fn_name) + r'\s*\(', lines[j]):
+                        # Found the function. Now find its closing brace.
+                        fn_text = '\n'.join(lines[j:])
+                        brace_depth = 0
+                        started = False
+                        close_pos_in_fn = -1
+                        for k, ch in enumerate(fn_text):
+                            if ch == '{':
+                                brace_depth += 1
+                                started = True
+                            elif ch == '}':
+                                brace_depth -= 1
+                                if started and brace_depth == 0:
+                                    close_pos_in_fn = j + fn_text[:k].count('\n')
+                                    break
+                        if close_pos_in_fn > 0:
+                            # Insert just before the closing brace
+                            indent = '\t'
+                            block = f'\n{indent}/* susfs init */\n{indent}#ifdef CONFIG_KSU_SUSFS\n{indent}    susfs_init();\n{indent}#endif\n'
+                            lines.insert(close_pos_in_fn, block)
+                            inserted = True
+                            new_lines = lines
+                        break
                 break
 
     content = '\n'.join(new_lines)
     if not inserted:
-        # Last resort: find the last function's closing brace
-        print("  WARNING: no banner/module_init found, looking for function end...")
-        match = re.search(r'\n\}\s*\n.*module_init', content)
+        # Last resort: match '}' before module_init
+        print("  WARNING: no banner/module_init function found, trying brace search...")
+        match = re.search(r'\n\}\s*\n.*module_init\b', content)
         if match:
             pos = content.find('}', match.start()) + 1
-            indent = '\n    '
-            block = f'{indent}#ifdef CONFIG_KSU_SUSFS{indent}    susfs_init();{indent}#endif\n'
+            block = '\n#ifdef CONFIG_KSU_SUSFS\n    susfs_init();\n#endif\n'
             content = content[:pos] + block + content[pos:]
             inserted = True
 
@@ -187,24 +208,33 @@ def patch_core_main(kernel_root):
                 print(f"  ERROR: could not add include <{hdr}>")
                 return False
 
-    # 2. Find ksu_handle_prctl function
+    # 2. Find ksu_handle_prctl function and its parameter names
     fn_start, fn_brace = find_fn_boundary(content, r'int\s+ksu_handle_prctl\b')
 
     if fn_brace is None:
-        # Try alternative: ksu_handle_prctl might use different return type
         fn_start, fn_brace = find_fn_boundary(content, r'\bksu_handle_prctl\b')
 
     if fn_brace is None:
         print("  ERROR: could not find ksu_handle_prctl() function in main.c")
-        print("  (expected signature: 'int ksu_handle_prctl(...)' or similar)")
         return False
 
-    # 3. Build the dispatch block
+    # Read function signature from fn_start to fn_brace to detect parameter names
+    fn_sig = content[fn_start:fn_brace].strip()
+    # Determine parameter variable names from signature
+    if 'arg3' in fn_sig:
+        p_arg2, p_arg3 = 'arg2', 'arg3'
+    elif 'data1' in fn_sig:
+        p_arg2, p_arg3 = 'data1', 'data2'
+    else:
+        # Generic fallback: find the last 2 or 3 parameter names
+        p_arg2, p_arg3 = 'arg2', 'arg3'
+
+    # 3. Build the dispatch block (uses detected param names)
     dispatch_block = (
         '\n#ifdef CONFIG_KSU_SUSFS\n'
         '\tif (current_uid().val == 0) {\n'
-        '\t\tvoid __user *uarg = (void __user *)arg3;\n'
-        '\t\tswitch (arg2) {\n'
+        f'\t\tvoid __user *uarg = (void __user *){p_arg3};\n'
+        f'\t\tswitch ({p_arg2}) {{\n'
         '\t\tcase CMD_SUSFS_ADD_SUS_PATH:\n'
         '\t\t\tsusfs_add_sus_path((struct st_susfs_sus_path __user *)uarg);\n'
         '\t\t\treturn 0;\n'
@@ -224,7 +254,7 @@ def patch_core_main(kernel_root):
         '\t\t\tsusfs_add_open_redirect((struct st_susfs_open_redirect __user *)uarg);\n'
         '\t\t\treturn 0;\n'
         '\t\tcase CMD_SUSFS_ENABLE_LOG:\n'
-        '\t\t\tsusfs_set_log((int)arg3);\n'
+        f'\t\t\tsusfs_set_log((int){p_arg3});\n'
         '\t\t\treturn 0;\n'
         '\t\tcase CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:\n'
         '\t\t\tsusfs_set_cmdline_or_bootconfig((char __user *)uarg);\n'
@@ -240,13 +270,35 @@ def patch_core_main(kernel_root):
         '#endif /* CONFIG_KSU_SUSFS */\n\n'
     )
 
-    # 4. Find insertion point: right after the opening brace of ksu_handle_prctl
-    insert_pos = content.find('\n', fn_brace)
-    if insert_pos < 0:
-        insert_pos = fn_brace + 1
+    # 4. Find insertion point: after variable declarations but before first statement
+    #    (C89/gnu89 requires declarations before statements in a block)
+    after_brace = fn_brace + 1
+    # Find the end of the brace line
+    nl = content.find('\n', fn_brace)
+    after_open = nl + 1 if nl >= 0 else after_brace
 
-    before = content[:insert_pos + 1]
-    after = content[insert_pos + 1:]
+    # Scan for first non-blank, non-declaration line
+    rest = content[after_open:]
+    VAR_START_RE = re.compile(
+        r'^\s*(?:struct |const |int |char |void |size_t |ssize_t |long |unsigned |'
+        r'static |bool |u8 |u16 |u32 |u64 |__u8 |__u16 |__u32 |__u64 |'
+        r'atomic_t |wait_queue_head_t |spinlock_t |mutex )'
+    )
+    lines_rest = rest.split('\n')
+    skip = 0
+    for line in lines_rest:
+        stripped = line.strip()
+        if stripped == '' or stripped.startswith('/*') or stripped.startswith('*') or stripped.startswith('//'):
+            skip += 1
+        elif VAR_START_RE.match(stripped):
+            skip += 1
+        else:
+            break
+
+    insert_offset = sum(len(l) + 1 for l in lines_rest[:skip])
+    insert_pos = after_open + insert_offset
+    before = content[:insert_pos]
+    after = content[insert_pos:]
     content = before + dispatch_block + after
 
     with open(main_path, 'w') as f:

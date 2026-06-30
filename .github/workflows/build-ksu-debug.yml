@@ -97,15 +97,88 @@ jobs:
           if grep -q "config KSU_SUSFS" KernelSU/kernel/Kconfig 2>/dev/null; then
             echo "Already present, skipping"
           else
-            # Append SUSFS menu from the dedicated patch
-            patch -p1 --forward --fuzz=5 < ../kernel-patches/susfs-kconfig-ksun.patch || {
-              echo "Kconfig patch failed, appending manually..."
-              cat ../kernel-patches/susfs-kconfig-ksun.patch | \
-                awk '/^+menu "KernelSU - SUSFS"/,/^+endmenu/' | \
-                sed 's/^+//' >> KernelSU/kernel/Kconfig
-            }
-            echo "KSU_SUSFS in Kconfig:"
-            grep -c "config KSU_SUSFS" KernelSU/kernel/Kconfig
+            # Append SUSFS Kconfig menu directly to KernelSU/kernel/Kconfig
+            cat >> KernelSU/kernel/Kconfig << 'KCONFIG_EOF'
+
+menu "KernelSU - SUSFS"
+config KSU_SUSFS
+    bool "KernelSU addon - SUSFS"
+    depends on KSU
+    default y
+
+config KSU_SUSFS_HAS_MAGIC_MOUNT
+    bool "Magic mount support"
+    depends on KSU
+    default n
+
+config KSU_SUSFS_SUS_PATH
+    bool "Hide suspicious path"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_MOUNT
+    bool "Hide suspicious mounts"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+    bool "Auto-hide KSU default mounts"
+    depends on KSU_SUSFS_SUS_MOUNT
+    default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+    bool "Auto-hide bind mounts"
+    depends on KSU_SUSFS_SUS_MOUNT
+    default y
+
+config KSU_SUSFS_SUS_KSTAT
+    bool "Spoof kstat"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_OVERLAYFS
+    bool "Spoof overlayfs kstat"
+    depends on KSU_SUSFS
+    default n
+
+config KSU_SUSFS_TRY_UMOUNT
+    bool "Try umount"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+    bool "Auto try-umount bind mounts"
+    depends on KSU_SUSFS_TRY_UMOUNT
+    default y
+
+config KSU_SUSFS_SPOOF_UNAME
+    bool "Spoof uname"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_ENABLE_LOG
+    bool "SUSFS debug log"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+    bool "Hide KSU/SUSFS from kallsyms"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+    bool "Spoof cmdline/bootconfig"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_OPEN_REDIRECT
+    bool "Open redirect"
+    depends on KSU_SUSFS
+    default y
+
+endmenu
+KCONFIG_EOF
+            echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' KernelSU/kernel/Kconfig)"
           fi
 
           echo "=== Injecting SUSFS dispatch glue ==="
