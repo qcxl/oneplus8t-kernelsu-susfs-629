@@ -116,6 +116,7 @@ jobs:
             printf 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n    bool "Hide KSU/SUSFS from kallsyms"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n    bool "Spoof cmdline/bootconfig"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+            printf 'config KSU_SUSFS_SUS_MAP\n    bool "Hide /proc/pid/maps entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             echo "endmenu" >> "$KSU_KCONFIG"
             echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' "$KSU_KCONFIG")"
           fi
@@ -134,6 +135,21 @@ jobs:
             echo "WARNING: inject script did not add extern, adding via sed"
             sed -i '/^extern void __init ksu_lsm_hook_init/a extern void susfs_init(void);' drivers/kernelsu/core/init.c
           fi
+
+      - name: Inject SUSFS sus_map feature (Phase 1b)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting sus_map feature ==="
+          python3 ../scripts/inject-susfs-sus-map.py .
+          echo "=== Verification ==="
+          echo "susfs_def.h SUS_MAP:"
+          grep -c 'SUS_MAP' include/linux/susfs_def.h 2>/dev/null || echo "0"
+          echo "susfs.h SUS_MAP:"
+          grep -c 'SUS_MAP' include/linux/susfs.h 2>/dev/null || echo "0"
+          echo "susfs.c susfs_add_sus_map:"
+          grep -c 'susfs_add_sus_map' fs/susfs.c 2>/dev/null || echo "0"
+          echo "task_mmu.c SUS_MAP:"
+          grep -c 'SUS_MAP' fs/proc/task_mmu.c 2>/dev/null || echo "0"
 
       - name: Apply manual hook source patches
         working-directory: kernel
