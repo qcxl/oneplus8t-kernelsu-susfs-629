@@ -280,9 +280,18 @@ def patch_core_main(kernel_root):
     # Scan for first non-blank, non-declaration line
     rest = content[after_open:]
     VAR_START_RE = re.compile(
-        r'^\s*(?:struct |const |int |char |void |size_t |ssize_t |long |unsigned |'
-        r'static |bool |u8 |u16 |u32 |u64 |__u8 |__u16 |__u32 |__u64 |'
-        r'atomic_t |wait_queue_head_t |spinlock_t |mutex )'
+        r'^\s*(?:'
+        r'struct |const |enum |union |static |extern |inline |'
+        r'int |char |void |long |short |float |double |'
+        r'size_t |ssize_t |bool |'
+        r'u8 |u16 |u32 |u64 |s8 |s16 |s32 |s64 |'
+        r'__u8 |__u16 |__u32 |__u64 |'
+        r'pid_t |uid_t |gid_t |loff_t |ktime_t |sector_t |'
+        r'dev_t |ino_t |mode_t |nlink_t |blkcnt_t |'
+        r'atomic_t |wait_queue_head_t |spinlock_t |mutex |'
+        r'vm_flags_t |gfp_t |fmode_t |'
+        r'unsigned |signed |'
+        r')'
     )
     lines_rest = rest.split('\n')
     skip = 0

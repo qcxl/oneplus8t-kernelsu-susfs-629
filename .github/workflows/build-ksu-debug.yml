@@ -100,6 +100,7 @@ jobs:
             # Append SUSFS Kconfig menu (use printf to avoid YAML heredoc issues)
             printf '\nmenu "KernelSU - SUSFS"\n' >> KernelSU/kernel/Kconfig
             printf 'config KSU_SUSFS\n    bool "KernelSU addon - SUSFS"\n    depends on KSU\n    default y\n\n' >> KernelSU/kernel/Kconfig
+            printf 'config KSU_SUSFS_HAS_MAGIC_MOUNT\n    bool "Magic mount support"\n    depends on KSU\n    default n\n\n' >> KernelSU/kernel/Kconfig
             printf 'config KSU_SUSFS_SUS_PATH\n    bool "Hide suspicious path"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
             printf 'config KSU_SUSFS_SUS_MOUNT\n    bool "Hide suspicious mounts"\n    depends on KSU_SUSFS\n    default y\n\n' >> KernelSU/kernel/Kconfig
             printf 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n    bool "Auto-hide KSU default mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> KernelSU/kernel/Kconfig
