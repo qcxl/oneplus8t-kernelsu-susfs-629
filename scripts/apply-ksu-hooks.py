@@ -42,7 +42,7 @@ HOOKS = [
     },
     {
         "file": "kernel/reboot.c",
-        "func_pattern": r"^void __orderly_poweroff\|^static int __orderly_poweroff\|^int orderly_poweroff",
+        "func_pattern": r"^static int __orderly_poweroff\|^void orderly_poweroff",
         "code": '\tksu_handle_sys_reboot(NULL);\n',
     },
 ]
