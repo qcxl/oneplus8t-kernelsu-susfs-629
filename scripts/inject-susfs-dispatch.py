@@ -204,9 +204,10 @@ def patch_core_init(kernel_root):
     inserted = False
 
     for i, line in enumerate(lines):
-        m = re.match(r'module_init\s*\(\s*(\w+)\s*\)\s*;', line.strip())
+        # Skip kernelsu_init_early (conditional stub), target real init
+        m = re.match(r'module_init\s*\(\s*kernelsu_init\s*\)\s*;', line.strip())
         if m:
-            fn_name = m.group(1)
+            fn_name = "kernelsu_init"
             # Walk backward to find function definition
             for j in range(i - 1, -1, -1):
                 if re.search(r'\b' + re.escape(fn_name) + r'\s*\(', lines[j]):
