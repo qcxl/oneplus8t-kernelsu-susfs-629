@@ -67,7 +67,7 @@ jobs:
         run: |
           python3 ../scripts/apply-ksu-hooks.py .
           echo "=== Verification ==="
-          grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read" fs/ 2>/dev/null
+          grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel

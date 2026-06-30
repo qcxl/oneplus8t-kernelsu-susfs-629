@@ -13,8 +13,16 @@ EXTERNS = (
     'extern void ksu_handle_faccessat(int *dfd, const char __user **filename, int *mode, void *);\n'
     'extern void ksu_handle_execveat(int *fd, const char __user **filename, void *argv, void *envp, int *flags);\n'
     'extern void ksu_handle_vfs_read(struct file **file, char __user **buf, size_t *count, loff_t **pos);\n'
+    'extern void ksu_handle_sys_reboot(void *);\n'
     '#endif\n'
 )
+
+INCLUDES = {
+    "fs/open.c": '#include <linux/ksu.h>\n',
+    "fs/exec.c": '#include <linux/ksu.h>\n',
+    "fs/read_write.c": '#include <linux/ksu.h>\n',
+    "kernel/reboot.c": '#include <linux/ksu.h>\n',
+}
 
 HOOKS = [
     {
@@ -31,6 +39,11 @@ HOOKS = [
         "file": "fs/read_write.c",
         "func_pattern": r"^ssize_t vfs_read\(struct file \*file,",
         "code": '\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n',
+    },
+    {
+        "file": "kernel/reboot.c",
+        "func_pattern": r"^void __orderly_poweroff\|^static int __orderly_poweroff\|^int orderly_poweroff",
+        "code": '\tksu_handle_sys_reboot(NULL);\n',
     },
 ]
 
