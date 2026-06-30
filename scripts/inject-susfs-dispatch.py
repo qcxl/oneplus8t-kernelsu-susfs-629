@@ -191,48 +191,54 @@ def patch_core_init(kernel_root):
             print("  ERROR: could not add include to init file")
             return False
 
-    # Insert susfs_init() call: find banner line or module_init
+    # Insert susfs_init() inside the init function body:
+    # 1) Find module_init() to get the function name
+    # 2) Find the function definition
+    # 3) Find 'return' inside the function
+    # 4) Insert before the last return (not after it!)
+    # NOTE: banner-based insertion is WRONG because the banner
+    # is inside #ifdef CONFIG_KSU_DEBUG -> susfs_init() would
+    # be guarded by DEBUG config and disabled in non-debug builds.
     lines = content.split('\n')
     new_lines = []
     inserted = False
-    banner_pats = [
-        re.compile(r'(pr_alert|pr_info|printk)\s*\(.*KernelSU'),
-    ]
-    for line in lines:
-        new_lines.append(line)
-        if not inserted and any(p.search(line) for p in banner_pats):
-            indent = ' ' * max(4, len(line) - len(line.lstrip()))
-            new_lines.append(f'{indent}#ifdef CONFIG_KSU_SUSFS')
-            new_lines.append(f'{indent}    susfs_init();')
-            new_lines.append(f'{indent}#endif')
-            inserted = True
 
-    if not inserted:
-        for i, line in enumerate(lines):
-            m = re.match(r'module_init\s*\(\s*(\w+)\s*\)\s*;', line.strip())
-            if m:
-                fn_name = m.group(1)
-                for j in range(i - 1, -1, -1):
-                    if re.search(r'\b' + re.escape(fn_name) + r'\s*\(', lines[j]):
-                        fn_text = '\n'.join(lines[j:])
-                        depth = 0
-                        started = False
-                        close = -1
-                        for k, ch in enumerate(fn_text):
+    for i, line in enumerate(lines):
+        m = re.match(r'module_init\s*\(\s*(\w+)\s*\)\s*;', line.strip())
+        if m:
+            fn_name = m.group(1)
+            # Walk backward to find function definition
+            for j in range(i - 1, -1, -1):
+                if re.search(r'\b' + re.escape(fn_name) + r'\s*\(', lines[j]):
+                    # Found function def at line j. Parse body.
+                    brace_depth = 0
+                    fn_started = False
+                    last_return_line = -1
+                    for li in range(j, len(lines)):
+                        l = lines[li]
+                        for ch in l:
                             if ch == '{':
-                                depth += 1
-                                started = True
+                                brace_depth += 1
+                                fn_started = True
                             elif ch == '}':
-                                depth -= 1
-                                if started and depth == 0:
-                                    close = j + fn_text[:k].count('\n')
+                                brace_depth -= 1
+                                if fn_started and brace_depth <= 0:
                                     break
-                        if close > 0:
-                            lines.insert(close, '\n\t/* susfs init */\n\t#ifdef CONFIG_KSU_SUSFS\n\t    susfs_init();\n\t#endif\n')
-                            inserted = True
-                            new_lines = lines
-                        break
-                break
+                        if not fn_started:
+                            continue
+                        if brace_depth <= 0:
+                            break
+                        stripped = l.strip()
+                        if stripped.startswith('return ') and stripped.endswith(';'):
+                            last_return_line = li
+                    if last_return_line > 0:
+                        indent = '\t'
+                        block = f'\n{indent}/* susfs init */\n{indent}#ifdef CONFIG_KSU_SUSFS\n{indent}    susfs_init();\n{indent}#endif\n'
+                        lines.insert(last_return_line, block)
+                        inserted = True
+                        new_lines = lines
+                    break
+            break
 
     content = '\n'.join(new_lines)
     if not inserted:
