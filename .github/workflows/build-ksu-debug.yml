@@ -144,6 +144,7 @@ jobs:
           fi
           if [ -f "drivers/kernelsu/sulog/event.c" ]; then
             sed -i 's|strncpy_from_user_nofault(|strncpy_from_user(|g' drivers/kernelsu/sulog/event.c
+            sed -i 's|ksu_strncpy_from_user(|strncpy_from_user(|g' drivers/kernelsu/sulog/event.c
           fi
           if [ -f "drivers/kernelsu/hook/arm64/patch_memory.c" ]; then
             sed -i 's|copy_to_kernel_nofault(|memcpy(|g' drivers/kernelsu/hook/arm64/patch_memory.c
