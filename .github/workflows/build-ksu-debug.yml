@@ -55,41 +55,30 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
-      - name: Integrate rsuntk/KernelSU (susfs-rksu-master - non-GKI 4.19)
+      - name: Integrate SukiSU-Ultra (builtin branch - non-GKI 4.19)
         working-directory: kernel
         run: |
-          # rsuntk/KernelSU susfs-rksu-master: manual hook + SUSFS-aware
-          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" \
-            | bash -s susfs-rksu-master
+          # builtin = official non-GKI branch with standard ksu_handle_* functions
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \
+            | bash -s builtin
 
-          # Disable kprobe guards: force manual hook path
-          find -L drivers/kernelsu -type f \( -name '*.c' -o -name '*.h' \) -print0 \
-            | xargs -0 -r sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g'
-
-      - name: Clone and Apply SUSFS (kernel-4.19 branch)
+      - name: Apply SUSFS v1.4.2 for kernel-4.19 + stubs
         working-directory: kernel
         run: |
-          # Clone SUSFS from gitlab (kernel-4.19 branch)
           git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>/dev/null || true
+          cd /tmp/susfs && git checkout v1.4.2-kernel-4.19 2>/dev/null || true
+          cd /build/kernel
           
-          # Apply 50_add_susfs_in_kernel patch
           patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
-          
-          # Copy SUSFS source files
           cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
           cp /tmp/susfs/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           cp /tmp/susfs/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
           cp /tmp/susfs/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
           cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          
-          echo "=== SUSFS files ==="
-          ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null || echo "SUSFS files not found"
-
-          # Add susfs_stubs.c for compatibility functions
           cp ../kernel-patches/susfs_stubs.c fs/
-          if ! grep -q "susfs_stubs.o" fs/Makefile; then
-            echo "obj-y += susfs_stubs.o" >> fs/Makefile
-          fi
+          echo "obj-y += susfs_stubs.o" >> fs/Makefile
+          echo "=== SUSFS v1.4.2 applied ==="
+          ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
       - name: Apply manual hook source patches
         working-directory: kernel
