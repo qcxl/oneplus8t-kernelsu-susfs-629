@@ -126,9 +126,14 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     # 3. Add table entry after the marker (which moved due to insertion)
     #    Recalculate position after insertion
     pos = content.find(marker)
-    # Find the last entry before the sentinel (cmd = 0 sentinel)
-    # Use regex to handle tabs vs spaces in indentation
-    sentinel_pat = re.compile(r'\.cmd\s*=\s*0\s*,[^;]*\.handler\s*=\s*NULL')
+    # Find the sentinel entry (cmd = 0, handler = NULL)
+    # Match each field explicitly with flexible whitespace
+    sentinel_pat = re.compile(
+        r'\.cmd\s*=\s*0\s*,\s*'
+        r'\.name\s*=\s*NULL\s*,\s*'
+        r'\.handler\s*=\s*NULL\s*,\s*'
+        r'\.perm_check\s*=\s*NULL'
+    )
     s_match = sentinel_pat.search(content, pos)
     if not s_match:
         print("  ERROR: cannot find sentinel entry in dispatch table")
