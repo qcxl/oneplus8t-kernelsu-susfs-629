@@ -106,9 +106,11 @@ jobs:
           if [ -f "include/linux/susfs.h" ]; then
             # Ensure KSU files can find SUSFS declarations
             for ksu_file in drivers/kernelsu/sucompat.c drivers/kernelsu/supercalls.c; do
-              if [ -f "$ksu_file" ]; then
-                grep -q '#include <linux/susfs.h>' "$ksu_file" || \
-                  sed -i '1i #include <linux/susfs.h>' "$ksu_file"
+              if [ -f "$ksu_file" ] && ! grep -q '#include <linux/susfs.h>' "$ksu_file"; then
+                # Insert #include after the last #include line
+                awk '/^#include/ { last=NR } { lines[NR]=$0 } 
+                  END { for(i=1;i<=NR;i++) { print lines[i]; if(i==last) print "#include <linux/susfs.h>" } }' "$ksu_file" > "$ksu_file.tmp"
+                mv "$ksu_file.tmp" "$ksu_file"
               fi
             done
             # Add missing function declarations
