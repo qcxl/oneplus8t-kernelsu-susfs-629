@@ -76,7 +76,7 @@ jobs:
           cp /tmp/susfs/kernel_patches/include/linux/sus_su.h include/linux/
           cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/
           cp ../kernel-patches/susfs_stubs.c fs/
-          echo "obj-$(CONFIG_KSU_SUSFS) += susfs_stubs.o" >> fs/Makefile
+          echo "obj-y += susfs_stubs.o" >> fs/Makefile
           echo "=== SUSFS files applied ==="
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
