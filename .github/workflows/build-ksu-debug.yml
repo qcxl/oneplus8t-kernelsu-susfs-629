@@ -131,6 +131,7 @@ jobs:
             printf 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n    bool "Spoof cmdline/bootconfig"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_SUS_MAP\n    bool "Hide /proc/pid/maps entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+            printf 'config KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING\n    bool "Spoof AVC log entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             echo "endmenu" >> "$KSU_KCONFIG"
             echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' "$KSU_KCONFIG")"
           fi
@@ -168,6 +169,19 @@ jobs:
           grep -c 'SUS_MAP' fs/proc/task_mmu.c 2>/dev/null || echo "0"
           echo "supercall.c FAFAFAFA:"
           grep -c 'FAFAFAFA' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
+
+      - name: Inject Batch 1 v2.2.0 features (avc_log + enable_log)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting Batch 1 v2.2.0 features ==="
+          python3 ../scripts/inject-v2-features-batch1.py .
+          echo "=== Verification ==="
+          echo "susfs_def.h AVC_LOG:"
+          grep -c 'AVC_LOG_SPOOFING' include/linux/susfs_def.h 2>/dev/null || echo "0"
+          echo "susfs.c susfs_set_avc_log_spoofing:"
+          grep -c 'susfs_set_avc_log_spoofing' fs/susfs.c 2>/dev/null || echo "0"
+          echo "susfs.c susfs_enable_log:"
+          grep -c 'susfs_enable_log' fs/susfs.c 2>/dev/null || echo "0"
 
       - name: Apply manual hook source patches
         working-directory: kernel
