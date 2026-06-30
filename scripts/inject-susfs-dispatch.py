@@ -63,6 +63,11 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     handler_code = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS\n'
+        '/* SUSFS ioctl command */\n'
+        '#ifndef KSU_IOCTL_SUSFS\n'
+        '#define KSU_IOCTL_SUSFS 0x55\n'
+        '#endif\n'
+        '\n'
         '/* SUSFS ioctl handler - routes sub-commands to susfs.c functions */\n'
         'struct ksu_susfs_ioctl {\n'
         '\t__u32 cmd_id;\n'
@@ -121,16 +126,14 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     # 3. Add table entry after the marker (which moved due to insertion)
     #    Recalculate position after insertion
     pos = content.find(marker)
-    # Find the last entry before the sentinel (0, NULL, NULL, NULL)
-    sentinel = '{0,.name=NULL,.handler=NULL,.perm_check=NULL}'
-    s_pos = content.find(sentinel, pos)
-    if s_pos < 0:
-        # Try alternative sentinel format
-        sentinel = '{\n        .cmd = 0,'
-        s_pos = content.find(sentinel, pos)
-    if s_pos < 0:
+    # Find the last entry before the sentinel (cmd = 0 sentinel)
+    # Use regex to handle tabs vs spaces in indentation
+    sentinel_pat = re.compile(r'\.cmd\s*=\s*0\s*,[^;]*\.handler\s*=\s*NULL')
+    s_match = sentinel_pat.search(content, pos)
+    if not s_match:
         print("  ERROR: cannot find sentinel entry in dispatch table")
         return False
+    s_pos = s_match.start()
     
     table_entry = (
         '    {\n'
@@ -149,49 +152,6 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     with open(dp_path, 'w') as f:
         f.write(content)
     print(f"  Dispatch: SUSFS ioctl handler added to {dp_path}")
-    return True
-
-
-def add_susfs_ioctl_define(kernel_root):
-    """Add KSU_IOCTL_SUSFS command definition to KSUN uapi header."""
-    candidates = [
-        "drivers/kernelsu/include/uapi/supercall.h",
-        "KernelSU/kernel/include/uapi/supercall.h",
-    ]
-    uapi_path = None
-    for c in candidates:
-        p = os.path.join(kernel_root, c)
-        if os.path.exists(p):
-            uapi_path = p
-            break
-    if not uapi_path:
-        print("  WARNING: uapi/supercall.h not found (creating it)")
-        # Find the include/uapi directory
-        for base in ["drivers/kernelsu/include/uapi", "KernelSU/kernel/include/uapi"]:
-            d = os.path.join(kernel_root, base)
-            if os.path.isdir(d):
-                uapi_path = os.path.join(d, "supercall.h")
-                break
-        if not uapi_path:
-            print("  WARNING: cannot find uapi directory for supercall.h")
-            return True  # Non-fatal - the define can go elsewhere
-
-    content = ''
-    if os.path.exists(uapi_path):
-        with open(uapi_path) as f:
-            content = f.read()
-
-    if 'KSU_IOCTL_SUSFS' in content:
-        print(f"  UAPI: KSU_IOCTL_SUSFS already defined")
-        return True
-
-    define = (
-        '\n'
-        '#define KSU_IOCTL_SUSFS 0x55\n'
-    )
-    with open(uapi_path, 'a') if os.path.exists(uapi_path) else open(uapi_path, 'w') as f:
-        f.write(define)
-    print(f"  UAPI: KSU_IOCTL_SUSFS added to {uapi_path}")
     return True
 
 
@@ -294,7 +254,6 @@ def main():
     ok = True
     ok &= patch_core_init(root)
     ok &= add_susfs_handlers_to_dispatch(root)
-    ok &= add_susfs_ioctl_define(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 
