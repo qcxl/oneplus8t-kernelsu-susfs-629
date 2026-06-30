@@ -77,6 +77,8 @@ def find_last_return_in_fn(content, fn_open_brace):
 def patch_core_init(kernel_root):
     """Add include + susfs_init() call to init file."""
     candidates = [
+        "drivers/kernelsu/core/init.c",
+        "drivers/kernelsu/ksu.c",
         "KernelSU/kernel/core/init.c",
         "KernelSU/kernel/ksu.c",
     ]
@@ -181,6 +183,8 @@ def patch_core_init(kernel_root):
 def patch_core_main(kernel_root):
     """Add SUSFS dispatch code to the prctl handler in core/main.c."""
     candidates = [
+        "drivers/kernelsu/core/main.c",
+        "drivers/kernelsu/core_hook.c",
         "KernelSU/kernel/core/main.c",
         "KernelSU/kernel/core_hook.c",
     ]
