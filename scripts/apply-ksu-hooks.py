@@ -142,15 +142,19 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Add hook call inside __orderly_poweroff via simple string replacement
-            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(0, 0, 0, NULL);\n\n\tret = run_cmd(poweroff_cmd);'
-            if '\tret = run_cmd(poweroff_cmd);' in content:
-                content = content.replace('\tret = run_cmd(poweroff_cmd);', hook, 1)
+            # Hook at start of SYSCALL_DEFINE4(reboot...) BEFORE magic check.
+            # KSU Manager calls reboot(KSU_MAGIC1, KSU_MAGIC2, CMD, &fd)
+            # to install KSU fd. Must intercept before the kernel rejects
+            # non-standard magic values.
+            marker = '\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);'
+            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n\n\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);'
+            if marker in content:
+                content = content.replace(marker, hook, 1)
                 with open(reboot_path, 'w') as f:
                     f.write(content)
-                print(f"  [OK] Hook: {reboot_path}")
+                print(f"  [OK] Hook in SYSCALL_DEFINE4(reboot): {reboot_path}")
             else:
-                print(f"  [WARN] No 'ret = run_cmd' in reboot.c")
+                print(f"  [WARN] No SYSCALL_DEFINE4(reboot) marker in reboot.c")
 
     # Standard insert_hook for the other files
     for hook in HOOKS:
