@@ -12,7 +12,7 @@ EXTERNS = (
     'extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n'
     'extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n'
     'extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n'
-    'extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg);\n'
+    'extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n'
 )
 
 INCLUDES = {}  # Not used - extern declarations serve the same purpose
@@ -138,7 +138,7 @@ def main():
                 if line.startswith('#include'):
                     last_include = i
             if last_include >= 0:
-                extern_block = '\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg);\n'
+                extern_block = '\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n'
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
