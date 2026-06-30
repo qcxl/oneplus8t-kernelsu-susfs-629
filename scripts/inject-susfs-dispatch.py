@@ -289,9 +289,6 @@ def patch_core_init(kernel_root):
                             f'{indent}#ifdef CONFIG_KSU_SUSFS\n'
                             f'{indent}    susfs_init();\n'
                             f'{indent}#endif\n'
-                            f'\n'
-                            f'{indent}/* Install KSU fd for userspace communication */\n'
-                            f'{indent}ksu_install_fd();\n'
                         )
                         lines.insert(last_return_line, block)
                         inserted = True

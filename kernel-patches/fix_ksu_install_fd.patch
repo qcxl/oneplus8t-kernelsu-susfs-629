@@ -1,0 +1,29 @@
+Install KSU fd in kernel_init() so PID 1 has the communication channel.
+
+diff --git a/init/main.c b/init/main.c
+index 909045dc07cd..9c10189f0dac 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -86,6 +86,10 @@
+ 
+ #include <asm/io.h>
+ 
++#ifdef CONFIG_KSU
++extern int ksu_install_fd(void);
++#endif
++
+ #define CREATE_TRACE_POINTS
+ #include <trace/events/initcall.h>
+ 
+@@ -1114,6 +1118,11 @@ static int __ref kernel_init(void *unused)
+ 
+ 	kernel_init_freeable();
+ 
++#ifdef CONFIG_KSU
++	if (ksu_install_fd() < 0)
++		pr_err("KSU: failed to install KSU fd\n");
++#endif
++
+ 	/* need to finish all async __init code before freeing the memory */
+ 	async_synchronize_full();
+ 

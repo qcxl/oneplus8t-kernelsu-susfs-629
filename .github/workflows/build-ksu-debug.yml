@@ -55,6 +55,20 @@ jobs:
           patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_dtb_no_qcom.patch || true
           echo "=== Patches applied ==="
 
+      - name: Install KSU fd hook in init/main.c
+        working-directory: kernel
+        run: |
+          if grep -q 'ksu_install_fd' init/main.c 2>/dev/null; then
+            echo "KSU fd hook already in init/main.c"
+          else
+            patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_ksu_install_fd.patch || {
+              echo "WARNING: patch failed, applying manually..."
+              sed -i '1s/^/#ifdef CONFIG_KSU\nextern int ksu_install_fd(void);\n#endif\n/' init/main.c
+              sed -i '/kernel_init_freeable();/a #ifdef CONFIG_KSU\n\tif (ksu_install_fd() < 0)\n\t\tpr_err("KSU: failed to install KSU fd\\n");\n#endif' init/main.c
+            }
+            grep -n 'ksu_install_fd' init/main.c
+          fi
+
       - name: Integrate KernelSU-Next (legacy branch - non-GKI 4.19)
         working-directory: kernel
         run: |
