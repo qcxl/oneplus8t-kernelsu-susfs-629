@@ -104,6 +104,14 @@ jobs:
         run: |
           # === add missing SUSFS declarations (kernel-4.19 branch is too old for rsuntk) ===
           if [ -f "include/linux/susfs.h" ]; then
+            # Ensure KSU files can find SUSFS declarations
+            for ksu_file in drivers/kernelsu/sucompat.c drivers/kernelsu/supercalls.c; do
+              if [ -f "$ksu_file" ]; then
+                grep -q '#include <linux/susfs.h>' "$ksu_file" || \
+                  sed -i '1i #include <linux/susfs.h>' "$ksu_file"
+              fi
+            done
+            # Add missing function declarations
             for decl in \
               'int susfs_start_sdcard_monitor_fn(void);' \
               'int susfs_enable_log(void __user *arg);' \
