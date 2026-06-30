@@ -208,6 +208,142 @@ def add_susfs_handlers_to_dispatch(kernel_root):
     return True
 
 
+def add_susfs_reboot_handler(kernel_root):
+    """Add SUSFS dispatch to ksu_handle_sys_reboot() in supercall/supercall.c.
+
+    ksud sends SUSFS commands via reboot(0xDEADBEEF, 0xFAFAFAFA, CMD, arg).
+    The ksu_handle_sys_reboot() function must handle magic2 == 0xFAFAFAFA.
+    """
+    candidates = [
+        "drivers/kernelsu/supercall/supercall.c",
+        "KernelSU/kernel/supercall/supercall.c",
+    ]
+    sc_path = None
+    for c in candidates:
+        p = os.path.join(kernel_root, c)
+        if os.path.exists(p):
+            sc_path = p
+            break
+    if not sc_path:
+        print("  WARNING: supercall/supercall.c not found, SUSFS reboot handler skipped")
+        return True  # non-fatal
+
+    with open(sc_path) as f:
+        content = f.read()
+    if "SUSFS_MAGIC" in content or "FAFAFAFA" in content:
+        print(f"  Reboot: SUSFS handler already in {sc_path}")
+        return True
+
+    # 1. Add includes
+    for hdr in ['linux/susfs.h', 'linux/susfs_def.h']:
+        if hdr not in content:
+            content, ok = add_include_after_last(content, hdr)
+            if not ok:
+                print(f"  WARNING: could not add include <{hdr}>")
+
+    # 2. Insert SUSFS dispatch block before the final 'return 0;' in ksu_handle_sys_reboot
+    #    Find the function by looking for a unique line near its end
+    #    The marker is: '#ifdef KSU_KPROBES_HOOK' which comes right after the function
+    marker = '#ifdef KSU_KPROBES_HOOK'
+    pos = content.find(marker)
+    if pos < 0:
+        print("  WARNING: cannot find KSU_KPROBES_HOOK marker in supercall.c")
+        return True
+    
+    # Walk backward from the marker to find the function's closing brace and final return
+    before_marker = content[:pos]
+    # Find the last 'return 0;' before the marker
+    last_return = before_marker.rfind('\treturn 0;\n')
+    if last_return < 0:
+        print("  WARNING: cannot find final 'return 0;' in ksu_handle_sys_reboot")
+        return True
+
+    susfs_block = (
+        '\n'
+        '\t/* SUSFS commands via reboot channel (magic2 = 0xFAFAFAFA) */\n'
+        '#ifdef CONFIG_KSU_SUSFS\n'
+        '\tif (magic2 == 0xFAFAFAFA) {\n'
+        '\t\tvoid __user *uarg = (void __user *)*arg;\n'
+        '\t\tpr_info("susfs: reboot cmd=0x%x\\n", cmd);\n'
+        '\t\tswitch (cmd) {\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_PATH:\n'
+        '\t\t\treturn susfs_add_sus_path((struct st_susfs_sus_path __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_MOUNT:\n'
+        '\t\t\treturn susfs_add_sus_mount((struct st_susfs_sus_mount __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_KSTAT:\n'
+        '\t\t\treturn susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_UPDATE_SUS_KSTAT:\n'
+        '\t\t\treturn susfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_SET_UNAME:\n'
+        '\t\t\treturn susfs_set_uname((struct st_susfs_uname __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_ADD_OPEN_REDIRECT:\n'
+        '\t\t\treturn susfs_add_open_redirect((struct st_susfs_open_redirect __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:\n'
+        '\t\t\treturn susfs_set_cmdline_or_bootconfig((char __user *)uarg);\n'
+        '\t\tcase CMD_SUSFS_ENABLE_LOG:\n'
+        '\t\t\tsusfs_set_log((bool)(uintptr_t)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_MAP:\n'
+        '\t\t\treturn susfs_add_sus_map(&uarg);\n'
+        '\t\tcase CMD_SUSFS_SHOW_VERSION:\n'
+        '\t\t\tif (copy_to_user(uarg, SUSFS_VERSION, strlen(SUSFS_VERSION)+1))\n'
+        '\t\t\t\tpr_err("susfs: copy_to_user failed\\n");\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_SHOW_VARIANT:\n'
+        '\t\t\tif (copy_to_user(uarg, SUSFS_VARIANT, strlen(SUSFS_VARIANT)+1))\n'
+        '\t\t\t\tpr_err("susfs: copy_to_user failed\\n");\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_SHOW_ENABLED_FEATURES: {\n'
+        '\t\t\tu64 enabled = 0;\n'
+        '#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n'
+        '\t\t\tenabled |= (1 << 0);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
+        '\t\t\tenabled |= (1 << 1);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
+        '\t\t\tenabled |= (1 << 4);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT\n'
+        '\t\t\tenabled |= (1 << 6);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME\n'
+        '\t\t\tenabled |= (1 << 8);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG\n'
+        '\t\t\tenabled |= (1 << 9);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n'
+        '\t\t\tenabled |= (1 << 10);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n'
+        '\t\t\tenabled |= (1 << 11);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n'
+        '\t\t\tenabled |= (1 << 12);\n'
+        '#endif\n'
+        '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+        '\t\t\tenabled |= (1 << 13);\n'
+        '#endif\n'
+        '\t\t\tif (copy_to_user(uarg, &enabled, sizeof(u64)))\n'
+        '\t\t\t\tpr_err("susfs: copy_to_user failed\\n");\n'
+        '\t\t\treturn 0;\n'
+        '\t\t}\n'
+        '\t\tdefault:\n'
+        '\t\t\treturn -EINVAL;\n'
+        '\t\t}\n'
+        '\t}\n'
+        '#endif /* CONFIG_KSU_SUSFS */\n'
+        '\n'
+    )
+
+    content = content[:last_return] + susfs_block + content[last_return:]
+    with open(sc_path, 'w') as f:
+        f.write(content)
+    print(f"  Reboot: SUSFS handler added to ksu_handle_sys_reboot in {sc_path}")
+    return True
+
+
 def patch_core_init(kernel_root):
     """Add include + susfs_init() call to init file."""
     candidates = [
@@ -321,6 +457,7 @@ def main():
     ok = True
     ok &= patch_core_init(root)
     ok &= add_susfs_handlers_to_dispatch(root)
+    ok &= add_susfs_reboot_handler(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 

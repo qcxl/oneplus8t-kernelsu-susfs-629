@@ -144,6 +144,8 @@ jobs:
           grep -c 'extern void susfs_init' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
           echo "dispatch.c KSU_IOCTL_SUSFS:"
           grep -c 'KSU_IOCTL_SUSFS' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+          echo "supercall.c SUSFS reboot handler:"
+          grep -c 'FAFAFAFA' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
           # Fallback: ensure extern declaration is present
           if ! grep -q 'extern void susfs_init' drivers/kernelsu/core/init.c 2>/dev/null; then
             echo "WARNING: inject script did not add extern, adding via sed"
@@ -164,6 +166,8 @@ jobs:
           grep -c 'susfs_add_sus_map' fs/susfs.c 2>/dev/null || echo "0"
           echo "task_mmu.c SUS_MAP:"
           grep -c 'SUS_MAP' fs/proc/task_mmu.c 2>/dev/null || echo "0"
+          echo "supercall.c FAFAFAFA:"
+          grep -c 'FAFAFAFA' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
 
       - name: Apply manual hook source patches
         working-directory: kernel
