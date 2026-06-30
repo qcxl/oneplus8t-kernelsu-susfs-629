@@ -58,29 +58,12 @@ jobs:
       - name: Integrate KernelSU (tiann/KernelSU - standard)
         working-directory: kernel
         run: |
-          # Standard KernelSU with manual hook + SUSFS v1.4.2
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" \
             | bash -
-
-      - name: Apply SUSFS v1.4.2-kernel-4.19 + stubs
-        working-directory: kernel
-        run: |
-          git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>/dev/null || true
-          (cd /tmp/susfs && git checkout v1.4.2-kernel-4.19 2>/dev/null || true)
-          
-          patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
-          cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          cp ../kernel-patches/susfs_stubs.c fs/
-          echo "obj-y += susfs_stubs.o" >> fs/Makefile
 
       - name: Apply manual hook source patches
         working-directory: kernel
         run: |
-          # rsuntk uses standard KernelSU ksu_handle_* functions
           python3 ../scripts/apply-ksu-hooks.py .
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read" fs/ 2>/dev/null
@@ -88,42 +71,13 @@ jobs:
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
         run: |
-          # === add missing SUSFS declarations (kernel-4.19 branch is too old for rsuntk) ===
-          if [ -f "include/linux/susfs.h" ]; then
-            # Ensure KSU files can find SUSFS declarations
-            for ksu_file in drivers/kernelsu/sucompat.c drivers/kernelsu/supercalls.c; do
-              if [ -f "$ksu_file" ] && ! grep -q '#include <linux/susfs.h>' "$ksu_file"; then
-                # Insert #include after the last #include line
-                awk '/^#include/ { last=NR } { lines[NR]=$0 } 
-                  END { for(i=1;i<=NR;i++) { print lines[i]; if(i==last) print "#include <linux/susfs.h>" } }' "$ksu_file" > "$ksu_file.tmp"
-                mv "$ksu_file.tmp" "$ksu_file"
-              fi
-            done
-            # linux/pgtable.h not in 4.19
-            for f in drivers/kernelsu/feature/sucompat.c; do
-              [ -f "$f" ] && sed -i 's|#include <linux/pgtable.h>|/* #include <linux/pgtable.h> - 4.19 compat */|g' "$f" 2>/dev/null || true
-            done
-            # Add missing function declarations
-            for decl in \
-              'int susfs_start_sdcard_monitor_fn(void);' \
-              'int susfs_enable_log(void __user *arg);' \
-              'int susfs_add_sus_path_loop(void __user *arg);' \
-              'int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg);' \
-              'int susfs_add_sus_map(void __user *arg);' \
-              'int susfs_set_avc_log_spoofing(void __user *arg);' \
-              'int susfs_get_enabled_features(void __user *arg);' \
-              'int susfs_show_variant(void __user *arg);' \
-              'int susfs_show_version(void __user *arg);' \
-              'bool susfs_starts_with(const char *str, const char *prefix);' \
-              'bool susfs_ends_with(const char *str, const char *suffix);' \
-              'bool susfs_is_current_proc_umounted(void);' \
-              'void susfs_set_current_proc_umounted(void);' \
-              'void ksu_selinux_hide_handle_post_fs_data(void);' \
-              'void ksu_selinux_hide_handle_second_stage(void);'; do
-              func="${decl#* }"; func="${func%%(*}"
-              grep -q "$func" include/linux/susfs.h 2>/dev/null || echo "$decl" >> include/linux/susfs.h
-            done
-          fi
+          # linux/pgtable.h not in 4.19
+          for f in drivers/kernelsu/feature/sucompat.c drivers/kernelsu/core/main.c; do
+            if [ -f "$f" ]; then
+              sed -i 's|#include <linux/pgtable.h>|/* #include <linux/pgtable.h> - 4.19 compat */|g' "$f" 2>/dev/null || true
+              sed -i 's|#include <linux/safe_mode.h>|/* #include <linux/safe_mode.h> - 4.19 compat */|g' "$f" 2>/dev/null || true
+            fi
+          done
           # strncpy_from_user_nofault not in 4.19
           if [ -f "drivers/kernelsu/sulog/event.c" ]; then
             sed -i 's|strncpy_from_user_nofault(|strncpy_from_user(|g' drivers/kernelsu/sulog/event.c
