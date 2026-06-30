@@ -14,12 +14,7 @@ EXTERNS = (
     'extern void ksu_handle_sys_reboot(void *);\n'
 )
 
-INCLUDES = {
-    "fs/open.c": '#include <linux/ksu.h>\n',
-    "fs/exec.c": '#include <linux/ksu.h>\n',
-    "fs/read_write.c": '#include <linux/ksu.h>\n',
-    "kernel/reboot.c": '#include <linux/ksu.h>\n',
-}
+INCLUDES = {}  # Not used - extern declarations serve the same purpose
 
 HOOKS = [
     {
@@ -156,12 +151,19 @@ def main():
     # Standard insert_hook for the other files
     for hook in HOOKS:
         insert_hook(hook["file"], hook["func_pattern"], hook["code"])
+
+    # Verification
     print("\n=== Verification ===")
     for hook in HOOKS:
         fp = os.path.join(KERNEL_DIR, hook["file"])
         count = sum(1 for l in open(fp) if "ksu_handle_" in l) if os.path.exists(fp) else 0
         sym = hook["code"].strip().split("(")[0]
         print(f"  {sym}: {'OK' if count > 0 else 'MISSING!'}")
+    # Verify reboot.c separately
+    rp = os.path.join(KERNEL_DIR, "kernel", "reboot.c")
+    if os.path.exists(rp):
+        rc = sum(1 for l in open(rp) if "ksu_handle_sys_reboot" in l)
+        print(f"  ksu_handle_sys_reboot: {'OK' if rc >= 1 else 'MISSING!'}")
 
 if __name__ == "__main__":
     main()
