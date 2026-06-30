@@ -149,9 +149,11 @@ def main():
             # the hook must run before that check to install the KSU fd.
             marker = '\t/* We only trust the superuser with rebooting the system. */'
             hook = (
-                '\t/* KSU hook: intercept KSU management commands via reboot syscall */\n'
-                '\tif (IS_ENABLED(CONFIG_KSU))\n'
+                '\t/* KSU hook: short-circuit for KSU management commands */\n'
+                '\tif (IS_ENABLED(CONFIG_KSU) && magic1 == 0xDEADBEEF) {\n'
                 '\t\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n'
+                '\t\treturn 0;\n'
+                '\t}\n'
                 '\n'
                 '\t/* We only trust the superuser with rebooting the system. */'
             )
