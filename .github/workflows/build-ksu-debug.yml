@@ -122,6 +122,18 @@ jobs:
 
           echo "=== Injecting SUSFS dispatch glue ==="
           python3 ../scripts/inject-susfs-dispatch.py .
+          echo "=== Post-inject verification ==="
+          echo "init.c susfs.h include:"
+          grep -c 'susfs.h' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
+          echo "init.c susfs_init call:"
+          grep -c 'susfs_init' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
+          echo "dispatch.c KSU_IOCTL_SUSFS:"
+          grep -c 'KSU_IOCTL_SUSFS' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+          # Fallback: ensure include is present (if inject script's add_include missed it)
+          if ! grep -q 'linux/susfs.h' drivers/kernelsu/core/init.c 2>/dev/null; then
+            echo "WARNING: inject script did not add susfs.h include, adding via sed"
+            sed -i '/^#include "selinux\/selinux.h"/a #include <linux/susfs.h>' drivers/kernelsu/core/init.c
+          fi
 
       - name: Apply manual hook source patches
         working-directory: kernel
