@@ -37,11 +37,6 @@ HOOKS = [
         "func_pattern": r"^ssize_t vfs_read\(struct file \*file,",
         "code": '\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n',
     },
-    {
-        "file": "kernel/reboot.c",
-        "func_pattern": r"^static int __orderly_poweroff\|^void orderly_poweroff",
-        "code": '\tksu_handle_sys_reboot(NULL);\n',
-    },
 ]
 
 VAR_DECL_RE = re.compile(
