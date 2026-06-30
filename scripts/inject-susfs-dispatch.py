@@ -187,7 +187,7 @@ def add_susfs_ioctl_define(kernel_root):
 
     define = (
         '\n'
-        '#define KSU_IOCTL_SUSFS 0x50\n'
+        '#define KSU_IOCTL_SUSFS 0x55\n'
     )
     with open(uapi_path, 'a') if os.path.exists(uapi_path) else open(uapi_path, 'w') as f:
         f.write(define)
