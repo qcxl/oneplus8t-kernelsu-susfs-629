@@ -66,8 +66,7 @@ jobs:
         working-directory: kernel
         run: |
           git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>/dev/null || true
-          cd /tmp/susfs && git checkout v1.4.2-kernel-4.19 2>/dev/null || true
-          cd /build/kernel
+          (cd /tmp/susfs && git checkout v1.4.2-kernel-4.19 2>/dev/null || true)
           
           patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
           cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
