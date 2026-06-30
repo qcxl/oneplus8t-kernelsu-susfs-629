@@ -142,19 +142,26 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Hook at start of SYSCALL_DEFINE4(reboot...) BEFORE magic check.
-            # KSU Manager calls reboot(KSU_MAGIC1, KSU_MAGIC2, CMD, &fd)
-            # to install KSU fd. Must intercept before the kernel rejects
-            # non-standard magic values.
-            marker = '\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);'
-            hook = '\tif (IS_ENABLED(CONFIG_KSU))\n\t\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n\n\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);'
+            # Hook inside SYSCALL_DEFINE4(reboot...) AFTER variable declarations
+            # (C89 requires declarations before statements) but BEFORE the
+            # CAP_SYS_BOOT check and LINUX_REBOOT_MAGIC1 check.
+            # The KSU Manager (non-root app) doesn't have CAP_SYS_BOOT, so
+            # the hook must run before that check to install the KSU fd.
+            marker = '\t/* We only trust the superuser with rebooting the system. */'
+            hook = (
+                '\t/* KSU hook: intercept KSU management commands via reboot syscall */\n'
+                '\tif (IS_ENABLED(CONFIG_KSU))\n'
+                '\t\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n'
+                '\n'
+                '\t/* We only trust the superuser with rebooting the system. */'
+            )
             if marker in content:
                 content = content.replace(marker, hook, 1)
                 with open(reboot_path, 'w') as f:
                     f.write(content)
                 print(f"  [OK] Hook in SYSCALL_DEFINE4(reboot): {reboot_path}")
             else:
-                print(f"  [WARN] No SYSCALL_DEFINE4(reboot) marker in reboot.c")
+                print(f"  [WARN] SYSCALL_DEFINE4(reboot) marker not found")
 
     # Standard insert_hook for the other files
     for hook in HOOKS:
