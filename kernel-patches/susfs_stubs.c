@@ -175,6 +175,34 @@ void ipa_stack_to_dts(void)
 }
 EXPORT_SYMBOL(ipa_stack_to_dts);
 
+/* Stub for susfs_is_current_ksu_domain - defined in 10_enable patch */
+bool susfs_is_current_ksu_domain(void)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_current_ksu_domain);
+
+/* Stub for susfs_is_current_zygote_domain - defined in 10_enable patch */
+bool susfs_is_current_zygote_domain(void)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_current_zygote_domain);
+
+/* Stub for ksu_try_umount - defined in 10_enable patch */
+void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid)
+{
+    pr_info("susfs: ksu_try_umount stub (no-op)\n");
+}
+EXPORT_SYMBOL(ksu_try_umount);
+
+/* Stub for susfs_try_umount_all - defined in 10_enable patch */
+void susfs_try_umount_all(uid_t uid)
+{
+    pr_info("susfs: susfs_try_umount_all stub (no-op)\n");
+}
+EXPORT_SYMBOL(susfs_try_umount_all);
+
 /* Module initialization */
 static int __init susfs_stubs_init(void)
 {
