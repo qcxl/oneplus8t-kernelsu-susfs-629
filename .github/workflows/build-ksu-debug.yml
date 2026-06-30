@@ -79,8 +79,10 @@ jobs:
             echo "obj-y += susfs_stubs.o" >> fs/Makefile
           fi
           if ! grep -q "susfs.o" fs/Makefile; then
-            sed -i '/^obj-y.*:=/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
-            sed -i '/^obj-y.*:=/a obj-$(CONFIG_KSU_SUSFS) += sus_su.o' fs/Makefile
+            echo '' >> fs/Makefile
+            echo '# SUSFS' >> fs/Makefile
+            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
+            echo 'obj-$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
           fi
           echo "=== SUSFS v1.5.5 applied ==="
           grep "SUSFS_VERSION" include/linux/susfs.h 2>/dev/null || echo "SUSFS_VERSION not found"

@@ -1,134 +1,81 @@
 #!/usr/bin/env python3
 """
-inject-susfs-dispatch.py - Inject SUSFS Kconfig menu + dispatch glue
-into KernelSU-Next legacy tree.
+inject-susfs-dispatch.py - Inject SUSFS dispatch glue into KernelSU-Next legacy.
 
 Usage: python3 inject-susfs-dispatch.py <kernel-root>
 
-This script:
-1. Appends SUSFS Kconfig menu to KernelSU/kernel/Kconfig
-2. Adds include + dispatch code to KernelSU/kernel/core/main.c
-3. Adds susfs_init() call to KernelSU/kernel/core/init.c
+Adds:
+1. #include <linux/susfs.h> to core/main.c (after last existing #include)
+2. SUSFS prctl dispatch block inside ksu_handle_prctl() in core/main.c
+3. #include + susfs_init() call to the init file (core/init.c or ksu.c)
+
+Returns 0 on success, 1 if any injection failed.
 """
 
-import sys
-import os
-import re
+import sys, os, re
 
-def path_exists(probe_dir, *paths):
+
+def path_exists(root, *paths):
     for p in paths:
-        if os.path.exists(os.path.join(probe_dir, p)):
+        if os.path.exists(os.path.join(root, p)):
             return p
     return None
 
 
-def patch_kconfig(kernel_root):
-    """Append SUSFS Kconfig menu if not already present"""
-    kconfig_path = path_exists(kernel_root,
-        "KernelSU/kernel/Kconfig",
-        "drivers/kernelsu/Kconfig")
-    if not kconfig_path:
-        print("ERROR: cannot find KernelSU Kconfig")
-        return False
-    kconfig_path = os.path.join(kernel_root, kconfig_path)
+def add_include_after_last(content, header):
+    """Insert '#include <header>' after the last #include line in content."""
+    lines = content.split('\n')
+    last_include_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#include'):
+            last_include_idx = i
+    if last_include_idx >= 0:
+        indent = '' if not lines[last_include_idx][:1].isspace() else lines[last_include_idx][:len(lines[last_include_idx]) - len(lines[last_include_idx].lstrip())]
+        lines.insert(last_include_idx + 1, f'{indent}#include <{header}>')
+        return '\n'.join(lines), True
+    # No #include found at all - insert at top
+    lines.insert(0, f'#include <{header}>')
+    return '\n'.join(lines), True
 
-    with open(kconfig_path) as f:
-        content = f.read()
-    if "config KSU_SUSFS" in content:
-        print("  Kconfig: SUSFS menu already present, skipping")
-        return True
 
-    menu = '''
-menu "KernelSU - SUSFS"
-config KSU_SUSFS
-    bool "KernelSU addon - SUSFS"
-    depends on KSU
-    default y
-    help
-      Patch and Enable SUSFS to kernel with KernelSU.
+def find_fn_boundary(content, fn_regex, start_from=0):
+    """
+    Find a function definition matching fn_regex and return (start_line, brace_open_line).
+    Looks for 'regex(' on a line, then finds the opening '{'.
+    """
+    match = re.search(fn_regex, content[start_from:])
+    if not match:
+        return None, None
+    fn_start = start_from + match.start()
+    # Find the opening brace after the function signature
+    search_from = fn_start
+    brace_pos = content.find('{', search_from)
+    if brace_pos < 0:
+        return None, None
+    # The line containing the fn signature
+    line_start = content.rfind('\n', 0, fn_start) + 1 if fn_start > 0 else 0
+    return line_start, brace_pos
 
-config KSU_SUSFS_HAS_MAGIC_MOUNT
-    bool "Say yes if the current KernelSU repo has magic mount implemented (default n)"
-    depends on KSU
-    default n
-    help
-      Enable to indicate that the current SUSFS kernel supports magic mount.
 
-config KSU_SUSFS_SUS_PATH
-    bool "Enable to hide suspicious path"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_MOUNT
-    bool "Enable to hide suspicious mounts"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-    bool "Enable to hide KSU default mounts automatically"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-    bool "Enable to hide suspicious bind mounts automatically"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
-
-config KSU_SUSFS_SUS_KSTAT
-    bool "Enable to spoof suspicious kstat"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_OVERLAYFS
-    bool "Enable to automatically spoof kstat for overlayed files"
-    depends on KSU_SUSFS
-    default n
-
-config KSU_SUSFS_TRY_UMOUNT
-    bool "Enable to use ksu_try_umount"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-    bool "Enable to add bind mounts to try_umount automatically"
-    depends on KSU_SUSFS_TRY_UMOUNT
-    default y
-
-config KSU_SUSFS_SPOOF_UNAME
-    bool "Enable to spoof uname"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_ENABLE_LOG
-    bool "Enable logging susfs log to kernel"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-    bool "Enable to automatically hide ksu and susfs symbols from /proc/kallsyms"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-    bool "Enable to spoof /proc/bootconfig (gki) or /proc/cmdline (non-gki)"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_OPEN_REDIRECT
-    bool "Enable to redirect a path to be opened with another path"
-    depends on KSU_SUSFS
-    default y
-
-endmenu
-'''
-    with open(kconfig_path, 'a') as f:
-        f.write(menu)
-    print(f"  Kconfig: SUSFS menu appended to {kconfig_path}")
-    return True
+def find_last_return_in_fn(content, fn_open_brace):
+    """Find the position of the last 'return' before the closing '}' of a function."""
+    brace_depth = 1
+    pos = fn_open_brace + 1
+    last_return_pos = -1
+    while pos < len(content) and brace_depth > 0:
+        c = content[pos]
+        if c == '{':
+            brace_depth += 1
+        elif c == '}':
+            brace_depth -= 1
+        elif brace_depth == 1 and content[pos:pos+7] == '\n\treturn' or content[pos:pos+6] == '\nreturn':
+            last_return_pos = pos
+        pos += 1
+    return last_return_pos
 
 
 def patch_core_init(kernel_root):
-    """Add susfs_init() call to init function"""
+    """Add include + susfs_init() call to init file."""
     candidates = [
         "KernelSU/kernel/core/init.c",
         "KernelSU/kernel/ksu.c",
@@ -140,7 +87,8 @@ def patch_core_init(kernel_root):
             init_path = p
             break
     if not init_path:
-        print("WARNING: cannot find kernel init file for susfs_init()")
+        print("  ERROR: no init file found (checked: {})".format(
+            ', '.join(candidates)))
         return False
 
     with open(init_path) as f:
@@ -149,31 +97,68 @@ def patch_core_init(kernel_root):
         print(f"  Init: susfs_init() already present in {init_path}")
         return True
 
-    # Find the line with module_init or the end of the init function
-    # Look for a pr_alert/printk that says something about KernelSU banner,
-    # then insert susfs_init() after it
+    # 1. Add include <linux/susfs.h>
+    if '<linux/susfs.h>' not in content:
+        content, ok = add_include_after_last(content, 'linux/susfs.h')
+        if not ok:
+            print("  ERROR: could not add include to init file")
+            return False
+
+    # 2. Find the init function's module_init and insert before it
+    #    Or insert inside the init function after the banner print
     lines = content.split('\n')
     new_lines = []
     inserted = False
+    banner_patterns = [
+        re.compile(r'(pr_alert|pr_info|printk)\s*\(.*KernelSU'),
+        re.compile(r'pr_info\s*\(\s*"KernelSU'),
+        re.compile(r'pr_alert\s*\(\s*"\*.*KernelSU'),
+    ]
     for line in lines:
         new_lines.append(line)
-        if not inserted and 'KernelSU' in line and ('pr_alert' in line or 'pr_info' in line or 'printk' in line):
-            # Insert susfs_init after the banner
-            indent = ' ' * (len(line) - len(line.lstrip()))
-            new_lines.append(f'{indent}/* SUSFS init */')
+        if not inserted and any(p.search(line) for p in banner_patterns):
+            indent = ' ' * max(4, len(line) - len(line.lstrip()))
             new_lines.append(f'{indent}#ifdef CONFIG_KSU_SUSFS')
             new_lines.append(f'{indent}    susfs_init();')
             new_lines.append(f'{indent}#endif')
             inserted = True
 
+    if not inserted:
+        # Fallback: find module_init line and insert before it
+        for i, line in enumerate(lines):
+            if re.match(r'module_init\s*\(', line.strip()):
+                indent = '    '
+                lines.insert(i, f'{indent}#ifdef CONFIG_KSU_SUSFS')
+                lines.insert(i+1, f'{indent}    susfs_init();')
+                lines.insert(i+2, f'{indent}#endif')
+                inserted = True
+                new_lines = lines
+                break
+
+    content = '\n'.join(new_lines)
+    if not inserted:
+        # Last resort: find the last function's closing brace
+        print("  WARNING: no banner/module_init found, looking for function end...")
+        match = re.search(r'\n\}\s*\n.*module_init', content)
+        if match:
+            pos = content.find('}', match.start()) + 1
+            indent = '\n    '
+            block = f'{indent}#ifdef CONFIG_KSU_SUSFS{indent}    susfs_init();{indent}#endif\n'
+            content = content[:pos] + block + content[pos:]
+            inserted = True
+
+    if not inserted:
+        print("  ERROR: could not find insertion point for susfs_init()")
+        return False
+
     with open(init_path, 'w') as f:
-        f.write('\n'.join(new_lines))
+        f.write(content)
     print(f"  Init: susfs_init() added to {init_path}")
     return True
 
 
 def patch_core_main(kernel_root):
-    """Add SUSFS dispatch code to the prctl handler"""
+    """Add SUSFS dispatch code to the prctl handler in core/main.c."""
     candidates = [
         "KernelSU/kernel/core/main.c",
         "KernelSU/kernel/core_hook.c",
@@ -185,126 +170,88 @@ def patch_core_main(kernel_root):
             main_path = p
             break
     if not main_path:
-        print("ERROR: cannot find core/main.c for dispatch")
+        print("  ERROR: no core/main.c found")
         return False
 
     with open(main_path) as f:
         content = f.read()
     if "CMD_SUSFS_ADD_SUS_PATH" in content:
-        print(f"  Dispatch: SUSFS dispatch already present in {main_path}")
+        print(f"  Dispatch: already present in {main_path}")
         return True
 
-    # 1. Add include for susfs.h
-    if '#include <linux/susfs.h>' not in content:
-        content = content.replace(
-            '#include "core_hook.h"',
-            '#include "core_hook.h"\n#include <linux/susfs.h>')
-        content = content.replace(
-            '#include "../core_hook.h"',
-            '#include "../core_hook.h"\n#include <linux/susfs.h>')
+    # 1. Add include <linux/susfs.h> (and <linux/susfs_def.h> for CMD_ constants)
+    for hdr in ['linux/susfs.h', 'linux/susfs_def.h']:
+        if hdr not in content:
+            content, ok = add_include_after_last(content, hdr)
+            if not ok:
+                print(f"  ERROR: could not add include <{hdr}>")
+                return False
 
-    # 2. Add SUSFS dispatch block before "all other cmds" fallback
-    #    Look for something like "all other cmds" or the fallback comment
-    dispatch_block = """
-#ifdef CONFIG_KSU_SUSFS
-\tif (current_uid().val == 0) {
-\t\tvoid __user *uarg = (void __user *)arg3;
-\t\tswitch (arg2) {
-\t\tcase CMD_SUSFS_ADD_SUS_PATH:
-\t\t\tsusfs_add_sus_path((struct st_susfs_sus_path __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_ADD_SUS_MOUNT:
-\t\t\tsusfs_add_sus_mount((struct st_susfs_sus_mount __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_ADD_SUS_KSTAT:
-\t\t\tsusfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_UPDATE_SUS_KSTAT:
-\t\t\tsusfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_SET_UNAME:
-\t\t\tsusfs_set_uname((struct st_susfs_uname __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_ADD_OPEN_REDIRECT:
-\t\t\tsusfs_add_open_redirect((struct st_susfs_open_redirect __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_ENABLE_LOG:
-\t\t\tsusfs_set_log((bool)arg3);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:
-\t\t\tsusfs_set_cmdline_or_bootconfig((char __user *)uarg);
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_SHOW_VERSION:
-\t\t\tif (copy_to_user(uarg, SUSFS_VERSION, strlen(SUSFS_VERSION)+1))
-\t\t\t\tpr_err("susfs: copy_to_user failed\\n");
-\t\t\treturn 0;
-\t\tcase CMD_SUSFS_SHOW_ENABLED_FEATURES: {
-\t\t\tu64 enabled = 0;
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-\t\t\tenabled |= (1 << 0);
-#endif
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-\t\t\tenabled |= (1 << 1);
-#endif
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-\t\t\tenabled |= (1 << 4);
-#endif
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-\t\t\tenabled |= (1 << 6);
-#endif
-#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-\t\t\tenabled |= (1 << 8);
-#endif
-#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
-\t\t\tenabled |= (1 << 9);
-#endif
-#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-\t\t\tenabled |= (1 << 10);
-#endif
-#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-\t\t\tenabled |= (1 << 11);
-#endif
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-\t\t\tenabled |= (1 << 12);
-#endif
-\t\t\tif (copy_to_user(uarg, &enabled, sizeof(u64)))
-\t\t\t\tpr_err("susfs: copy_to_user failed\\n");
-\t\t\treturn 0;
-\t\t}
-\t\tdefault:
-\t\t\tbreak;
-\t\t}
-\t}
-#endif
-"""
+    # 2. Find ksu_handle_prctl function
+    fn_start, fn_brace = find_fn_boundary(content, r'int\s+ksu_handle_prctl\b')
 
-    # Try to find the right insertion point
-    # Look for patterns like "all other cmds" or the end of prctl
-    patterns = [
-        (r'// all other cmds', 'Insert before "all other cmds"'),
-        (r'/\*.*all other cmds.*\*/', 'Insert before "all other cmds" comment'),
-    ]
-    inserted = False
-    for pat, desc in patterns:
-        match = re.search(pat, content)
-        if match:
-            pos = match.start()
-            before = content[:pos]
-            after = content[pos:]
-            content = before + dispatch_block + after
-            inserted = True
-            print(f"  Dispatch: added before \"{desc}\"")
-            break
+    if fn_brace is None:
+        # Try alternative: ksu_handle_prctl might use different return type
+        fn_start, fn_brace = find_fn_boundary(content, r'\bksu_handle_prctl\b')
 
-    if not inserted:
-        # Fallback: Find the return -EINVAL at end of a block and insert before
-        # Look for the last "return 0" or "default:" in the prctl handler
-        # Simple approach: insert at end of file before module_init
-        print("  WARNING: could not auto-place dispatch, appending to file")
-        content += f"\n{dispatch_block}\n"
+    if fn_brace is None:
+        print("  ERROR: could not find ksu_handle_prctl() function in main.c")
+        print("  (expected signature: 'int ksu_handle_prctl(...)' or similar)")
+        return False
+
+    # 3. Build the dispatch block
+    dispatch_block = (
+        '\n#ifdef CONFIG_KSU_SUSFS\n'
+        '\tif (current_uid().val == 0) {\n'
+        '\t\tvoid __user *uarg = (void __user *)arg3;\n'
+        '\t\tswitch (arg2) {\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_PATH:\n'
+        '\t\t\tsusfs_add_sus_path((struct st_susfs_sus_path __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_MOUNT:\n'
+        '\t\t\tsusfs_add_sus_mount((struct st_susfs_sus_mount __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_ADD_SUS_KSTAT:\n'
+        '\t\t\tsusfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_UPDATE_SUS_KSTAT:\n'
+        '\t\t\tsusfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_SET_UNAME:\n'
+        '\t\t\tsusfs_set_uname((struct st_susfs_uname __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_ADD_OPEN_REDIRECT:\n'
+        '\t\t\tsusfs_add_open_redirect((struct st_susfs_open_redirect __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_ENABLE_LOG:\n'
+        '\t\t\tsusfs_set_log((int)arg3);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG:\n'
+        '\t\t\tsusfs_set_cmdline_or_bootconfig((char __user *)uarg);\n'
+        '\t\t\treturn 0;\n'
+        '\t\tcase CMD_SUSFS_SHOW_VERSION:\n'
+        '\t\t\tif (copy_to_user(uarg, SUSFS_VERSION, strlen(SUSFS_VERSION)+1))\n'
+        '\t\t\t\tpr_err("susfs: copy_to_user failed\\n");\n'
+        '\t\t\treturn 0;\n'
+        '\t\tdefault:\n'
+        '\t\t\tbreak;\n'
+        '\t\t}\n'
+        '\t}\n'
+        '#endif /* CONFIG_KSU_SUSFS */\n\n'
+    )
+
+    # 4. Find insertion point: right after the opening brace of ksu_handle_prctl
+    insert_pos = content.find('\n', fn_brace)
+    if insert_pos < 0:
+        insert_pos = fn_brace + 1
+
+    before = content[:insert_pos + 1]
+    after = content[insert_pos + 1:]
+    content = before + dispatch_block + after
 
     with open(main_path, 'w') as f:
         f.write(content)
+    print(f"  Dispatch: added SUSFS prctl dispatch to {main_path}")
     return True
 
 
@@ -313,18 +260,16 @@ def main():
         print(f"Usage: {sys.argv[0]} <kernel-root>")
         sys.exit(1)
 
-    kernel_root = sys.argv[1]
-    if not os.path.isdir(kernel_root):
-        print(f"ERROR: {kernel_root} is not a directory")
+    root = sys.argv[1]
+    if not os.path.isdir(root):
+        print(f"ERROR: {root} not a directory")
         sys.exit(1)
 
-    print("[SUSFS inject]")
-    print(f"  Target: {kernel_root}")
+    print(f"[SUSFS inject] target={root}")
     ok = True
-    ok &= patch_kconfig(kernel_root)
-    ok &= patch_core_init(kernel_root)
-    ok &= patch_core_main(kernel_root)
-    print(f"  Result: {'OK' if ok else 'SOME FAILURES'}")
+    ok &= patch_core_init(root)
+    ok &= patch_core_main(root)
+    print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 
 
