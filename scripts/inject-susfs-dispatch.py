@@ -190,11 +190,13 @@ def patch_core_init(kernel_root):
         print(f"  Init: susfs_init() already present in {init_path}")
         return True
 
-    if '<linux/susfs.h>' not in content:
-        content, ok = add_include_after_last(content, 'linux/susfs.h')
-        if not ok:
-            print("  ERROR: could not add include to init file")
-            return False
+    # Declare susfs_init() via extern (not #include) to avoid header resolution issues
+    extern_decl = '\nextern void susfs_init(void);\n'
+    if 'extern void susfs_init' not in content:
+        content = content.replace(
+            'extern void __init ksu_lsm_hook_init(void);',
+            'extern void __init ksu_lsm_hook_init(void);' + extern_decl,
+            1)
 
     # Insert susfs_init() inside the init function body:
     # 1) Find module_init() to get the function name
