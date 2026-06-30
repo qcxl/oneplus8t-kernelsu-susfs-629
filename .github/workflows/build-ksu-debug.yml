@@ -66,47 +66,6 @@ jobs:
         working-directory: kernel
         run: |
           python3 ../scripts/apply-ksu-hooks.py .
-          # Add sys_reboot hook for KSUN legacy check
-          # Insert ksu_handle_sys_reboot right before the first return in __orderly_poweroff
-          python3 -c "
-import sys
-with open('kernel/reboot.c') as f:
-    content = f.read()
-# Find __orderly_poweroff and insert after opening brace
-marker = 'static int __orderly_poweroff(bool force)\n{'
-hook = '#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(NULL);\n#endif /* CONFIG_KSU */\n'
-if marker in content:
-    insert_pos = content.index(marker) + len(marker)
-    content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
-    with open('kernel/reboot.c', 'w') as f:
-        f.write(content)
-    print('sys_reboot hook inserted')
-else:
-    # Try alternate marker (brace on same line)
-    marker2 = 'static int __orderly_poweroff(bool force){'
-    if marker2 in content:
-        insert_pos = content.index(marker2) + len(marker2)
-        content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
-        with open('kernel/reboot.c', 'w') as f:
-            f.write(content)
-        print('sys_reboot hook inserted (alt)')
-    else:
-        print('WARNING: could not find __orderly_poweroff')
-        sys.exit(1)
-"
-          # Add extern declaration to kernel/reboot.c
-          python3 -c "
-import sys
-with open('kernel/reboot.c') as f:
-    lines = f.readlines()
-for i, line in enumerate(lines):
-    if line.startswith('#include <linux/suspend.h>') or line.startswith('#include <linux/uaccess.h>'):
-        lines.insert(i + 1, '#ifdef CONFIG_KSU\nextern void ksu_handle_sys_reboot(void *);\n#endif /* CONFIG_KSU */\n')
-        with open('kernel/reboot.c', 'w') as f:
-            f.writelines(lines)
-        print('extern added to reboot.c')
-        break
-"
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 

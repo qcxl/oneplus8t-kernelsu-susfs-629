@@ -130,6 +130,42 @@ def insert_hook(filepath, func_pattern, hook_code):
 def main():
     for fp in ["fs/open.c", "fs/exec.c", "fs/read_write.c"]:
         add_externs(fp, EXTERNS)
+
+    # For kernel/reboot.c, use direct string replacement (more reliable)
+    reboot_path = os.path.join(KERNEL_DIR, "kernel", "reboot.c")
+    if os.path.exists(reboot_path):
+        with open(reboot_path) as f:
+            content = f.read()
+        # Check if hook already added
+        if 'ksu_handle_sys_reboot' not in content:
+            # Add extern declaration after last #include
+            lines = content.split('\n')
+            last_include = -1
+            for i, line in enumerate(lines):
+                if line.startswith('#include'):
+                    last_include = i
+            if last_include >= 0:
+                extern_block = '\n#ifdef CONFIG_KSU\nextern void ksu_handle_sys_reboot(void *);\n#endif /* CONFIG_KSU */\n'
+                lines.insert(last_include + 1, extern_block)
+                content = '\n'.join(lines)
+
+            # Add hook call inside __orderly_poweroff
+            marker = 'static int __orderly_poweroff(bool force)\n{'
+            hook = '\n#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(NULL);\n#endif /* CONFIG_KSU */\n'
+            if marker in content:
+                insert_pos = content.index(marker) + len(marker)
+                content = content[:insert_pos] + hook + content[insert_pos:]
+                with open(reboot_path, 'w') as f:
+                    f.write(content)
+                print(f"  [OK] Hook: {reboot_path}")
+            else:
+                print(f"  [WARN] No __orderly_poweroff in reboot.c")
+        else:
+            print(f"  [OK] Hook already in reboot.c")
+    else:
+        print(f"  [SKIP] reboot.c not found")
+
+    # Standard insert_hook for the other files
     for hook in HOOKS:
         insert_hook(hook["file"], hook["func_pattern"], hook["code"])
     print("\n=== Verification ===")
