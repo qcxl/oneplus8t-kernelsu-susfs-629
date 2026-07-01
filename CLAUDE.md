@@ -9,3 +9,7 @@ skill 文件：`~/.claude/skills/kport/SKILL.md`
 - 编译失败（"编译报错"、"构建失败"）→ 阶段 3
 - 刷机验证（"刷机"、"fastboot"）→ 阶段 4
 - 提交代码 → 自动运行 pre-flight-check.sh
+
+## kport 配置
+
+项目配置详见 [KPORT.yml](KPORT.yml)。

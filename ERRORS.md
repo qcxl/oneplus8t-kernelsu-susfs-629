@@ -1,7 +1,6 @@
 # 错误经验库
 
-> 本文件由 TEST_PROCEDURE.md 拆分而来，每次修复后在此新增条目。
-> 主流程文档见 [TEST_PROCEDURE.md](TEST_PROCEDURE.md)。
+> 每次修复后在此新增条目。[cross-project] 标记的条目由 `kport evolve` 跨项目共享。
 
 ## 🧠 错误经验库（每次修复后更新）
 
@@ -10,6 +9,7 @@
 **根因**：替换目标字符串 `'CMD_SUSFS_ADD_SUS_MAP'` 不包含前面的 `#define`，替换后变 `#define #define ...`
 **教训**：替换预处理指令时必须包含完整的 `#define NAME VALUE` 行，切勿只匹配 NAME
 **检查清单锚点**：见「替换丢失 `#define`」项 ✅
+**标签**：cross-project
 
 ### E002：注入锚点在目标文件中不存在，静默跳过（Batch 1）
 **现象**：编译报 `incomplete type / forward declaration`。struct 定义不存在，但函数声明已插入
@@ -19,20 +19,26 @@
 2. 本地文件 ≠ GHA 源文件。差异源：gitlab 原始版 vs GitHub 镜像版 vs 50_add 补丁生成版
 3. 使用 `/* susfs_init */` 等稳定标记做锚点（跨版本不变）
 **检查清单锚点**：见「确认注入标记」和「注入脚本必须检查」项 ✅
+**标签**：cross-project
 
 ### E003：多步插入产生半状态（Batch 1）
 **现象**：先 `lines.insert(func)` 再 `content.replace(func, func + wrapper)`，后一步失败则只有 func 被插入
 **根因**：分两步插入相关代码，没有原子性保证
 **教训**：所有逻辑上必须同时存在的代码（如 struct + 声明、avc_func + enable_log_wrapper）必须合并为一次字符串后用单次插入
 **检查清单锚点**：见「缩进一致性」项 ✅
+**标签**：cross-project
 
 ### E004：`#ifdef` 子选项未在 Kconfig 注册（Batch 1 预防）
 **潜在风险**：新增 `#ifdef CONFIG_KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING` 保护的代码，如果 Kconfig 未注册且 ksu.config 未设置，代码被编译但选项不生效
-**预防**：每次新增 `#ifdef CONFIG_*` 时，同步检查 `ksu.config` 和 GHA workflow 的 Kconfig 注册
+**预防**：每次新增 `#ifdef CONFIG_*` 时，同步检查 Kconfig 配置文件（`kconfig.config_file`）和 CI 注册（`kconfig.ci.register_file`）
+**检查清单锚点**：见「Kconfig 注册一致性」项 ✅
+**标签**：cross-project
 
 ### E005：本地文件与 GHA 实际源文件不一致
-**风险**：gitlab 原始版 vs GitHub 镜像版 vs 50_add 补丁生成的版本之间可能有差异。本地的 `/tmp/susfs-v1.5/` 来自 hypermezo4 镜像（v1.5.9），GHA 从 gitlab 克隆（未知精确版本）
-**预防**：锚点/标记优先使用不易随版本变更的固定字符串（如 `/* susfs_init */`），而非特定代码行（如 `int susfs_get_enabled_features`）
+**风险**：gitlab 原始版 vs GitHub 镜像版 vs 补丁生成版之间可能有差异。本地读的版本可能 ≠ CI 构建用的版本
+**预防**：锚点/标记优先使用不易随版本变更的固定字符串，而非特定代码行。确认源文件的精确来源
+**检查清单锚点**：见「文件版本差异」项 ✅
+**标签**：cross-project
 
 ### E006：武断删除功能，未做可行性调研
 **现象**：发现 `ksu_cred` 在预读的 KSUN 源码中未搜到，直接判定"无法移植"要删掉 `sus_path_loop`
@@ -43,6 +49,7 @@
 3. 对缺失的依赖，先查 3 种可能：① 改名了在不同位置 ② 在内核头文件中 ③ 需要自己实现 shim/wrapper
 4. 确认不可行后才记录原因、提交决策说明，**不可静默删除**
 **检查清单锚点**：见「功能可行性调研」项 ✅
+**标签**：cross-project
 
 ### E007：脚本中使用硬编码本地绝对路径（Batch 2）
 **现象**：GHA 构建报 `FileNotFoundError: /Users/weifeng/...`，连续 3 次构建失败
@@ -53,6 +60,7 @@
 3. 构建脚本路径应该基于 `sys.argv[1]`（kernel root）计算，而非基于开发者本地目录
 4. 在推送前运行 `grep -n '/Users/\|/home/' scripts/*.py` 检查是否有残留的本地路径
 **检查清单锚点**：见「路径检查」项 ✅
+**标签**：cross-project
 
 ### E009：注入代码使用了标准库中可能不存在的类型（Batch 2）
 **现象**：编译报 `incomplete type 'struct st_susfs_sus_path_list'`，结构体在目标文件中未定义
@@ -63,6 +71,7 @@
 3. 安全做法：在注入代码中本地定义所需的结构体，使用唯一前缀名（如 `_local`）避免命名冲突
 4. **即使本地定义的结构体，也不得引用外部类型作为字段**。如 `struct st_susfs_sus_path_list_local { ... struct st_susfs_sus_path info; ... }` 仍依赖 `susfs.h` 中的 `st_susfs_sus_path`。必须平铺展开所有字段，做到完全自包含
 **检查清单锚点**：见「功能可行性调研」和「结构体布局与目标版本一致」项 ✅
+**标签**：cross-project
 
 ### E008：Python 缩进不一致导致运行时报错（Batch 2）
 **现象**：GHA 运行注入脚本时报 `IndentationError: unexpected indent`，build 失败
@@ -72,7 +81,7 @@
 2. 用 edit 工具替换代码时，仔细核对缩进空格数是否与上下文一致
 3. pre-flight-check.sh 应增加 Python 语法检查步骤
 **检查清单锚点**：见「Python 语法检查」项 ✅
-=== E010 记录 ===
+**标签**：cross-project
 
 ### E010：dispatch 模板引用了未定义的常量（Batch 2）
 **现象**：编译报 `use of undeclared identifier 'CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS'`
@@ -82,6 +91,7 @@
 2. 当 v2.2.0 重命名了常量但值不变时（0x55561），需在 v1.5.5 中添加别名定义
 3. 全链路追踪必须从 dispatch 条目到常量定义全覆盖——dispatch.c 编译时引用的所有符号都要可解析
 **检查清单锚点**：见「全链路追踪」和「Kconfig 一致性」项 ✅
+**标签**：cross-project
 
 ### E011：extern 变量在链接时找不到定义（Batch 2）
 **现象**：链接报 `undefined symbol: susfs_hide_sus_mnts_for_all_procs`
@@ -93,3 +103,4 @@
 **可自动化**：no
 **对应检查**：无法自动化（需要人为判断变量定义位置）
 **检查清单锚点**：见「功能可行性调研」项 ✅
+**标签**：cross-project

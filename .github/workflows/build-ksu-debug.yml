@@ -107,35 +107,37 @@ jobs:
         run: |
           # SUSFS Kconfig symbols must be registered BEFORE merge_config.sh,
           # otherwise CONFIG_KSU_SUSFS_* are silently ignored.
-          echo "=== Adding SUSFS Kconfig menu ==="
+          echo "=== Adding/Updating SUSFS Kconfig menu ==="
           # KSUN legacy installs at drivers/kernelsu/, not KernelSU/kernel/
           KSU_KCONFIG="drivers/kernelsu/Kconfig"
-          if grep -q "config KSU_SUSFS" "$KSU_KCONFIG" 2>/dev/null; then
-            echo "Already present, skipping"
-          else
-            # Append SUSFS Kconfig menu (use printf to avoid YAML heredoc issues)
-            printf '\nmenu "KernelSU - SUSFS"\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS\n    bool "KernelSU addon - SUSFS"\n    depends on KSU\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_HAS_MAGIC_MOUNT\n    bool "Magic mount support"\n    depends on KSU\n    default n\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_PATH\n    bool "Hide suspicious path"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_MOUNT\n    bool "Hide suspicious mounts"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n    bool "Auto-hide KSU default mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n    bool "Auto-hide bind mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_KSTAT\n    bool "Spoof kstat"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_OVERLAYFS\n    bool "Spoof overlayfs kstat"\n    depends on KSU_SUSFS\n    default n\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_TRY_UMOUNT\n    bool "Try umount"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n    bool "Auto try-umount bind mounts"\n    depends on KSU_SUSFS_TRY_UMOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SPOOF_UNAME\n    bool "Spoof uname"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_ENABLE_LOG\n    bool "SUSFS debug log"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n    bool "Hide KSU/SUSFS from kallsyms"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n    bool "Spoof cmdline/bootconfig"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_MAP\n    bool "Hide /proc/pid/maps entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING\n    bool "Spoof AVC log entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
-            printf 'config KSU_SUSFS_SUS_PATH_LOOP\n    bool "Periodic sus_path loop"\n    depends on KSU_SUSFS_SUS_PATH\n    default y\n\n' >> "$KSU_KCONFIG"
-            echo "endmenu" >> "$KSU_KCONFIG"
-            echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' "$KSU_KCONFIG")"
+          # Always regenerate: remove old SUSFS section first, then append fresh
+          # (fixes cache issue where new features like SUS_PATH_LOOP never get registered)
+          if grep -q "KernelSU - SUSFS" "$KSU_KCONFIG" 2>/dev/null; then
+            echo "Removing old SUSFS Kconfig section..."
+            sed -i '/menu "KernelSU - SUSFS"/,/^endmenu/d' "$KSU_KCONFIG"
           fi
+          # Append SUSFS Kconfig menu (use printf to avoid YAML heredoc issues)
+          printf '\nmenu "KernelSU - SUSFS"\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS\n    bool "KernelSU addon - SUSFS"\n    depends on KSU\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_HAS_MAGIC_MOUNT\n    bool "Magic mount support"\n    depends on KSU\n    default n\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_PATH\n    bool "Hide suspicious path"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_MOUNT\n    bool "Hide suspicious mounts"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n    bool "Auto-hide KSU default mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n    bool "Auto-hide bind mounts"\n    depends on KSU_SUSFS_SUS_MOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_KSTAT\n    bool "Spoof kstat"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_OVERLAYFS\n    bool "Spoof overlayfs kstat"\n    depends on KSU_SUSFS\n    default n\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_TRY_UMOUNT\n    bool "Try umount"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n    bool "Auto try-umount bind mounts"\n    depends on KSU_SUSFS_TRY_UMOUNT\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SPOOF_UNAME\n    bool "Spoof uname"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_ENABLE_LOG\n    bool "SUSFS debug log"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n    bool "Hide KSU/SUSFS from kallsyms"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n    bool "Spoof cmdline/bootconfig"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_MAP\n    bool "Hide /proc/pid/maps entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING\n    bool "Spoof AVC log entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+          printf 'config KSU_SUSFS_SUS_PATH_LOOP\n    bool "Periodic sus_path loop"\n    depends on KSU_SUSFS_SUS_PATH\n    default y\n\n' >> "$KSU_KCONFIG"
+          echo "endmenu" >> "$KSU_KCONFIG"
+          echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' "$KSU_KCONFIG")"
 
           echo "=== Injecting SUSFS dispatch glue ==="
           python3 ../scripts/inject-susfs-dispatch.py .

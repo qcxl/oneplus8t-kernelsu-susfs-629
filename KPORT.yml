@@ -1,0 +1,61 @@
+---
+kport_version: "2.1.0"
+schema: 1
+
+project:
+  name: "SUSFS v1.5.5 → KSUN-legacy"
+  target_kernel: "4.19.304"
+  base_kernel: "4.14"
+  platform: "android"
+  device_codename: "kebab"
+
+paths:
+  kernel_root: "kernel"
+  error_log: "ERRORS.md"
+  flow: "FLOW.md"
+  flash: "FLASH.md"
+  preflight: "scripts/pre-flight-check.sh"
+  inject_scripts: "scripts/inject-*.py"
+  src:
+    headers:
+      - "include/linux/susfs_def.h"
+      - "include/linux/susfs.h"
+    patches:
+      - "kernel-patches/50_add_*.patch"
+  dispatch: "drivers/kernelsu/supercall/dispatch.c"
+  init: "drivers/kernelsu/core/init.c"
+
+kernel:
+  channels:
+    - type: "ioctl"
+      code: 0x55
+      file: "drivers/kernelsu/supercall/dispatch.c"
+      handler_prefix: "KSU_IOCTL_"
+    - type: "reboot"
+      magic: 0xFAFAFAFA
+      file: "drivers/kernelsu/supercall/supercall.c"
+
+kconfig:
+  prefix: "CONFIG_KSU_SUSFS_"
+  config_file: "kernel-patches/ksu.config"
+  ci:
+    type: "github-actions"
+    register_cmd: "printf 'CONFIG_KSU_SUSFS_%%s=y\\n'"
+    register_file: ".github/workflows/build-ksu-debug.yml"
+
+flash:
+  artifact_name: "kebab-kernel-ksu-debug"
+  local_path: "out/ksu-debug-boot.img"
+  download_cmd: "gh run download --repo qcxl/oneplus8t-kernelsu-susfs-629 --name kebab-kernel-ksu-debug --dir out/ && unzip -o out/kebab-kernel-ksu-debug.zip -d out/"
+  ksym_pattern: "ksu_handle|susfs"
+  payload_dump_dir: "payload_dumper/output"
+
+code_style:
+  c_indent: "\t"
+  py_indent: 4
+  py_indent_char: "space"
+
+commit:
+  convention: "conventional-commits"
+  types: ["feat", "fix", "chore", "refactor"]
+  format_reference: "CLAUDE.md"
