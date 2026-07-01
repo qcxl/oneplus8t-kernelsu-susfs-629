@@ -146,6 +146,30 @@ for cfg in $(grep '^CONFIG_KSU_SUSFS_' kernel-patches/ksu.config 2>/dev/null | g
         "grep -q '$short' .github/workflows/build-ksu-debug.yml 2>/dev/null"
 done
 
+# === 9. 自动化差距检查（警告）——自动进化 ===
+echo ""
+echo "--- 9. 自动化差距检查（警告）---"
+# 遍历 ERRORS.md 中标记【可自动化】yes 的条目，检查 pre-flight-check 是否已覆盖
+AUTO_GAP=0
+while IFS= read -r line; do
+    eid=$(echo "$line" | grep -o 'E[0-9][0-9][0-9]')
+    check_ref=$(echo "$line" | grep -oP '(?<=对应检查：).*')
+    if [ -n "$eid" ] && echo "$line" | grep -q '可自动化：yes'; then
+        # Check if this EID's check is mentioned in pre-flight-check.sh
+        if ! grep -q "$eid" "$0" 2>/dev/null; then
+            echo "  ⚠️  $eid 标记【可自动化】但 pre-flight-check 未覆盖: $check_ref [进化机会]"
+            AUTO_GAP=$((AUTO_GAP + 1))
+        fi
+    fi
+done < <(grep -A2 '### E[0-9][0-9][0-9]' ERRORS.md 2>/dev/null | grep -E '可自动化|对应检查')
+if [ "$AUTO_GAP" -eq 0 ]; then
+    echo "  ✅ 所有可自动化条目已被 pre-flight-check 覆盖"
+    PASS=$((PASS + 1))
+else
+    echo "  ⚠️  发现 $AUTO_GAP 个自动化机会，建议实现"
+    FAIL_WARN=$((FAIL_WARN + 1))
+fi
+
 echo ""
 echo "═══════════════════════════════════════════"
 echo "  结果: $PASS 通过 / $FAIL_BLOCKING 阻断 / $FAIL_WARN 警告"
