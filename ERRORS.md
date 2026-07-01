@@ -115,6 +115,26 @@
 **锚点**：FLOW.md §3 全链路追踪 — CMD 常量完整性
 **标签**：cross-project
 
+### E015：#ifndef CONFIG_KSU_SUSFS 误杀无真实实现的 stub 函数
+**现象**：编译成功但链接失败，报 `undefined symbol: susfs_is_current_ksu_domain / susfs_is_current_zygote_domain / ksu_try_umount / susfs_try_umount_all`。
+**根因**：`susfs_stubs.c` 中用 `#ifndef CONFIG_KSU_SUSFS` 包裹所有 stub 函数。但其中 4 个函数没有对应的真实实现（仅在 50_add patch 中定义，patch 不一定总能干净应用）。`#ifndef` 移除了它们后，链接器找不到符号。
+**教训**：
+1. 用 `#ifndef` 包裹 stub 前，必须确认每个被包裹的函数是否存在真实实现
+2. 判断方法：在 `susfs.c`（上游）、inject 脚本、50_add patch 中分别搜索函数名
+3. 没有真实实现的函数，stub 必须无条件保留
+**锚点**：FLOW.md §1b 依赖追踪 — 全局变量搜索覆盖范围
+**标签**：cross-project
+
+### E014：show_enabled_features 的 #ifdef 字符串在 boot.img 中但运行时只返回 SUS_PATH
+**现象**：`strings boot.img | grep CONFIG_KSU_SUSFS_` 显示全部 16 个功能，但设备上 `ksud susfs features` 只返回 `CONFIG_KSU_SUSFS_SUS_PATH`。
+**根因**：未查明。所有 16 个 `#ifdef` 块的字符串字面量确实被编译进了二进制，但内核在运行时通过 `CMD_SUSFS_SHOW_ENABLED_FEATURES` 命令返回的只有第一个。可能原因：① dispatch 模板生成的 C 代码存在运行时控制流问题 ② KSU reboot handler 注入的代码块被后续 patch 覆盖 ③ GHA 缓存仍部分生效
+**教训**：
+1. `strings boot.img` 确认字符串存在 ≠ 运行时功能可用。需要实际调用验证
+2. dispatch 模板的 IOCTL handler 和 reboot handler 两处都要同时更新，但运行时调用路径可能是不同的
+3. 验证 feature 完整性的可靠方式：编译后用 `nm vmlinux | grep susfs_add_sus_path_loop` 等检查函数存在，再用测试工具实际调用
+**锚点**：FLOW.md §2 代码审计 — Dispatch 条目
+**标签**：cross-project
+
 ### E012：GHA workflow Kconfig 注册缓存导致新功能配置被静默丢弃
 **现象**：在 ksu.config 中新增了 `CONFIG_KSU_SUSFS_SUS_PATH_LOOP=y` 等配置项，编译成功但 boot.img 中没有这些功能，`ksud susfs features` 只显示旧功能。
 **根因**：GHA workflow 中使用 `if grep -q "config KSU_SUSFS" ...; then echo "Already present, skipping"` 检查 Kconfig 文件是否已有 SUSFS 条目。如果之前已有旧条目（如基础 10 个），新条目的注册被整个跳过。`merge_config.sh` 遇到 ksu.config 中定义的选项但 Kconfig 中没有注册时，静默丢弃该选项。结果 .config 不变 → ccache 命中 → 输出不变。
