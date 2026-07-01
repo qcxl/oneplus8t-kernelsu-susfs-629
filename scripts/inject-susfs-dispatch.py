@@ -75,7 +75,7 @@ def add_susfs_handlers_to_dispatch(kernel_root):
         '};\n'
         '\n'
         '/* Shared features display - called by both IOCTL and reboot handlers */\n'
-        'static int susfs_show_features(void __user *uarg)\n'
+        'int susfs_show_features(void __user *uarg)\n'
         '{\n'
         '\tchar __user *buf = (char __user *)uarg;\n'
         '\tsize_t pos = 0;\n'
@@ -323,7 +323,8 @@ def add_susfs_reboot_handler(kernel_root):
     susfs_block = (
         '\n'
         '\t/* SUSFS commands via reboot channel (magic2 = 0xFAFAFAFA) */\n'
-        '#ifdef CONFIG_KSU_SUSFS\n'
+         '#ifdef CONFIG_KSU_SUSFS\n'
+        '\textern int susfs_show_features(void __user *uarg);\n'
         '\tif (magic2 == 0xFAFAFAFA) {\n'
         '\t\tvoid __user *uarg = (void __user *)*arg;\n'
         '\t\tpr_info("susfs: reboot cmd=0x%x\\n", cmd);\n'
