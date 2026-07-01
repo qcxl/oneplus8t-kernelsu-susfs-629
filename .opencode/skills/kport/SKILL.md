@@ -5,7 +5,17 @@ metadata:
   project: kernel-porting
 ---
 
-# /kport — 内核功能移植审查
+# /kport — Kernel Porting Review
+
+Subcommands: `read`, `deps`, `trace`, `verify`, `audit`, `fix`, `flash`
+- `/kport` → show help
+- `/kport read` → 阶段 1a
+- `/kport deps` → 阶段 1b
+- `/kport trace` → 阶段 1c
+- `/kport verify` → 阶段 1d
+- `/kport audit` → 阶段 2
+- `/kport fix` → 阶段 3
+- `/kport flash` → 阶段 4
 
 ## 阶段 1：移植前检查
 
