@@ -188,17 +188,26 @@ def inject_susfs_c():
      )
 
     # Function ④: sus_path_loop infrastructure + function + workqueue
+    # Uses a local struct with err field (v2.2.0 protocol), converts to v1.5.5 struct internally
     path_loop_infra = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n'
+        '/* v2.2.0 compatible struct with err field for sus_path_loop */\n'
+        'struct st_susfs_sus_path_v2 {\n'
+        '\tunsigned long                    target_ino;\n'
+        '\tchar                             target_pathname[SUSFS_MAX_LEN_PATHNAME];\n'
+        '\tunsigned int                     i_uid;\n'
+        '\tint                              err;\n'
+        '};\n'
+        '\n'
         'static DEFINE_MUTEX(susfs_mutex_lock_sus_path);\n'
         'static LIST_HEAD(LH_SUS_PATH_LOOP);\n'
         '\n'
         'void susfs_add_sus_path_loop(void __user **user_info) {\n'
+        '\tstruct st_susfs_sus_path_v2 info = {0};\n'
         '\tstruct st_susfs_sus_path_list *new_list = NULL;\n'
-        '\tstruct st_susfs_sus_path info = {0};\n'
         '\n'
-        '\tif (copy_from_user(&info, (struct st_susfs_sus_path __user*)*user_info, sizeof(info))) {\n'
+        '\tif (copy_from_user(&info, (struct st_susfs_sus_path_v2 __user*)*user_info, sizeof(info))) {\n'
         '\t\tinfo.err = -EFAULT;\n'
         '\t\tgoto out;\n'
         '\t}\n'
@@ -222,7 +231,7 @@ def inject_susfs_c():
         '\tSUSFS_LOGI("target_pathname: \'%s\', added to LH_SUS_PATH_LOOP\\n", new_list->target_pathname);\n'
         '\tinfo.err = 0;\n'
         'out:\n'
-        '\tif (copy_to_user(&((struct st_susfs_sus_path __user*)*user_info)->err, &info.err, sizeof(info.err)))\n'
+        '\tif (copy_to_user(&((struct st_susfs_sus_path_v2 __user*)*user_info)->err, &info.err, sizeof(info.err)))\n'
         '\t\tinfo.err = -EFAULT;\n'
         '\tSUSFS_LOGI("CMD_SUSFS_ADD_SUS_PATH_LOOP -> ret: %d\\n", info.err);\n'
         '}\n'
