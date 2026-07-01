@@ -72,3 +72,13 @@
 2. 用 edit 工具替换代码时，仔细核对缩进空格数是否与上下文一致
 3. pre-flight-check.sh 应增加 Python 语法检查步骤
 **检查清单锚点**：见「Python 语法检查」项 ✅
+=== E010 记录 ===
+
+### E010：dispatch 模板引用了未定义的常量（Batch 2）
+**现象**：编译报 `use of undeclared identifier 'CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS'`
+**根因**：`inject-susfs-dispatch.py` 模板中添加了 `CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS` 的 dispatch 条目，但 `susfs_def.h` 中只定义了同值的 `CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS`（v1.5.5 命名）。新名字未在 `susfs_def.h` 中定义
+**教训**：
+1. dispatch 模板中引用的任何 CMD 常量，必须在注入脚本中同步添加其定义
+2. 当 v2.2.0 重命名了常量但值不变时（0x55561），需在 v1.5.5 中添加别名定义
+3. 全链路追踪必须从 dispatch 条目到常量定义全覆盖——dispatch.c 编译时引用的所有符号都要可解析
+**检查清单锚点**：见「全链路追踪」和「Kconfig 一致性」项 ✅
