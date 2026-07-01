@@ -54,15 +54,15 @@
 
 ## 🔄 事后复盘：错误经验提炼（每次修复后立即执行）
 
-每次解决一个 bug 后，必须在本文件 `🧠 错误经验库` 一节新增条目。步骤如下：
+每次解决一个 bug 后，必须在 [ERRORS.md](ERRORS.md) 新增条目。步骤如下：
 
 ### 步骤
-1. 新开一个 `### E00N：` 条目
+1. 在 `ERRORS.md` 新开一个 `### E00N：` 条目
 2. 记录四项内容：
    - **现象**：编译/运行时观察到什么
    - **根因**：为什么发生
    - **教训**：如何避免（具体操作，而非笼统建议）
-   - **检查清单锚点**：关联到第 2/3/4 节具体哪条检查项
+   - **检查清单锚点**：关联到本文第 2/3/4 节具体哪条检查项
 3. 如果新教训无法对应到现有检查项，则在对应节新增一条检查项
 4. 如果适用于自动化检查，更新 `scripts/pre-flight-check.sh`
 
@@ -76,56 +76,6 @@
 
 ---
 
-## 🧠 错误经验库（每次修复后更新）
-
-### E001：`#define` 字符串替换缺少前缀（Batch 1）
-**现象**：编译报 `macro name must be an identifier`，生成 `#define #define CMD_...`
-**根因**：替换目标字符串 `'CMD_SUSFS_ADD_SUS_MAP'` 不包含前面的 `#define`，替换后变 `#define #define ...`
-**教训**：替换预处理指令时必须包含完整的 `#define NAME VALUE` 行，切勿只匹配 NAME
-**检查清单锚点**：见 3b 第5条 ✅
-
-### E002：注入锚点在目标文件中不存在，静默跳过（Batch 1）
-**现象**：编译报 `incomplete type / forward declaration`。struct 定义不存在，但函数声明已插入
-**根因**：`inject_susfs_h()` 使用 `int susfs_get_enabled_features` 做锚点，但 GHA 实际文件中函数签名不同（本地读的是 hypermezo4 v1.5.9 镜像，GHA 用 gitlab 原始版）。插入静默失败，return True
-**教训**：
-1. 注入脚本必须检查插入是否成功，失败返回 False
-2. 本地文件 ≠ GHA 源文件。差异源：gitlab 原始版 vs GitHub 镜像版 vs 50_add 补丁生成版
-3. 使用 `/* susfs_init */` 等稳定标记做锚点（跨版本不变）
-**检查清单锚点**：见 2 第4条、第5条 ✅
-
-### E003：多步插入产生半状态（Batch 1）
-**现象**：先 `lines.insert(func)` 再 `content.replace(func, func + wrapper)`，后一步失败则只有 func 被插入
-**根因**：分两步插入相关代码，没有原子性保证
-**教训**：所有逻辑上必须同时存在的代码（如 struct + 声明、avc_func + enable_log_wrapper）必须合并为一次字符串后用单次插入
-**检查清单锚点**：见 3 第8条 ✅
-
-### E004：`#ifdef` 子选项未在 Kconfig 注册（Batch 1 预防）
-**潜在风险**：新增 `#ifdef CONFIG_KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING` 保护的代码，如果 Kconfig 未注册且 ksu.config 未设置，代码被编译但选项不生效
-**预防**：每次新增 `#ifdef CONFIG_*` 时，同步检查 `ksu.config` 和 GHA workflow 的 Kconfig 注册
-
-### E005：本地文件与 GHA 实际源文件不一致
-**风险**：gitlab 原始版 vs GitHub 镜像版 vs 50_add 补丁生成的版本之间可能有差异。本地的 `/tmp/susfs-v1.5/` 来自 hypermezo4 镜像（v1.5.9），GHA 从 gitlab 克隆（未知精确版本）
-**预防**：锚点/标记优先使用不易随版本变更的固定字符串（如 `/* susfs_init */`），而非特定代码行（如 `int susfs_get_enabled_features`）
-
-### E006：武断删除功能，未做可行性调研
-**现象**：发现 `ksu_cred` 在预读的 KSUN 源码中未搜到，直接判定"无法移植"要删掉 `sus_path_loop`
-**根因**：搜索范围不够全——`ksu_cred` 实际存在于 `kernel/include/ksu.h`，只是不在最初搜索的 `kernel/ksu.c` 中
-**教训**：
-1. **任何功能不得在未完成完整可行性调研前标记为"无法移植"**
-2. 搜索依赖时覆盖所有可能的文件路径，不仅仅是自己认为"可能"的位置
-3. 对缺失的依赖，先查 3 种可能：① 改名了在不同位置 ② 在内核头文件中 ③ 需要自己实现 shim/wrapper
-4. 确认不可行后才记录原因、提交决策说明，**不可静默删除**
-**检查清单锚点**：见 2 第6条 ✅
-
-### E007：脚本中使用硬编码本地绝对路径（Batch 2）
-**现象**：GHA 构建报 `FileNotFoundError: /Users/weifeng/...`，连续 3 次构建失败
-**根因**：`patch_dispatch_template()` 中写了硬编码路径 `script_path = "/Users/weifeng/.../inject-susfs-dispatch.py"`，GHA 容器文件系统不同，此路径不存在
-**教训**：
-1. 所有注入脚本中的文件路径必须使用 `os.path.join(KERNEL_ROOT, ...)` 相对路径
-2. 绝对路径（`/Users/xxx/`、`/home/xxx/`）在 CI 容器中**一定会失效**
-3. 构建脚本路径应该基于 `sys.argv[1]`（kernel root）计算，而非基于开发者本地目录
-4. 在推送前运行 `grep -n '/Users/\|/home/' scripts/*.py` 检查是否有残留的本地路径
-**检查清单锚点**：见移植后审计第7条（新增） ✅
 
 ---
 
