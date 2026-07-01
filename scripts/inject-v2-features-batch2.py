@@ -49,6 +49,7 @@ def inject_susfs_def_h():
         '\n'
         '/* added by Batch 2 port */\n'
         '#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553\n'
+        '#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561\n'
     )
     # Insert CMD_SUSFS_ADD_SUS_PATH_LOOP before CMD_SUSFS_ADD_SUS_MOUNT
     if not insert_before_line(path, '#define CMD_SUSFS_ADD_SUS_MOUNT', cmds):
