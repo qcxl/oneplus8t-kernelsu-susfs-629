@@ -78,7 +78,9 @@ fi
 echo ""
 echo "--- 5a. 流程文档完整性（阻断）---"
 check_blocking "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
+check_blocking "FLASH_PROCEDURE.md 存在" "test -f FLASH_PROCEDURE.md"
 check_blocking "ERRORS.md 存在" "test -f ERRORS.md"
+check_blocking "pre-flight-check.sh 存在" "test -f scripts/pre-flight-check.sh"
 check_blocking "错误经验库有内容" 'grep -c "### E00" ERRORS.md 2>/dev/null | grep -q .'
 # Dynamic check: latest E00N entry has all 4 required fields
 check_blocking "最新条目有【现象】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '现象'"

@@ -106,6 +106,11 @@ dmesg | grep '模块名:'               # 检查内核侧是否收到命令
 
 #### 5c. 编译失败
 ```bash
+# 0. 获取最新的构建 ID（如果失败 build 不是最新的）
+gh run list --repo <owner>/<repo> --limit 1 --json databaseId,status,conclusion
+# 指定特定构建 ID
+# gh run view --repo <owner>/<repo> <build-id> --log 2>&1 | tee /tmp/build-失败.log
+
 # 1. 获取构建日志
 gh run view --log 2>&1 | tee /tmp/build-失败.log
 # 2. 定位错误类型

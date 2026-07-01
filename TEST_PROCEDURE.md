@@ -117,9 +117,6 @@
 
 ---
 
-
----
-
 ## 刷机验证流程
 
 刷机前检查、刷机操作、刷机后验证等操作步骤已拆分到 [FLASH_PROCEDURE.md](FLASH_PROCEDURE.md)。
