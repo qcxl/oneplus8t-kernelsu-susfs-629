@@ -74,9 +74,9 @@ else
     echo "  ✅ 注入脚本修改 + ERRORS.md 已同步"
 fi
 
-# === 5. 流程文档完整性 ===
+# === 5a. 流程文档完整性 ===
 echo ""
-echo "--- 5. 流程文档完整性 ---"
+echo "--- 5a. 流程文档完整性（阻断）---"
 check_blocking "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
 check_blocking "ERRORS.md 存在" "test -f ERRORS.md"
 check_blocking "错误经验库有内容" 'grep -c "### E00" ERRORS.md 2>/dev/null | grep -q .'
@@ -86,9 +86,22 @@ check_blocking "最新条目有【根因】字段" "grep -A8 '### $LATEST_E' ERR
 check_blocking "最新条目有【教训】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '教训'"
 check_blocking "最新条目有【检查清单锚点】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '检查清单锚点'"
 
-# === 5. 检查未跟踪的临时文件（仅警告） ===
+# === 5b. 提交信息检查（阻断） ===
 echo ""
-echo "--- 5. 未跟踪文件检查（警告）---"
+echo "--- 5b. 提交信息检查（阻断）---"
+if [ -n "$INJECT_CHANGED" ] && [ -n "$ERRORS_CHANGED" ]; then
+    # Check that the commit message references the latest E00N
+    COMMIT_MSG=$(git log --format=%s -1 2>/dev/null || echo "")
+    if echo "$COMMIT_MSG" | grep -q "$LATEST_E"; then
+        echo "  ✅ commit message 引用了 $LATEST_E"
+    else
+        check_blocking "commit message 必须引用 $LATEST_E（注入脚本变更 + ERRORS.md 更新）" "false"
+    fi
+else
+    echo "  (未同时修改注入脚本和 ERRORS.md，跳过提交信息检查)"
+fi
+
+# === 5c. 未跟踪文件检查（警告） ===
 check_warn "无 .bak 文件待提交" "! find . -name '*.bak' -maxdepth 2 | grep -q ."
 check_warn "无 .md 文档文件待提交" '! git status --porcelain 2>/dev/null | grep -E "^\?\?" | grep -E "\.md$" | grep -v TEST_PROCEDURE | grep -q .'
 
