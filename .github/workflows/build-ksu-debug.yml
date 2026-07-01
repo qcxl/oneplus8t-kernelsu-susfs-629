@@ -78,7 +78,7 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
             | bash -s legacy
 
-      - name: Apply SUSFS v1.5.5 (kernel-4.19 branch)
+      - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
           git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs
@@ -105,6 +105,9 @@ jobs:
           fi
           echo "=== SUSFS v1.5.5 applied ==="
           grep "SUSFS_VERSION" include/linux/susfs.h 2>/dev/null || echo "SUSFS_VERSION not found"
+          # Override SUSFS version to reflect the ported version
+          sed -i 's/define SUSFS_VERSION.*/define SUSFS_VERSION "v2.2.0"/' include/linux/susfs.h
+          grep "SUSFS_VERSION" include/linux/susfs.h
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
 
       - name: Register SUSFS Kconfig and dispatch for KernelSU-Next legacy

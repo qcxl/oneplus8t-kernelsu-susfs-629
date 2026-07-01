@@ -3,7 +3,7 @@ kport_version: "2.1.0"
 schema: 1
 
 project:
-  name: "SUSFS v1.5.5 → KSUN-legacy"
+  name: "SUSFS v1.5.5 → v2.2.0 port (KSUN-legacy)"
   target_kernel: "4.19.304"
   base_kernel: "4.14"
   platform: "android"
