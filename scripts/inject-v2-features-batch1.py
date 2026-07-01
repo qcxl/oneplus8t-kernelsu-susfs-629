@@ -102,21 +102,20 @@ def inject_susfs_h():
         '#endif\n'
     )
     
-    # Insert struct AFTER the last #endif of feature sections, before 
-    # the next non-feature declaration (susfs_get_enabled_features)
+    # Insert struct and declarations before /* susfs_init */
+    # Use /* susfs_init */ as the sole anchor point (reliable across versions)
     lines = open(os.path.join(KERNEL_ROOT, path)).read().split('\n')
     
+    inserted_struct = False
     for i, line in enumerate(lines):
-        if line.strip().startswith('int susfs_get_enabled_features'):
-            lines.insert(i, avc_struct)
+        if '/* susfs_init */' in line:
+            lines.insert(i, avc_struct + '\n' + avc_decl)
             inserted_struct = True
             break
     
-    # Insert avc function declaration before /* susfs_init */
-    for i, line in enumerate(lines):
-        if '/* susfs_init */' in line:
-            lines.insert(i, avc_decl)
-            break
+    if not inserted_struct:
+        print("  ERROR: /* susfs_init */ marker not found in susfs.h")
+        return False
     
     content = '\n'.join(lines)
     with open(os.path.join(KERNEL_ROOT, path), 'w') as f:
