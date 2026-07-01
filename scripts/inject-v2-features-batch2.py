@@ -139,7 +139,7 @@ def inject_susfs_c():
         '#endif /* CONFIG_KSU_SUSFS_SUS_MOUNT */\n'
     )
 
-    # Function ②: fillattr_spoofer (compatible with v1.5.5 struct, no FUSE/is_fuse)
+    # Function ②: fillattr_spoofer (non-RCU hash, compatible with v1.5.5)
     fillattr_func = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
@@ -147,8 +147,7 @@ def inject_susfs_c():
         '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
         '\tunsigned long target_ino = inode->i_ino;\n'
         '\n'
-        '\trcu_read_lock();\n'
-        '\thash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
+        '\thash_for_each_possible(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
         '\t\tif (entry->target_ino == target_ino) {\n'
         '\t\t\tstat->dev = entry->info.spoofed_dev;\n'
         '\t\t\tstat->ino = entry->info.spoofed_ino;\n'
@@ -161,38 +160,32 @@ def inject_susfs_c():
         '\t\t\tstat->ctime.tv_sec = entry->info.spoofed_ctime_tv_sec;\n'
         '\t\t\tstat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;\n'
         '\t\t\tstat->blocks = entry->info.spoofed_blocks;\n'
-        '\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
-        '\t\t\trcu_read_unlock();\n'
-        '\t\t\treturn;\n'
+         '\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
+         '\t\t\treturn;\n'
         '\t\t}\n'
-        '\t}\n'
-        '\trcu_read_unlock();\n'
-        '}\n'
-        '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
-    )
+         '\t}\n'
+         '}\n'
+         '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
+     )
 
-    # Function ③: show_map_vma_spoofer (no FUSE/is_fuse)
-    mapvma_func = (
-        '\n'
-        '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
-        'void susfs_show_map_vma_spoofer(struct inode *inode, dev_t *out_dev, unsigned long *out_ino) {\n'
-        '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
-        '\tunsigned long target_ino = inode->i_ino;\n'
-        '\n'
-        '\trcu_read_lock();\n'
-        '\thash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
-        '\t\tif (entry->target_ino == target_ino) {\n'
-        '\t\t\tSUSFS_LOGI("spoofing map_vma for target_ino: %lu\\n", target_ino);\n'
-        '\t\t\t*out_dev = entry->info.spoofed_dev;\n'
-        '\t\t\t*out_ino = entry->info.spoofed_ino;\n'
-        '\t\t\trcu_read_unlock();\n'
-        '\t\t\treturn;\n'
-        '\t\t}\n'
-        '\t}\n'
-        '\trcu_read_unlock();\n'
-        '}\n'
-        '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
-    )
+     # Function ③: show_map_vma_spoofer (non-RCU hash)
+     mapvma_func = (
+         '\n'
+         '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
+         'void susfs_show_map_vma_spoofer(struct inode *inode, dev_t *out_dev, unsigned long *out_ino) {\n'
+         '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
+         '\tunsigned long target_ino = inode->i_ino;\n'
+         '\n'
+         '\thash_for_each_possible(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
+         '\t\tif (entry->target_ino == target_ino) {\n'
+         '\t\t\t*out_dev = entry->info.spoofed_dev;\n'
+         '\t\t\t*out_ino = entry->info.spoofed_ino;\n'
+         '\t\t\treturn;\n'
+         '\t\t}\n'
+         '\t}\n'
+         '}\n'
+         '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
+     )
 
     # Function ④: sus_path_loop infrastructure + function + workqueue
     path_loop_infra = (
@@ -253,9 +246,10 @@ def inject_susfs_c():
         '\n'
         'struct work_struct susfs_extra_works;\n'
         'static void susfs_run_extra_works(struct work_struct *work) {\n'
+        '\tconst struct cred *saved;\n'
         '\tif (!ksu_cred)\n'
         '\t\treturn;\n'
-        '\tconst struct cred *saved = override_creds(ksu_cred);\n'
+        '\tsaved = override_creds(ksu_cred);\n'
         '\tsusfs_run_sus_path_loop();\n'
         '\trevert_creds(saved);\n'
         '}\n'
