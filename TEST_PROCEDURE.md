@@ -42,8 +42,10 @@
 - [ ] Kconfig 选项在 `ksu.config` 和 GHA workflow 中都注册了
 - [ ] 桩函数（susfs_stubs.c）更新/删除同步
 - [ ] 去重保护代码与注入逻辑一致（避免半插入状态）
+- [ ] **路径检查：`grep -n '/Users/\|/home/' scripts/*.py` 确保无本地硬编码绝对路径**
 
 ### 5. 提交规范
+- [ ] **提交前运行 `bash scripts/pre-flight-check.sh`，全部通过才允许提交**
 - [ ] 提交信息格式：`feat: batchN v2.2.0 port - 功能名`
 - [ ] 提交信息包含移植依据、关键决策说明
 - [ ] 只提交移植相关文件，不包括临时文件、备份文件
@@ -89,7 +91,17 @@
 2. 搜索依赖时覆盖所有可能的文件路径，不仅仅是自己认为"可能"的位置
 3. 对缺失的依赖，先查 3 种可能：① 改名了在不同位置 ② 在内核头文件中 ③ 需要自己实现 shim/wrapper
 4. 确认不可行后才记录原因、提交决策说明，**不可静默删除**
-**检查清单锚点**：见 2 第6条（新增）✅
+**检查清单锚点**：见 2 第6条 ✅
+
+### E007：脚本中使用硬编码本地绝对路径（Batch 2）
+**现象**：GHA 构建报 `FileNotFoundError: /Users/weifeng/...`，连续 3 次构建失败
+**根因**：`patch_dispatch_template()` 中写了硬编码路径 `script_path = "/Users/weifeng/.../inject-susfs-dispatch.py"`，GHA 容器文件系统不同，此路径不存在
+**教训**：
+1. 所有注入脚本中的文件路径必须使用 `os.path.join(KERNEL_ROOT, ...)` 相对路径
+2. 绝对路径（`/Users/xxx/`、`/home/xxx/`）在 CI 容器中**一定会失效**
+3. 构建脚本路径应该基于 `sys.argv[1]`（kernel root）计算，而非基于开发者本地目录
+4. 在推送前运行 `grep -n '/Users/\|/home/' scripts/*.py` 检查是否有残留的本地路径
+**检查清单锚点**：见移植后审计第7条（新增） ✅
 
 ---
 
