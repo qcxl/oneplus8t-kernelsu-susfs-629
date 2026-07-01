@@ -105,6 +105,16 @@
 **检查清单锚点**：见「功能可行性调研」项 ✅
 **标签**：cross-project
 
+### E013：dispatch 模板 show_enabled_features 的 #ifdef 块不完整
+**现象**：`ksud susfs features` 只报告部分功能（如仅 SUS_PATH），但 `.config` 中所有功能都已编译为 `=y`，boot.img 中也能找到真实实现的日志字符串。
+**根因**：`inject-susfs-dispatch.py` 中 `CMD_SUSFS_SHOW_ENABLED_FEATURES` 的 `#ifdef` 块只有 10 个，缺少 6 个（AVC_LOG / SUS_PATH_LOOP / OVERLAYFS / 3 个 AUTO_ADD）。`copy_to_user` 的字符串字面量未嵌入二进制 → `ksud susfs features` 不会报告。
+**教训**：
+1. 功能编译与否（`.config`）和功能报告与否（`show_enabled_features` 的 `#ifdef` 块）是独立的两层，必须同步更新
+2. inject 脚本中 IOCTL handler 和 reboot handler 两处都要更新相同的 `#ifdef` 块
+3. 验证功能是否完整时，不只靠 `ksud susfs features`，还要检查 `.config` + boot.img 字符串
+**锚点**：FLOW.md §3 全链路追踪 — CMD 常量完整性
+**标签**：cross-project
+
 ### E012：GHA workflow Kconfig 注册缓存导致新功能配置被静默丢弃
 **现象**：在 ksu.config 中新增了 `CONFIG_KSU_SUSFS_SUS_PATH_LOOP=y` 等配置项，编译成功但 boot.img 中没有这些功能，`ksud susfs features` 只显示旧功能。
 **根因**：GHA workflow 中使用 `if grep -q "config KSU_SUSFS" ...; then echo "Already present, skipping"` 检查 Kconfig 文件是否已有 SUSFS 条目。如果之前已有旧条目（如基础 10 个），新条目的注册被整个跳过。`merge_config.sh` 遇到 ksu.config 中定义的选项但 Kconfig 中没有注册时，静默丢弃该选项。结果 .config 不变 → ccache 命中 → 输出不变。
