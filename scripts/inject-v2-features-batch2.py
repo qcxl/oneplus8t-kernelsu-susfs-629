@@ -50,29 +50,10 @@ def inject_susfs_def_h():
         '/* added by Batch 2 port */\n'
         '#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553\n'
     )
-    flags = (
-        '\n'
-        '/* KSTAT_SPOOF flags */\n'
-        '#define KSTAT_SPOOF_INO (1 << 0)\n'
-        '#define KSTAT_SPOOF_DEV (1 << 1)\n'
-        '#define KSTAT_SPOOF_NLINK (1 << 2)\n'
-        '#define KSTAT_SPOOF_SIZE (1 << 3)\n'
-        '#define KSTAT_SPOOF_ATIME_TV_SEC (1 << 4)\n'
-        '#define KSTAT_SPOOF_ATIME_TV_NSEC (1 << 5)\n'
-        '#define KSTAT_SPOOF_MTIME_TV_SEC (1 << 6)\n'
-        '#define KSTAT_SPOOF_MTIME_TV_NSEC (1 << 7)\n'
-        '#define KSTAT_SPOOF_CTIME_TV_SEC (1 << 8)\n'
-        '#define KSTAT_SPOOF_CTIME_TV_NSEC (1 << 9)\n'
-        '#define KSTAT_SPOOF_BLOCKS (1 << 10)\n'
-        '#define KSTAT_SPOOF_BLKSIZE (1 << 11)\n'
-    )
     # Insert CMD_SUSFS_ADD_SUS_PATH_LOOP before CMD_SUSFS_ADD_SUS_MOUNT
     if not insert_before_line(path, '#define CMD_SUSFS_ADD_SUS_MOUNT', cmds):
         return False
-    # Insert KSTAT_SPOOF flags at end (before #endif)
-    if not insert_before_line(path, '#endif // #ifndef KSU_SUSFS_DEF_H', flags):
-        return False
-    print("  [OK] susfs_def.h: added CMD + KSTAT_SPOOF flags")
+    print("  [OK] susfs_def.h: added CMD")
     return True
 
 # ============================================================
@@ -122,14 +103,10 @@ def inject_susfs_c():
         print("  [SKIP] susfs.c: already has Batch 2 features")
         return True
 
-    # Includes needed for FUSE shim
+    # Includes: ksu_cred for workqueue credential override
     includes = (
         '#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n'
-        '#include <linux/fuse.h>\n'
         'extern struct cred *ksu_cred;\n'
-        'static inline struct fuse_inode *susfs_get_fuse_inode(struct inode *inode) {\n'
-        '\treturn container_of(inode, struct fuse_inode, inode);\n'
-        '}\n'
         '#endif\n'
     )
 
@@ -162,43 +139,29 @@ def inject_susfs_c():
         '#endif /* CONFIG_KSU_SUSFS_SUS_MOUNT */\n'
     )
 
-    # Function ②: fillattr_spoofer 
+    # Function ②: fillattr_spoofer (compatible with v1.5.5 struct, no FUSE/is_fuse)
     fillattr_func = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
         'void susfs_generic_fillattr_spoofer(struct inode *inode, struct kstat *stat) {\n'
         '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
         '\tunsigned long target_ino = inode->i_ino;\n'
-        '\tdev_t target_dev = inode->i_sb->s_dev;\n'
         '\n'
         '\trcu_read_lock();\n'
         '\thash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
-        '\t\tif (entry->target_ino == target_ino && entry->is_fuse == false) {\n'
-        '\t\t\tSUSFS_LOGI("spoofing kstat for target_ino: %lu\\n", target_ino);\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_INO)\n'
-        '\t\t\t\tstat->ino = entry->info.spoofed_ino;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_DEV)\n'
-        '\t\t\t\tstat->dev = entry->info.spoofed_dev;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_NLINK)\n'
-        '\t\t\t\tstat->nlink = entry->info.spoofed_nlink;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_SIZE)\n'
-        '\t\t\t\tstat->size = entry->info.spoofed_size;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_ATIME_TV_SEC)\n'
-        '\t\t\t\tstat->atime.tv_sec = entry->info.spoofed_atime_tv_sec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_ATIME_TV_NSEC)\n'
-        '\t\t\t\tstat->atime.tv_nsec = entry->info.spoofed_atime_tv_nsec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_MTIME_TV_SEC)\n'
-        '\t\t\t\tstat->mtime.tv_sec = entry->info.spoofed_mtime_tv_sec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_MTIME_TV_NSEC)\n'
-        '\t\t\t\tstat->mtime.tv_nsec = entry->info.spoofed_mtime_tv_nsec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_CTIME_TV_SEC)\n'
-        '\t\t\t\tstat->ctime.tv_sec = entry->info.spoofed_ctime_tv_sec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_CTIME_TV_NSEC)\n'
-        '\t\t\t\tstat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_BLKSIZE)\n'
-        '\t\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
-        '\t\t\tif (entry->info.flags & KSTAT_SPOOF_BLOCKS)\n'
-        '\t\t\t\tstat->blocks = entry->info.spoofed_blocks;\n'
+        '\t\tif (entry->target_ino == target_ino) {\n'
+        '\t\t\tstat->dev = entry->info.spoofed_dev;\n'
+        '\t\t\tstat->ino = entry->info.spoofed_ino;\n'
+        '\t\t\tstat->nlink = entry->info.spoofed_nlink;\n'
+        '\t\t\tstat->size = entry->info.spoofed_size;\n'
+        '\t\t\tstat->atime.tv_sec = entry->info.spoofed_atime_tv_sec;\n'
+        '\t\t\tstat->atime.tv_nsec = entry->info.spoofed_atime_tv_nsec;\n'
+        '\t\t\tstat->mtime.tv_sec = entry->info.spoofed_mtime_tv_sec;\n'
+        '\t\t\tstat->mtime.tv_nsec = entry->info.spoofed_mtime_tv_nsec;\n'
+        '\t\t\tstat->ctime.tv_sec = entry->info.spoofed_ctime_tv_sec;\n'
+        '\t\t\tstat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;\n'
+        '\t\t\tstat->blocks = entry->info.spoofed_blocks;\n'
+        '\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
         '\t\t\trcu_read_unlock();\n'
         '\t\t\treturn;\n'
         '\t\t}\n'
@@ -208,18 +171,17 @@ def inject_susfs_c():
         '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
     )
 
-    # Function ③: show_map_vma_spoofer
+    # Function ③: show_map_vma_spoofer (no FUSE/is_fuse)
     mapvma_func = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
         'void susfs_show_map_vma_spoofer(struct inode *inode, dev_t *out_dev, unsigned long *out_ino) {\n'
         '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
         '\tunsigned long target_ino = inode->i_ino;\n'
-        '\tdev_t target_dev = inode->i_sb->s_dev;\n'
         '\n'
         '\trcu_read_lock();\n'
         '\thash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, target_ino) {\n'
-        '\t\tif (entry->target_ino == target_ino && entry->is_fuse == false) {\n'
+        '\t\tif (entry->target_ino == target_ino) {\n'
         '\t\t\tSUSFS_LOGI("spoofing map_vma for target_ino: %lu\\n", target_ino);\n'
         '\t\t\t*out_dev = entry->info.spoofed_dev;\n'
         '\t\t\t*out_ino = entry->info.spoofed_ino;\n'
