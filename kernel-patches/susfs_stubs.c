@@ -21,7 +21,10 @@ long __strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long
 }
 EXPORT_SYMBOL(__strncpy_from_user_nofault);
 
-/* Stub for susfs_add_sus_path_loop - not in kernel-4.19 */
+/* All SUSFS function stubs below are ONLY used when CONFIG_KSU_SUSFS is disabled.
+   When CONFIG_KSU_SUSFS=y, the real implementations in fs/susfs.c take precedence,
+   and these stubs are excluded to avoid --allow-multiple-definition picking the stub. */
+#ifndef CONFIG_KSU_SUSFS
 int susfs_add_sus_path_loop(void __user *arg)
 {
     pr_info("susfs: susfs_add_sus_path_loop stub (no-op)\n");
@@ -217,6 +220,8 @@ static void __exit susfs_stubs_exit(void)
 
 module_init(susfs_stubs_init);
 module_exit(susfs_stubs_exit);
+
+#endif /* !CONFIG_KSU_SUSFS */
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("SUSFS stub implementations for missing symbols");
