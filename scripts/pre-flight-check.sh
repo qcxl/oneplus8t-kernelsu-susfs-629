@@ -113,9 +113,33 @@ echo "--- 6. 最近改动检查（阻断）---"
 check_blocking "staged inject 脚本无 /Users/ 路径" \
     "! git diff --cached -- scripts/inject-*.py 2>/dev/null | grep -q '/Users/'"
 
-# === 7. Kconfig 一致性检查（警告） ===
+# === 7. 常量引用完整性检查（阻断） ===
 echo ""
-echo "--- 7. Kconfig 一致性检查（警告）---"
+echo "--- 7. 常量引用完整性检查（阻断）---"
+# Extract all CMD_SUSFS_* constants referenced in dispatch template
+# and verify each has a #define in susfs_def.h
+SUSFS_DEF_H="include/linux/susfs_def.h"
+if [ -f "$SUSFS_DEF_H" ]; then
+  UNDEFINED=0
+  for cmd in $(grep -o 'CMD_SUSFS_[A-Z_]*' scripts/inject-susfs-dispatch.py 2>/dev/null | sort -u); do
+    if ! grep -q "#define $cmd " "$SUSFS_DEF_H" 2>/dev/null; then
+      echo "  ❌ $cmd 在 $SUSFS_DEF_H 中未定义 [阻断]"
+      UNDEFINED=$((UNDEFINED + 1))
+    fi
+  done
+  if [ "$UNDEFINED" -gt 0 ]; then
+    FAIL_BLOCKING=$((FAIL_BLOCKING + UNDEFINED))
+  else
+    echo "  ✅ dispatch 模板引用的所有 CMD 常量已在 susfs_def.h 中定义"
+    PASS=$((PASS + 1))
+  fi
+else
+  echo "  ⚠️  $SUSFS_DEF_H 不存在，跳过常量检查"
+fi
+
+# === 8. Kconfig 一致性检查（警告） ===
+echo ""
+echo "--- 8. Kconfig 一致性检查（警告）---"
 for cfg in $(grep '^CONFIG_KSU_SUSFS_' kernel-patches/ksu.config 2>/dev/null | grep '=y' | cut -d= -f1); do
     short=$(echo "$cfg" | sed 's/CONFIG_//')
     check_warn "$cfg: 在 GHA workflow Kconfig 中注册" \
