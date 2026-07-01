@@ -46,6 +46,8 @@ done
 echo ""
 echo "--- 3. 流程文档完整性 ---"
 check "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
+check "错误经验库有内容" 'grep -c "### E00" TEST_PROCEDURE.md 2>/dev/null | grep -q .'
+check "错误经验库最新条目编号连续" 'grep "### E00" TEST_PROCEDURE.md | tail -1 | grep -q "E007"'
 
 # === 4. 检查未跟踪的临时文件（仅警告，不阻断） ===
 echo ""
