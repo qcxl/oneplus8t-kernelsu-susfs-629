@@ -80,12 +80,12 @@ jobs:
           # Force KSU_VERSION to match app requirement (>=33188)
           # The legacy branch has fewer git commits than dev, so auto-detected
           # version (33133) is lower than the app's MINIMAL_SUPPORTED_KERNEL (33188).
-          if grep -q "KSU_VERSION" drivers/kernelsu/Makefile 2>/dev/null; then
-            sed -i 's/.*KSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Makefile
-          else
-            echo "ccflags-y += -DKSU_VERSION=33188" >> drivers/kernelsu/Makefile
-          fi
-          echo "KSU_VERSION: $(grep KSU_VERSION drivers/kernelsu/Makefile | head -1)"
+          # Must patch both Makefile AND Kbuild (Kbuild takes precedence).
+          sed -i 's/ccflags-y += -DKSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Kbuild 2>/dev/null || true
+          sed -i 's/ccflags-y += -DKSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Makefile 2>/dev/null || true
+          # Verify
+          echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
+          echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
 
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
