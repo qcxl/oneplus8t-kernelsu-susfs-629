@@ -160,18 +160,18 @@ def inject_susfs_c():
         '\t\t\tstat->ctime.tv_sec = entry->info.spoofed_ctime_tv_sec;\n'
         '\t\t\tstat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;\n'
         '\t\t\tstat->blocks = entry->info.spoofed_blocks;\n'
-         '\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
-         '\t\t\treturn;\n'
+        '\t\t\tstat->blksize = entry->info.spoofed_blksize;\n'
+        '\t\t\treturn;\n'
         '\t\t}\n'
-         '\t}\n'
-         '}\n'
-         '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
-     )
+        '\t}\n'
+        '}\n'
+        '#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */\n'
+    )
 
-     # Function ③: show_map_vma_spoofer (non-RCU hash)
-     mapvma_func = (
-         '\n'
-         '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
+    # Function ③: show_map_vma_spoofer (non-RCU hash)
+    mapvma_func = (
+        '\n'
+        '#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n'
          'void susfs_show_map_vma_spoofer(struct inode *inode, dev_t *out_dev, unsigned long *out_ino) {\n'
          '\tstruct st_susfs_sus_kstat_hlist *entry = NULL;\n'
          '\tunsigned long target_ino = inode->i_ino;\n'
