@@ -64,7 +64,7 @@ commit message 引用对应 E00N 编号。
 2. 刷机包完整性（ANDROID! 魔数）
 3. 基线保存 + dmesg/logcat 监控
 4. fastboot boot
-5. 验证：panic 检查 / PMIC 原因 / ksud 命令 / kallsyms 符号
+5. 验证：panic 检查 / PMIC Power-off reason / ksud 命令 / kallsyms 符号
 
 ---
 
