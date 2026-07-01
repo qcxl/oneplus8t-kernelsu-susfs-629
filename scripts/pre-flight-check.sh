@@ -62,9 +62,21 @@ for f in scripts/inject-*.py; do
     check_warn "$(basename $f): 文件存在" "test -f '$f'"
 done
 
-# === 4. 流程文档完整性 ===
+# === 4. 修复后复盘检查（阻断） ===
 echo ""
-echo "--- 4. 流程文档完整性 ---"
+echo "--- 4. 修复后复盘检查（阻断）---"
+INJECT_CHANGED=$(git diff --cached --name-only -- scripts/inject-*.py 2>/dev/null || true)
+ERRORS_CHANGED=$(git diff --cached --name-only -- ERRORS.md 2>/dev/null || true)
+if [ -n "$INJECT_CHANGED" ] && [ -z "$ERRORS_CHANGED" ]; then
+    check_blocking "注入脚本已修改，但 ERRORS.md 未更新！必须先写错误经验" \
+        "false"
+else
+    echo "  ✅ 注入脚本修改 + ERRORS.md 已同步"
+fi
+
+# === 5. 流程文档完整性 ===
+echo ""
+echo "--- 5. 流程文档完整性 ---"
 check_blocking "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
 check_blocking "ERRORS.md 存在" "test -f ERRORS.md"
 check_blocking "错误经验库有内容" 'grep -c "### E00" ERRORS.md 2>/dev/null | grep -q .'
