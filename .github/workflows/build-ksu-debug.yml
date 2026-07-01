@@ -132,6 +132,7 @@ jobs:
             printf 'config KSU_SUSFS_OPEN_REDIRECT\n    bool "Open redirect"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_SUS_MAP\n    bool "Hide /proc/pid/maps entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
             printf 'config KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING\n    bool "Spoof AVC log entries"\n    depends on KSU_SUSFS\n    default y\n\n' >> "$KSU_KCONFIG"
+            printf 'config KSU_SUSFS_SUS_PATH_LOOP\n    bool "Periodic sus_path loop"\n    depends on KSU_SUSFS_SUS_PATH\n    default y\n\n' >> "$KSU_KCONFIG"
             echo "endmenu" >> "$KSU_KCONFIG"
             echo "KSU_SUSFS lines: $(grep -c 'config KSU_SUSFS' "$KSU_KCONFIG")"
           fi
@@ -182,6 +183,25 @@ jobs:
           grep -c 'susfs_set_avc_log_spoofing' fs/susfs.c 2>/dev/null || echo "0"
           echo "susfs.c susfs_enable_log:"
           grep -c 'susfs_enable_log' fs/susfs.c 2>/dev/null || echo "0"
+
+      - name: Inject Batch 2 v2.2.0 features (hide_mnts + fillattr + map_vma + path_loop)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting Batch 2 v2.2.0 features ==="
+          python3 ../scripts/inject-v2-features-batch2.py .
+          echo "=== Verification ==="
+          echo "susfs_def.h SUS_PATH_LOOP:"
+          grep -c 'SUS_PATH_LOOP' include/linux/susfs_def.h 2>/dev/null || echo "0"
+          echo "susfs.c hide_sus_mnts:"
+          grep -c 'hide_sus_mnts_for_non_su_procs' fs/susfs.c 2>/dev/null || echo "0"
+          echo "susfs.c fillattr_spoofer:"
+          grep -c 'susfs_generic_fillattr_spoofer' fs/susfs.c 2>/dev/null || echo "0"
+          echo "susfs.c path_loop:"
+          grep -c 'susfs_add_sus_path_loop' fs/susfs.c 2>/dev/null || echo "0"
+          echo "stat.c extern updated:"
+          grep -c 'susfs_generic_fillattr_spoofer' fs/stat.c 2>/dev/null || echo "0"
+          echo "task_mmu.c extern updated:"
+          grep -c 'susfs_show_map_vma_spoofer' fs/proc/task_mmu.c 2>/dev/null || echo "0"
 
       - name: Apply manual hook source patches
         working-directory: kernel
