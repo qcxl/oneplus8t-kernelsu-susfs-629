@@ -9,7 +9,7 @@
 **现象**：编译报 `macro name must be an identifier`，生成 `#define #define CMD_...`
 **根因**：替换目标字符串 `'CMD_SUSFS_ADD_SUS_MAP'` 不包含前面的 `#define`，替换后变 `#define #define ...`
 **教训**：替换预处理指令时必须包含完整的 `#define NAME VALUE` 行，切勿只匹配 NAME
-**检查清单锚点**：见 3b 第5条 ✅
+**检查清单锚点**：见「替换丢失 `#define`」项 ✅
 
 ### E002：注入锚点在目标文件中不存在，静默跳过（Batch 1）
 **现象**：编译报 `incomplete type / forward declaration`。struct 定义不存在，但函数声明已插入
@@ -18,13 +18,13 @@
 1. 注入脚本必须检查插入是否成功，失败返回 False
 2. 本地文件 ≠ GHA 源文件。差异源：gitlab 原始版 vs GitHub 镜像版 vs 50_add 补丁生成版
 3. 使用 `/* susfs_init */` 等稳定标记做锚点（跨版本不变）
-**检查清单锚点**：见 2 第4条、第5条 ✅
+**检查清单锚点**：见「确认注入标记」和「注入脚本必须检查」项 ✅
 
 ### E003：多步插入产生半状态（Batch 1）
 **现象**：先 `lines.insert(func)` 再 `content.replace(func, func + wrapper)`，后一步失败则只有 func 被插入
 **根因**：分两步插入相关代码，没有原子性保证
 **教训**：所有逻辑上必须同时存在的代码（如 struct + 声明、avc_func + enable_log_wrapper）必须合并为一次字符串后用单次插入
-**检查清单锚点**：见 3 第8条 ✅
+**检查清单锚点**：见「缩进一致性」项 ✅
 
 ### E004：`#ifdef` 子选项未在 Kconfig 注册（Batch 1 预防）
 **潜在风险**：新增 `#ifdef CONFIG_KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING` 保护的代码，如果 Kconfig 未注册且 ksu.config 未设置，代码被编译但选项不生效
@@ -42,7 +42,7 @@
 2. 搜索依赖时覆盖所有可能的文件路径，不仅仅是自己认为"可能"的位置
 3. 对缺失的依赖，先查 3 种可能：① 改名了在不同位置 ② 在内核头文件中 ③ 需要自己实现 shim/wrapper
 4. 确认不可行后才记录原因、提交决策说明，**不可静默删除**
-**检查清单锚点**：见 2 第6条 ✅
+**检查清单锚点**：见「功能可行性调研」项 ✅
 
 ### E007：脚本中使用硬编码本地绝对路径（Batch 2）
 **现象**：GHA 构建报 `FileNotFoundError: /Users/weifeng/...`，连续 3 次构建失败
@@ -52,7 +52,7 @@
 2. 绝对路径（`/Users/xxx/`、`/home/xxx/`）在 CI 容器中**一定会失效**
 3. 构建脚本路径应该基于 `sys.argv[1]`（kernel root）计算，而非基于开发者本地目录
 4. 在推送前运行 `grep -n '/Users/\|/home/' scripts/*.py` 检查是否有残留的本地路径
-**检查清单锚点**：见移植后审计第7条（新增） ✅
+**检查清单锚点**：见「路径检查」项 ✅
 
 ### E008：Python 缩进不一致导致运行时报错（Batch 2）
 **现象**：GHA 运行注入脚本时报 `IndentationError: unexpected indent`，build 失败
@@ -61,4 +61,4 @@
 1. 所有 Python 代码修改后必须运行 `python3 -c \"import py_compile; py_compile.compile('scripts/xxx.py', doraise=True)\"` 检查语法
 2. 用 edit 工具替换代码时，仔细核对缩进空格数是否与上下文一致
 3. pre-flight-check.sh 应增加 Python 语法检查步骤
-**检查清单锚点**：见 4 第1条 ✅
+**检查清单锚点**：见「Python 语法检查」项 ✅
