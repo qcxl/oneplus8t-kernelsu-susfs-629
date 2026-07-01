@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'kernel-patches/**'
-      - 'scripts/**'
+      - 'scripts/inject-*.py'
       - '.github/workflows/build-ksu-debug.yml'
   pull_request:
     branches: [ main ]
