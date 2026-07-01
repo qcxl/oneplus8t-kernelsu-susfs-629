@@ -26,6 +26,7 @@
 - [ ] `__user` 注解正确性：所有用户态指针传递路径有 `__user` 标注
 - [ ] 内存安全：`copy_from_user`/`copy_to_user` 返回值被检查，`kmalloc` 返回值被检查
 - [ ] **脚本注入点验证：插入的结构体和函数声明应放在一起（避免半插入状态——声明在但定义不在）**
+- [ ] **缩进一致性：同一个 inject 脚本内不得混用空格和 tab。Python 字符串模板中 C 代码用 `\t` 转义，Python 本身用 4 空格缩进。替换 edit 后检查上下文缩进层级一致**
 
 ### 3b. ⚠️ 常见失败模式（从历史 bug 总结，逐条对照）
 - [ ] 🔴 **静默跳过**：注入脚本的锚点 `if xxx in line` 不匹配时，是否返回 False 而不是无声继续？
@@ -36,10 +37,11 @@
 - [ ] 🔴 **GHA 步骤顺序**：inject 脚本执行时，被修改的文件必须已存在。确认步骤顺序且不被后续步骤覆盖
 
 ### 4. 移植后全面审计（代码写完后、提交前）
+- [ ] **Python 语法检查：`python3 -c \"import py_compile; py_compile.compile('scripts/xxx.py', doraise=True)\"`，每个修改过的 inject 脚本都要检查**
 - [ ] 逐行审查每个改动文件，确认无笔误（变量名、函数名、拼写）
 - [ ] 结构体布局与 v2.2.0 一致，`err` 字段在末尾
 - [ ] dispatch 条目（IOCTL + reboot 两处）都添加了
-- [ ] Kconfig 选项在 `ksu.config` 和 GHA workflow 中都注册了
+- [ ] **Kconfig 一致性：新增 `CONFIG_*` 时，`ksu.config` 和 GHA workflow 的 Kconfig 注册同步添加**
 - [ ] 桩函数（susfs_stubs.c）更新/删除同步
 - [ ] 去重保护代码与注入逻辑一致（避免半插入状态）
 - [ ] **路径检查：`grep -n '/Users/\|/home/' scripts/*.py` 确保无本地硬编码绝对路径**
@@ -250,7 +252,29 @@ adb shell dmesg | grep -i 'avc_spoof'
 adb shell strace -e reboot /data/adb/ksu/ksud debug version 2>&1 | head -5
 ```
 
-### 5. KSU 内核功能验证
+### 5. 本次移植功能专项验证（依批次添加）
+
+#### Batch 1: avc_log + enable_log（已通过）
+```bash
+# 内核符号
+adb shell cat /proc/kallsyms | grep 'susfs_set_avc_log_spoofing\|susfs_enable_log'
+# avc_spoof feature 注册
+adb shell /data/adb/ksu/ksud feature list | grep 'avc'
+```
+
+#### Batch 2: hide_mnts + fillattr + map_vma + path_loop
+```bash
+# hide_sus_mnts 符号
+adb shell cat /proc/kallsyms | grep 'susfs_set_hide_sus_mnts\|susfs_hide_sus_mnts_for_all_procs'
+# fillattr_spoofer 符号
+adb shell cat /proc/kallsyms | grep 'susfs_generic_fillattr_spoofer\|susfs_show_map_vma_spoofer'
+# path_loop 符号
+adb shell cat /proc/kallsyms | grep 'susfs_add_sus_path_loop\|susfs_extra_works'
+# VFS 钩子已更新
+adb shell dmesg | grep 'stat.c\|task_mmu' || echo "VFS 钩子无直接日志，检查 kallsyms 确认编译"
+```
+
+### 6. KSU 内核功能验证
 ```bash
 adb shell /data/adb/ksu/ksud debug version
 # 预期: 33133
@@ -291,6 +315,25 @@ adb shell ls -la /data/adb/ksu/ksud
 
 #### 6c. 编译失败
 ```bash
-gh run view --log 2>&1 | grep -i 'error:' | head -20
-# 定位到具体文件和行号
+# 1. 获取构建日志
+gh run view --log 2>&1 | tee /tmp/build-失败.log
+
+# 2. 定位错误类型和位置
+grep -n 'error:\|Error:\|FAILED\|fatal' /tmp/build-失败.log | head -20
+
+# 3. 如果是 Python 脚本错误（IndentationError/SyntaxError/ImportError）
+grep -B5 'IndentationError\|SyntaxError\|FileNotFoundError\|ImportError' /tmp/build-失败.log
+
+# 4. 如果是 C 编译错误
+grep -B2 'error:' /tmp/build-失败.log | grep -v '^\-\-$' | head -30
+# 查找具体文件和行号
+grep '\.c\|\.h' /tmp/build-失败.log | grep 'error:' | head -10
+
+# 5. 如果是链接错误（undefined reference）
+grep -B1 'undefined reference' /tmp/build-失败.log | head -10
+
+# 6. 如果是 Kconfig/配置错误
+grep 'config\|\.config\|merge_config' /tmp/build-失败.log | grep -i 'error\|fail\|warn'
+
+# 7. 定位到具体代码行后，修复并重新提交。记录经验到 ERRORS.md
 ```

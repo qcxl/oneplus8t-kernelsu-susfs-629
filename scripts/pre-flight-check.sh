@@ -1,77 +1,111 @@
 #!/bin/bash
-# pre-flight-check.sh - 提交前强制检查，所有检查通过后才能 git commit
+# pre-flight-check.sh - 提交前强制检查
 # 用法: ./scripts/pre-flight-check.sh
-# 返回 0 = 通过，1 = 有未通过项
+# 返回 0 = 通过，1 = 有阻断项未通过
 
 set -e
 
-FAIL=0
+FAIL_BLOCKING=0
+FAIL_WARN=0
 PASS=0
 
-check() {
-    local name="$1"
-    local cmd="$2"
+check_blocking() {
+    local name="$1" cmd="$2"
     if eval "$cmd" 2>/dev/null; then
         echo "  ✅ $name"
         PASS=$((PASS + 1))
     else
-        echo "  ❌ $name"
-        FAIL=$((FAIL + 1))
+        echo "  ❌ $name [阻断]"
+        FAIL_BLOCKING=$((FAIL_BLOCKING + 1))
     fi
 }
 
+check_warn() {
+    local name="$1" cmd="$2"
+    if eval "$cmd" 2>/dev/null; then
+        echo "  ✅ $name"
+        PASS=$((PASS + 1))
+    else
+        echo "  ⚠️  $name [警告]"
+        FAIL_WARN=$((FAIL_WARN + 1))
+    fi
+}
+
+# Detect latest E00N number dynamically
+LATEST_E=$(grep "^### E00" ERRORS.md 2>/dev/null | tail -1 | grep -o 'E00[0-9]' || echo "E000")
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  提交前强制检查（未通过不得提交）"
+echo "  提交前强制检查（最新错误: $LATEST_E）"
 echo "═══════════════════════════════════════════"
 echo ""
 
-# === 1. 路径检查：无本地硬编码绝对路径 ===
-echo "--- 1. 路径检查 ---"
+# === 1. 路径检查：无本地硬编码绝对路径（阻断） ===
+echo "--- 1. 路径检查（阻断）---"
 for f in scripts/inject-*.py; do
-    check "scripts/$(basename $f): 无 /Users/ 绝对路径" \
-        "! grep -q '/Users/' '$f'"
-    check "scripts/$(basename $f): 无 /home/ 绝对路径" \
-        "! grep -q '/home/' '$f'"
+    check_blocking "$(basename $f): 无 /Users/ 绝对路径" "! grep -q '/Users/' '$f'"
+    check_blocking "$(basename $f): 无 /home/ 绝对路径" "! grep -q '/home/' '$f'"
+done
+check_blocking "inject-susfs-dispatch.py: 无 /Users/ 路径" "! grep -q '/Users/' scripts/inject-susfs-dispatch.py"
+
+# === 2. Python 语法检查（阻断） ===
+echo ""
+echo "--- 2. Python 语法检查（阻断）---"
+for f in scripts/inject-*.py; do
+    check_blocking "$(basename $f): Python 语法正确" \
+        "python3 -c \"import py_compile; py_compile.compile('$f', doraise=True)\""
 done
 
-# === 2. 文件大小检查 ===
+# === 3. 注入脚本完整性 ===
 echo ""
-echo "--- 2. 注入脚本完整性 ---"
+echo "--- 3. 注入脚本完整性 ---"
 for f in scripts/inject-*.py; do
-    check "$(basename $f): 文件存在" "test -f '$f'"
+    check_warn "$(basename $f): 文件存在" "test -f '$f'"
 done
 
-# === 3. 进程文档检查 ===
+# === 4. 流程文档完整性 ===
 echo ""
-echo "--- 3. 流程文档完整性 ---"
-check "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
-check "ERRORS.md 存在" "test -f ERRORS.md"
-check "错误经验库有内容" 'grep -c "### E00" ERRORS.md 2>/dev/null | grep -q .'
-check "错误经验库最新条目编号连续" 'grep "### E00" ERRORS.md | tail -1 | grep -q "E007"'
+echo "--- 4. 流程文档完整性 ---"
+check_blocking "TEST_PROCEDURE.md 存在" "test -f TEST_PROCEDURE.md"
+check_blocking "ERRORS.md 存在" "test -f ERRORS.md"
+check_blocking "错误经验库有内容" 'grep -c "### E00" ERRORS.md 2>/dev/null | grep -q .'
+# Dynamic check: latest E00N entry has all 4 required fields
+check_blocking "最新条目有【现象】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '现象'"
+check_blocking "最新条目有【根因】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '根因'"
+check_blocking "最新条目有【教训】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '教训'"
+check_blocking "最新条目有【检查清单锚点】字段" "grep -A8 '### $LATEST_E' ERRORS.md | grep -q '检查清单锚点'"
 
-# === 4. 检查未跟踪的临时文件（仅警告，不阻断） ===
+# === 5. 检查未跟踪的临时文件（仅警告） ===
 echo ""
-echo "--- 4. 未跟踪文件检查 ---"
-check "无 .bak 文件待提交（警告）" "! find . -name '*.bak' -maxdepth 2 | grep -q ." || true
-check "无 .md 文档文件待提交（警告）" '! git status --porcelain 2>/dev/null | grep -E "^\?\?" | grep -E "\.md$" | grep -v TEST_PROCEDURE | grep -q .' || true
+echo "--- 5. 未跟踪文件检查（警告）---"
+check_warn "无 .bak 文件待提交" "! find . -name '*.bak' -maxdepth 2 | grep -q ."
+check_warn "无 .md 文档文件待提交" '! git status --porcelain 2>/dev/null | grep -E "^\?\?" | grep -E "\.md$" | grep -v TEST_PROCEDURE | grep -q .'
 
-# === 5. 最后一次提交是否包含本地路径(预防) ===
+# === 6. 最近改动检查（阻断） ===
 echo ""
-echo "--- 5. 最近改动检查 ---"
-check "最近修改的 inject 脚本无 /Users/ 路径" \
+echo "--- 6. 最近改动检查（阻断）---"
+check_blocking "staged inject 脚本无 /Users/ 路径" \
     "! git diff --cached -- scripts/inject-*.py 2>/dev/null | grep -q '/Users/'"
 
+# === 7. Kconfig 一致性检查（警告） ===
+echo ""
+echo "--- 7. Kconfig 一致性检查（警告）---"
+for cfg in $(grep '^CONFIG_KSU_SUSFS_' kernel-patches/ksu.config 2>/dev/null | grep '=y' | cut -d= -f1); do
+    short=$(echo "$cfg" | sed 's/CONFIG_//')
+    check_warn "$cfg: 在 GHA workflow Kconfig 中注册" \
+        "grep -q '$short' .github/workflows/build-ksu-debug.yml 2>/dev/null"
+done
+
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  结果: $PASS 通过 / $FAIL 未通过"
+echo "  结果: $PASS 通过 / $FAIL_BLOCKING 阻断 / $FAIL_WARN 警告"
 echo "═══════════════════════════════════════════"
 echo ""
 
-if [ "$FAIL" -gt 0 ]; then
-    # 检查失败项是否全是警告
-    WARN_ONLY=$(grep -c '警告' <<< "$(echo "$FAIL" "$PASS")" 2>/dev/null || echo 0)
-    echo "⚠️  有 $FAIL 项未通过（部分可能为警告），请检查后提交"
+if [ "$FAIL_BLOCKING" -gt 0 ]; then
+    echo "❌ 有 $FAIL_BLOCKING 项阻断未通过，强制修复后再提交"
+    exit 1
+elif [ "$FAIL_WARN" -gt 0 ]; then
+    echo "⚠️  有 $FAIL_WARN 项警告，建议修复"
     exit 0
 else
     echo "✅ 全部通过，可以提交"
