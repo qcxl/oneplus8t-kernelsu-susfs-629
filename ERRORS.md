@@ -125,6 +125,16 @@
 **锚点**：FLOW.md §1b 依赖追踪 — 全局变量搜索覆盖范围
 **标签**：cross-project
 
+### E016：dispatch 模板引用了 v1.5.5 中不存在的函数
+**现象**：编译报 `implicit declaration of function 'susfs_add_sus_kstat_statically'`。
+**根因**：`CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY` 是 v2.2.0 新增的 CMD，调用 `susfs_add_sus_kstat_statically()` 函数。但 v1.5.5 中没有此函数，只有 `susfs_add_sus_kstat()`（通过 inode 编号添加，非通过路径名静态添加）。
+**教训**：
+1. 添加 dispatch 条目前，必须先确认目标函数在内核中存在（搜索 susfs.c + susfs.h）
+2. v2.2.0 新增的 CMD 不一定对应 v1.5.5 中存在的函数。CMD 常量可以从 susfs_def.h 复制，但 handler 函数需要从源码确认
+3. 通过 `grep -E '^(int|void|bool).*function_name' susfs.c susfs.h` 验证函数原型是否存在
+**锚点**：FLOW.md §1c 全链路追踪 — 功能可行性调研
+**标签**：cross-project
+
 ### E014：copy_to_user 字符串长度错误导致 features 错位（已修复）
 **现象**：`ksud susfs features` 只返回 `CONFIG_KSU_SUSFS_SUS_PATH`，但 `strings boot.img | grep CONFIG_KSU_SUSFS_` 显示全部 16 个功能字符串存在。`/kport flash` 测试内核返回的原始数据发现后续功能出现字节错位（如 `CCONFIG_KSU_SUSFS_SUS_MOUNT` 开头多了个 C）。
 **根因**：`inject-susfs-dispatch.py` 中 `copy_to_user` 的字符串长度参数比实际 C 字符串长度多 1-2 字节。例如 `CONFIG_KSU_SUSFS_SUS_PATH\n` 实际 26 字节但代码写 28。多出的字节包含了后续字符串开头的字符，导致 `pos` 计算偏移，后续功能错位。

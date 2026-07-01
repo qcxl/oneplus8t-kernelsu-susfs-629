@@ -83,7 +83,7 @@
 | `CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS` | 0x55561 | ❌ | ✅ | ✅ | ✅ 已移植 |
 | `CMD_SUSFS_ADD_SUS_KSTAT` | 0x55570 | ✅ | ✅ | ✅ | |
 | `CMD_SUSFS_UPDATE_SUS_KSTAT` | 0x55571 | ✅ | ✅ | ✅ | |
-| `CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY` | 0x55572 | ✅ | ✅ | ✅ | 已补全 |
+| `CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY` | 0x55572 | ✅ | ✅ | ⏭️ | v2.2.0 新增函数，v1.5.5 无实现 |
 | `CMD_SUSFS_ADD_TRY_UMOUNT` | 0x55580 | ✅ | ✅ | ✅ | 已补全 |
 | `CMD_SUSFS_SET_UNAME` | 0x55590 | ✅ | ✅ | ✅ | |
 | `CMD_SUSFS_ENABLE_LOG` | 0x555a0 | ✅ | ✅ | ✅ | |
