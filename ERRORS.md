@@ -125,13 +125,13 @@
 **锚点**：FLOW.md §1b 依赖追踪 — 全局变量搜索覆盖范围
 **标签**：cross-project
 
-### E014：show_enabled_features 的 #ifdef 字符串在 boot.img 中但运行时只返回 SUS_PATH
-**现象**：`strings boot.img | grep CONFIG_KSU_SUSFS_` 显示全部 16 个功能，但设备上 `ksud susfs features` 只返回 `CONFIG_KSU_SUSFS_SUS_PATH`。
-**根因**：未查明。所有 16 个 `#ifdef` 块的字符串字面量确实被编译进了二进制，但内核在运行时通过 `CMD_SUSFS_SHOW_ENABLED_FEATURES` 命令返回的只有第一个。可能原因：① dispatch 模板生成的 C 代码存在运行时控制流问题 ② KSU reboot handler 注入的代码块被后续 patch 覆盖 ③ GHA 缓存仍部分生效
+### E014：copy_to_user 字符串长度错误导致 features 错位（已修复）
+**现象**：`ksud susfs features` 只返回 `CONFIG_KSU_SUSFS_SUS_PATH`，但 `strings boot.img | grep CONFIG_KSU_SUSFS_` 显示全部 16 个功能字符串存在。`/kport flash` 测试内核返回的原始数据发现后续功能出现字节错位（如 `CCONFIG_KSU_SUSFS_SUS_MOUNT` 开头多了个 C）。
+**根因**：`inject-susfs-dispatch.py` 中 `copy_to_user` 的字符串长度参数比实际 C 字符串长度多 1-2 字节。例如 `CONFIG_KSU_SUSFS_SUS_PATH\n` 实际 26 字节但代码写 28。多出的字节包含了后续字符串开头的字符，导致 `pos` 计算偏移，后续功能错位。
 **教训**：
-1. `strings boot.img` 确认字符串存在 ≠ 运行时功能可用。需要实际调用验证
-2. dispatch 模板的 IOCTL handler 和 reboot handler 两处都要同时更新，但运行时调用路径可能是不同的
-3. 验证 feature 完整性的可靠方式：编译后用 `nm vmlinux | grep susfs_add_sus_path_loop` 等检查函数存在，再用测试工具实际调用
+1. C 字符串长度 = 可见字符数 +1(`\n`)。不能用 `len(python_string)` 计算（Python 中 `\n` 是 1 字节但 `\\n` 是 2 字节）
+2. 验证 feature 完整性的可靠方式：用测试工具直接读内核返回的原始缓冲区（`strings boot.img` 只证明字符串被编译，不证明运行时正确返回）
+3. 修复后验证：32 处 `copy_to_user`（16 功能 × IOCTL+reboot 两处）全部手动校验长度
 **锚点**：FLOW.md §2 代码审计 — Dispatch 条目
 **标签**：cross-project
 
