@@ -125,6 +125,16 @@
 **锚点**：FLOW.md §1b 依赖追踪 — 全局变量搜索覆盖范围
 **标签**：cross-project
 
+### E017：共享函数跨文件调用时缺 extern 声明（已修复）
+**现象**：编译报 `implicit declaration of function 'susfs_show_features'`。
+**根因**：`susfs_show_features()` 在 dispatch.c 中定义为 `static`，但在 supercall.c 中被调用。同一模块的不同编译单元不能共享 `static` 函数，且 supercall.c 中缺少 `extern` 声明。
+**教训**：
+1. 被多个 .c 文件调用的函数不能 `static`，必须全局可见
+2. 调用方需要 `extern` 声明
+3. inject 脚本中定义的函数要考虑最终插入到哪个 .c 文件、被哪些文件调用
+**锚点**：FLOW.md §1c 全链路追踪 — 功能可行性调研
+**标签**：cross-project
+
 ### E016：dispatch 模板引用了 v1.5.5 中不存在的函数
 **现象**：编译报 `implicit declaration of function 'susfs_add_sus_kstat_statically'`。
 **根因**：`CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY` 是 v2.2.0 新增的 CMD，调用 `susfs_add_sus_kstat_statically()` 函数。但 v1.5.5 中没有此函数，只有 `susfs_add_sus_kstat()`（通过 inode 编号添加，非通过路径名静态添加）。
