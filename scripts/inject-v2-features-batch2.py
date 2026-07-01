@@ -344,7 +344,7 @@ def patch_task_mmu():
 # 6. Dispatch: add entries to inject-susfs-dispatch.py template
 # ============================================================
 def patch_dispatch_template():
-    script_path = "/Users/weifeng/Downloads/OnePlus8T/build-kernelsu-susfs/scripts/inject-susfs-dispatch.py"
+    script_path = os.path.join(KERNEL_ROOT, "../scripts/inject-susfs-dispatch.py")
     with open(script_path) as f: content = f.read()
     
     if 'CMD_SUSFS_ADD_SUS_PATH_LOOP' in content:
