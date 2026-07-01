@@ -104,3 +104,14 @@
 **对应检查**：无法自动化（需要人为判断变量定义位置）
 **检查清单锚点**：见「功能可行性调研」项 ✅
 **标签**：cross-project
+
+### E012：GHA workflow Kconfig 注册缓存导致新功能配置被静默丢弃
+**现象**：在 ksu.config 中新增了 `CONFIG_KSU_SUSFS_SUS_PATH_LOOP=y` 等配置项，编译成功但 boot.img 中没有这些功能，`ksud susfs features` 只显示旧功能。
+**根因**：GHA workflow 中使用 `if grep -q "config KSU_SUSFS" ...; then echo "Already present, skipping"` 检查 Kconfig 文件是否已有 SUSFS 条目。如果之前已有旧条目（如基础 10 个），新条目的注册被整个跳过。`merge_config.sh` 遇到 ksu.config 中定义的选项但 Kconfig 中没有注册时，静默丢弃该选项。结果 .config 不变 → ccache 命中 → 输出不变。
+**教训**：
+1. Kconfig 注册代码不能使用"存在就跳过"的缓存逻辑。必须每次重新生成所有条目（先删除旧 SECTION 再追加全部新条目）
+2. `merge_config.sh` 静默丢弃未注册的 Kconfig 选项，不会报错。必须通过 `grep CONFIG_KSU_SUSFS_ out/.config | sort` 在 GHA 日志中显式打印验证
+3. 改 workflow / ksu.config / inject 脚本后，ccache 可能复用旧缓存。需设置 `CCACHE_EXTRAFILES` 包含这些文件，确保变更时自动缓存失效
+4. `|| true` 掩盖了 patch/clone 失败。应改用 `|| echo WARNING` 或显式检查
+**锚点**：FLOW.md §2 代码审计 — Kconfig 一致性检查
+**标签**：cross-project
