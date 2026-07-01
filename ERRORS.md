@@ -54,6 +54,15 @@
 4. 在推送前运行 `grep -n '/Users/\|/home/' scripts/*.py` 检查是否有残留的本地路径
 **检查清单锚点**：见「路径检查」项 ✅
 
+### E009：注入代码使用了标准库中可能不存在的类型（Batch 2）
+**现象**：编译报 `incomplete type 'struct st_susfs_sus_path_list'`，结构体在目标文件中未定义
+**根因**：`sus_path_loop` 函数使用了 `struct st_susfs_sus_path_list`，该结构体定义在 `susfs.h` 中且仅在 hypermezo4 镜像（v1.5.9）中存在。gitlab 原始版（v1.5.5）也可能存在但具体定义不确定。GHA 构建使用 gitlab 版本
+**教训**：
+1. 注入脚本中使用的任何类型必须在注入代码自身中定义（或确认目标环境确实存在）
+2. 不要依赖"另一个文件中有这个结构体"——GHA 的源文件版本可能不同
+3. 安全做法：在注入代码中本地定义所需的结构体，使用唯一前缀名（如 `_local`）避免命名冲突
+**检查清单锚点**：见「功能可行性调研」项 ✅
+
 ### E008：Python 缩进不一致导致运行时报错（Batch 2）
 **现象**：GHA 运行注入脚本时报 `IndentationError: unexpected indent`，build 失败
 **根因**：多次 edit 命令修改 inject 脚本时，替换的代码块缩进层级与其他部分不一致（9 spaces vs 8 spaces）。本地语法检查未做就提交了
