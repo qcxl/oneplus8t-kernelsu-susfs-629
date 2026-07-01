@@ -111,11 +111,12 @@ def inject_susfs_c():
         '#endif\n'
     )
 
-    # Global variable for hide_sus_mnts (extern - defined in proc_namespace.c by 50_add patch)
+    # Global variable for hide_sus_mnts (define here, remove duplicate from proc_namespace.c)
     hide_var = (
         '\n'
         '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
-        'extern bool susfs_hide_sus_mnts_for_all_procs;\n'
+        '/* defined in susfs.c, also extern\'d in proc_namespace.c by 50_add patch */\n'
+        'bool susfs_hide_sus_mnts_for_all_procs __read_mostly = true;\n'
         '#endif\n'
     )
 
@@ -310,6 +311,18 @@ def inject_susfs_c():
         return False
 
     print("  [OK] susfs.c: added 4 functions + init update")
+    
+    # Remove duplicate variable definition from proc_namespace.c (50_add patch defines it there too)
+    proc_path = os.path.join(KERNEL_ROOT, "fs/proc_namespace.c")
+    if os.path.exists(proc_path):
+        with open(proc_path) as f: proc_content = f.read()
+        old_def = 'bool susfs_hide_sus_mnts_for_all_procs = true;'
+        if old_def in proc_content:
+            # Comment out the line instead of removing it (to keep line numbers stable)
+            proc_content = proc_content.replace(old_def, '/* bool susfs_hide_sus_mnts_for_all_procs = true; */ // moved to susfs.c')
+            with open(proc_path, 'w') as f: f.write(proc_content)
+            print("  [OK] fs/proc_namespace.c: commented out duplicate variable definition")
+    
     return True
 
 # ============================================================
