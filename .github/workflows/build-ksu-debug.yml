@@ -77,6 +77,15 @@ jobs:
           # KernelSU-Next legacy: designed for non-GKI, default y if !KPROBES
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
             | bash -s legacy
+          # Force KSU_VERSION to match app requirement (>=33188)
+          # The legacy branch has fewer git commits than dev, so auto-detected
+          # version (33133) is lower than the app's MINIMAL_SUPPORTED_KERNEL (33188).
+          if grep -q "KSU_VERSION" drivers/kernelsu/Makefile 2>/dev/null; then
+            sed -i 's/.*KSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Makefile
+          else
+            echo "ccflags-y += -DKSU_VERSION=33188" >> drivers/kernelsu/Makefile
+          fi
+          echo "KSU_VERSION: $(grep KSU_VERSION drivers/kernelsu/Makefile | head -1)"
 
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
