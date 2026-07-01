@@ -308,6 +308,10 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
+          # Cache buster: change this env var to force ccache miss on any workflow/config change
+          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../scripts/inject-*.py"
+          # ^ ccache includes these file hashes in its key, so any change to workflow/config/inject
+          #   automatically invalidates the compilation cache.
 
           # ld.lld wrapper: allow multiple definitions (DRM + techpack tracepoint collisions)
           mkdir -p /tmp/ksu-build/bin
