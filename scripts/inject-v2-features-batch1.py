@@ -180,17 +180,22 @@ def inject_susfs_c():
         print("  [SKIP] susfs.c: avc_log_spoofing already present")
         return True
     
-    # Insert avc function before /* susfs_init */
+    # Insert both functions together (atomic) before /* susfs_init */
+    combined = avc_func + enable_log_wrapper
+    
     lines = content.split('\n')
+    inserted = False
     for i, line in enumerate(lines):
         if '/* susfs_init */' in line:
-            lines.insert(i, avc_func)
+            lines.insert(i, combined)
+            inserted = True
             break
     
-    # Insert enable_log wrapper after avc function (before susfs_init too)
+    if not inserted:
+        print("  ERROR: /* susfs_init */ marker not found in susfs.c")
+        return False
+    
     content = '\n'.join(lines)
-    if 'susfs_enable_log' not in content:
-        content = content.replace(avc_func, avc_func + enable_log_wrapper, 1)
     
     with open(os.path.join(KERNEL_ROOT, path), 'w') as f:
         f.write(content)
