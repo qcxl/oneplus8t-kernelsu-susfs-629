@@ -178,6 +178,14 @@ void ipa_stack_to_dts(void)
 }
 EXPORT_SYMBOL(ipa_stack_to_dts);
 
+#endif /* !CONFIG_KSU_SUSFS */
+
+/* The following stubs are always needed (no real implementations exist):
+   - susfs_is_current_ksu_domain, susfs_is_current_zygote_domain
+   - ksu_try_umount, susfs_try_umount_all
+   These are referenced by the KSU dispatch code but defined in the 50_add
+   patch which may not apply cleanly on all kernel versions. */
+
 /* Stub for susfs_is_current_ksu_domain - defined in 10_enable patch */
 bool susfs_is_current_ksu_domain(void)
 {
@@ -220,8 +228,6 @@ static void __exit susfs_stubs_exit(void)
 
 module_init(susfs_stubs_init);
 module_exit(susfs_stubs_exit);
-
-#endif /* !CONFIG_KSU_SUSFS */
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("SUSFS stub implementations for missing symbols");
