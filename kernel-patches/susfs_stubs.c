@@ -110,13 +110,6 @@ void susfs_mark_inode_sus_kstat(struct inode *inode)
 }
 EXPORT_SYMBOL(susfs_mark_inode_sus_kstat);
 
-/* Stub for susfs_is_current_proc_umounted - not in kernel-4.19 */
-bool susfs_is_current_proc_umounted(void)
-{
-    return false;
-}
-EXPORT_SYMBOL(susfs_is_current_proc_umounted);
-
 /* Stub for susfs_set_current_proc_umounted - not in kernel-4.19 */
 void susfs_set_current_proc_umounted(void)
 {
@@ -191,6 +184,22 @@ bool susfs_is_current_proc_umounted_app(void)
     return false;
 }
 EXPORT_SYMBOL(susfs_is_current_proc_umounted_app);
+
+/* Stub for susfs_is_current_proc_umounted - always needed when SUSFS=y
+   because it may not be in v1.5.5 sus_su.c from gitlab. */
+bool susfs_is_current_proc_umounted(void)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_current_proc_umounted);
+
+/* Stub for susfs_get_redirected_path - was in old open_redirect section
+   of susfs.c (v1.5.5), which was removed and replaced by enhanced version. */
+char *susfs_get_redirected_path(struct inode *inode)
+{
+    return NULL;
+}
+EXPORT_SYMBOL(susfs_get_redirected_path);
 
 /* The following stubs are always needed (no real implementations exist):
    - susfs_is_current_ksu_domain, susfs_is_current_zygote_domain
