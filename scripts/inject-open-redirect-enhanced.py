@@ -147,6 +147,10 @@ def step3_susfs_c():
 
 /* open_redirect enhanced (v2.2.0 port, backward-compatible with v1.5.5 dispatch) */
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+/* Extern declarations — these functions are defined in sus_su.c / susfs_stubs.c */
+extern bool susfs_is_current_proc_umounted(void);
+extern bool susfs_is_current_proc_umounted_app(void);
+
 static DEFINE_MUTEX(susfs_mutex_lock_open_redirect);
 static DEFINE_HASHTABLE(OPEN_REDIRECT_HLIST, 10);
 static struct srcu_struct susfs_srcu_open_redirect;
