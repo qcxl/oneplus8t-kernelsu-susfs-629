@@ -25,66 +25,51 @@ EXPORT_SYMBOL(__strncpy_from_user_nofault);
    When CONFIG_KSU_SUSFS=y, the real implementations in fs/susfs.c take precedence,
    and these stubs are excluded to avoid --allow-multiple-definition picking the stub. */
 #ifndef CONFIG_KSU_SUSFS
-int susfs_add_sus_path_loop(void __user *arg)
+void susfs_add_sus_path_loop(void __user **user_info)
 {
-    pr_info("susfs: susfs_add_sus_path_loop stub (no-op)\n");
-    return 0;
+    /* stub: v2.2.0 dispatch passes void**, no-op when SUSFS disabled */
 }
 EXPORT_SYMBOL(susfs_add_sus_path_loop);
 
-/* Stub for susfs_set_hide_sus_mnts_for_non_su_procs - not in kernel-4.19 */
-int susfs_set_hide_sus_mnts_for_non_su_procs(void __user *arg)
+void susfs_set_hide_sus_mnts_for_non_su_procs(void __user **user_info)
 {
-    pr_info("susfs: susfs_set_hide_sus_mnts_for_non_su_procs stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_set_hide_sus_mnts_for_non_su_procs);
 
-/* Stub for susfs_add_sus_map - not in kernel-4.19 */
-int susfs_add_sus_map(void __user *arg)
+void susfs_add_sus_map(void __user **user_info)
 {
-    pr_info("susfs: susfs_add_sus_map stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_add_sus_map);
 
-/* Stub for susfs_set_avc_log_spoofing - not in kernel-4.19 */
-int susfs_set_avc_log_spoofing(void __user *arg)
+void susfs_set_avc_log_spoofing(void __user **user_info)
 {
-    pr_info("susfs: susfs_set_avc_log_spoofing stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_set_avc_log_spoofing);
 
-/* Stub for susfs_enable_log - not in kernel-4.19 */
-int susfs_enable_log(void __user *arg)
+void susfs_enable_log(void __user **user_info)
 {
-    pr_info("susfs: susfs_enable_log stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_enable_log);
 
-/* Stub for susfs_get_enabled_features - not in kernel-4.19 */
-int susfs_get_enabled_features(void __user *arg)
+void susfs_get_enabled_features(void __user **user_info)
 {
-    pr_info("susfs: susfs_get_enabled_features stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_get_enabled_features);
 
-/* Stub for susfs_show_variant - not in kernel-4.19 */
-int susfs_show_variant(void __user *arg)
+void susfs_show_variant(void __user **user_info)
 {
-    pr_info("susfs: susfs_show_variant stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_show_variant);
 
-/* Stub for susfs_show_version - not in kernel-4.19 */
-int susfs_show_version(void __user *arg)
+void susfs_show_version(void __user **user_info)
 {
-    pr_info("susfs: susfs_show_version stub (no-op)\n");
-    return 0;
+    /* stub */
 }
 EXPORT_SYMBOL(susfs_show_version);
 
@@ -214,21 +199,7 @@ void susfs_try_umount_all(uid_t uid)
 }
 EXPORT_SYMBOL(susfs_try_umount_all);
 
-/* Module initialization */
-static int __init susfs_stubs_init(void)
-{
-    pr_info("susfs: stubs module loaded\n");
-    return 0;
-}
-
-static void __exit susfs_stubs_exit(void)
-{
-    pr_info("susfs: stubs module unloaded\n");
-}
-
-module_init(susfs_stubs_init);
-module_exit(susfs_stubs_exit);
-
-MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("SUSFS stub implementations for missing symbols");
-MODULE_AUTHOR("SUSFS");
+/* NOTE: No module_init/module_exit — this is compiled as obj-y (built-in),
+   not as a module. module_init in built-in code is harmful: it registers a
+   spurious initcall that serves no purpose since all real implementations
+   come from fs/susfs.c (via inject scripts) or the 50_add patch. */
