@@ -103,6 +103,13 @@ def step2_susfs_h():
     if "uid_scheme" in c:
         print("  susfs.h: enhanced structs already present"); return True
 
+    # Add linux/statfs.h include for struct kstatfs
+    if "#include <linux/statfs.h>" not in c:
+        c = c.replace(
+            "#include <linux/fs.h>",
+            "#include <linux/fs.h>\n#include <linux/statfs.h>"
+        )
+
     # Replace old struct (flexible search)
     old1s = "struct st_susfs_open_redirect {"
     old1e = "struct hlist_node                node;\n};"
