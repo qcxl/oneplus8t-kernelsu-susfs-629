@@ -103,12 +103,20 @@ def step2_susfs_h():
     if "uid_scheme" in c:
         print("  susfs.h: enhanced structs already present"); return True
 
-    # Add linux/statfs.h include for struct kstatfs
+    # Add linux/statfs.h include for struct kstatfs — find last #include and append
     if "#include <linux/statfs.h>" not in c:
-        c = c.replace(
-            "#include <linux/fs.h>",
-            "#include <linux/fs.h>\n#include <linux/statfs.h>"
-        )
+        lines = c.split('\n')
+        last_include = -1
+        for i, l in enumerate(lines):
+            if l.strip().startswith('#include'):
+                last_include = i
+        if last_include >= 0:
+            lines.insert(last_include + 1, '#include <linux/statfs.h>')
+            c = '\n'.join(lines)
+            print("  susfs.h: added #include <linux/statfs.h>")
+        else:
+            print("  WARNING: no #include found in susfs.h, prepending")
+            c = '#include <linux/statfs.h>\n' + c
 
     # Replace old struct (flexible search)
     old1s = "struct st_susfs_open_redirect {"
