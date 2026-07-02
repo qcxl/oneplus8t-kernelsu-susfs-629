@@ -109,7 +109,8 @@ def fix_dispatch_c():
     )
 
     # 2. Add do_get_info_legacy function before the IOCTL handlers mapping
-    legacy_fn = '''
+    # NOTE: raw string r'''...''' so that \n in C string literals stays literal
+    legacy_fn = r'''
 
 static int do_get_info_legacy(void __user *arg)
 {
