@@ -1,35 +1,30 @@
+
 # Build outputs
-output/
-*.zip
-*.img
-*.gz
-*.tar
-
-# Kernel source (cloned by CI/build scripts, not stored in repo)
-kernel/
-
-# Prebuilts
-prebuilts-master/
-tools/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*.rej
-*.orig
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-build.log
-
-# Docker volumes
-/ccache/
-
 # Docker build output volume mount
+# Docker volumes
+# IDE
+# Kernel source (cloned by CI/build scripts, not stored in repo)
+# Logs
+# OS
+# Prebuilts
+*.gz
+*.img
+*.log
+*.orig
+*.rej
+*.swo
+*.swp
+*.tar
+*.zip
+.DS_Store
+.idea/
+.vscode/
+/ccache/
 /out/
+Thumbs.db
+build.log
+kernel/
+output/
+prebuilts-master/
+scripts/__pycache__/
+tools/
