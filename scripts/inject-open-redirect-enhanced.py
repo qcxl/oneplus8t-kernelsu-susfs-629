@@ -158,7 +158,6 @@ int susfs_add_open_redirect(struct st_susfs_open_redirect * __user user_info)
 	struct hlist_node *tmp_node;
 	struct path target_path, redirected_path;
 	struct inode *target_inode, *redirected_inode;
-	int bkt;
 	bool dup_found = false;
 
 	if (copy_from_user(&info, user_info, sizeof(info)))

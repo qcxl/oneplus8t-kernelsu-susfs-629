@@ -117,6 +117,13 @@ bool susfs_is_current_proc_umounted(void)
 }
 EXPORT_SYMBOL(susfs_is_current_proc_umounted);
 
+/* Stub for susfs_is_current_proc_umounted_app - v2.2.0 new, not in kernel-4.19 */
+bool susfs_is_current_proc_umounted_app(void)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_current_proc_umounted_app);
+
 /* Stub for susfs_set_current_proc_umounted - not in kernel-4.19 */
 void susfs_set_current_proc_umounted(void)
 {

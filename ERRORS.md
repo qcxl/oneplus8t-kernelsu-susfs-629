@@ -233,6 +233,40 @@
 
 **标签**：cross-project
 
+### E024：susfs_add_open_redirect 声明了未使用的 `bkt` 变量
+
+**现象**：`../fs/susfs.c:1051:6: error: unused variable 'bkt' [-Werror,-Wunused-variable]`。
+
+**根因**：`inject-open-redirect-enhanced.py` 注入的 `susfs_add_open_redirect` 函数中声明了 `int bkt;`，此变量用于 `hash_for_each_possible_safe` 宏。但 4.19 的 `hash_for_each_possible_safe` 宏原型是 `(name, obj, tmp, member, key)`，不包含 `bkt` 参数。该宏实现为 `hlist_for_each_entry_safe` 的单桶搜索，不需要桶索引变量。`bkt` 仅被旧版内核或 `hash_for_each_safe`（非"possible"版本）所需。
+
+**教训**：
+1. 每个宏的签名在不同内核版本间可能有差异，不能假设 6.1 的宏在 4.19 上相同
+2. 声明宏所需的辅助变量前，搜索目标内核版本中该宏的实际定义
+3. 4.19 `<linux/hashtable.h>` 中的宏定义明确不需要 `bkt`
+
+**修复**：删除 `int bkt;` 声明。
+
+**锚点**：FLOW.md §1c 全链路追踪 — 确认目标函数签名
+
+**标签**：cross-project
+
+### E025：open_redirect spoof 函数引用了 v1.5.5 中不存在的 `susfs_is_current_proc_umounted_app`
+
+**现象**：`../fs/susfs.c:1123:10: error: implicit declaration of function 'susfs_is_current_proc_umounted_app'`。
+
+**根因**：`susfs_open_redirect_spoof_do_sys_openat` 的 `UID_SCHEME` switch 中有 `case UID_UMOUNTED_APP_PROC`，调用了 `susfs_is_current_proc_umounted_app()`。此函数是 SUSFS v2.2.0 新增的，v1.5.5 中只有 `susfs_is_current_proc_umounted()`，没有对应的 `_app` 变体。
+
+**教训**：
+1. v2.2.0 新增的功能函数不一定在 v1.5.5 中存在。添加 dispatch 条目时必须先确认 handler 函数存在
+2. 缺失的函数需要无条件 stub（放置在 `#ifndef CONFIG_KSU_SUSFS 之外`），因为实时代码路径在 `#ifdef CONFIG_KSU_SUSFS` 中
+3. stub 语义：返回 `false`（不匹配任何重定向条目），上层调用者会回退到原路径
+
+**修复**：在 `susfs_stubs.c` 的 always-needed 段中添加 `susfs_is_current_proc_umounted_app()` stub（返回 false）。
+
+**锚点**：FLOW.md §1c 全链路追踪 — 功能可行性调研
+
+**标签**：cross-project
+
 ### E022：4.19 do_sys_open 与 6.1 do_sys_openat2 签名不同
 **现象**：编译报 `undeclared identifier 'is_inode_open_redirect'` + `undeclared identifier 'INODE_STATE_OPEN_REDIRECT'` + `incompatible pointer types passing to 'void **'`。
 **根因**：
