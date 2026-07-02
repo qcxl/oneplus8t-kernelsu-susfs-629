@@ -195,3 +195,12 @@
 2. `pr_err()` 等 C 字符串中的 `\n` 必须保持为字面量 `\n`，原始字符串自动保留
 3. 此类问题应在本地 `py_compile` + `grep \\\\n' 脚本输出` 前发现
 **锚点**：FLOW.md §1d 边界验证 — 缩进一致
+
+### E021：struct kstatfs 未声明导致编译失败
+**现象**：GHA 编译报 `error: field has incomplete type 'struct kstatfs'`，位置在 `susfs.h:117`，`st_susfs_open_redirect_hlist` 结构体中的 `spoofed_kstatfs` 字段。
+**根因**：`struct kstatfs` 定义在 `<linux/statfs.h>` 中。注入脚本在 `susfs.h` 中新增了带 `struct kstatfs` 字段的结构体，但 `susfs.h` 未包含 `<linux/statfs.h>`。v1.5.5 的 `susfs.h` 只包含了 `<linux/fs.h>`，而 `struct kstatfs` 在 4.19 上并非从 `fs.h` 间接引用得到。
+**教训**：
+1. 任何新增的 struct 字段类型必须确认其头文件已包含
+2. 4.19 上 `struct kstatfs` 需要显式 `#include <linux/statfs.h>`
+3. 结构体变化应在注入脚本中同步更新头文件的 include 列表
+**锚点**：FLOW.md §1a 源码阅读 — 结构体依赖追踪
