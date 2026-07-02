@@ -211,6 +211,28 @@
 **教训**：不要用 `replace()` 假设特定 include 行存在。改用「找最后一个 `#include` 行追加」模式更鲁棒。
 **锚点**：FLOW.md §1e 常见失败模式 — 静默跳过
 
+### E023：do_filp_open 锚点缩进不匹配导致 spoof 代码静默缺失
+
+**现象**：`../fs/open.c:1099:7: error: unused variable 'is_inode_open_redirect' [-Werror,-Wunused-variable]`。`is_inode_open_redirect` 被声明但编译器报未使用。
+
+**根因**：`inject-open-redirect-enhanced.py` 用 3 个独立锚点修改 `fs/open.c` 的 `do_sys_open`：
+1. 函数签名 `long do_sys_open(...)\n{` → 注入变量声明 ✅
+2. `\tfd = get_unused_fd_flags(flags);` → 注入 `retry:` 标签 ❌ 锚点不匹配
+3. `\t\tstruct file *f = do_filp_open(dfd, tmp, &op);` → 注入 spoof 代码 ❌ 锚点不匹配
+
+第 2/3 步锚点的缩进（空格 vs tab）与 LineageOS 4.19 源文件不一致，`c.replace()` 静默失败。变量声明了但从未使用，`-Werror` 杀死构建。
+
+**教训**：
+1. **永远不要依赖确切的空格/tab 缩进做锚点匹配**。不同内核版本/厂商的缩进习惯不同
+2. 使用函数签名做唯一锚点，**一次替换整个函数体**，确保原子性
+3. 分隔为多个 `c.replace()` 时，每个都必须检查返回值——`str.replace()` 没匹配到返回原字符串，后续代码用的还是旧内容
+
+**修复**：将 variable + retry + spoof 全部合并为**一次原子替换**，锚定在 `long do_sys_open(...)\n{` 这一个唯一稳定的点上，函数体按 LineageOS 4.19 实际的 body 重新生成。
+
+**锚点**：FLOW.md §1e 常见失败模式 — 静默跳过 / 缩进不一致
+
+**标签**：cross-project
+
 ### E022：4.19 do_sys_open 与 6.1 do_sys_openat2 签名不同
 **现象**：编译报 `undeclared identifier 'is_inode_open_redirect'` + `undeclared identifier 'INODE_STATE_OPEN_REDIRECT'` + `incompatible pointer types passing to 'void **'`。
 **根因**：

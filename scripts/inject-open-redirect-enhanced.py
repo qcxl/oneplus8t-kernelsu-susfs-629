@@ -373,21 +373,42 @@ def step4_vfs_hooks():
             "extern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);")
         if not already:
             c = read_file(p)
-            # Variable declaration in do_sys_open
-            for sig in [
-                "long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)\n{",
-            ]:
-                if sig in c and "is_inode_open_redirect" not in c:
-                    c = c.replace(sig, sig + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tbool is_inode_open_redirect = false;\n#endif")
-                    break
-            # retry label
-            retry_marker = "\tfd = get_unused_fd_flags(flags);"
-            if retry_marker in c and "retry:" not in c:
-                c = c.replace(retry_marker, "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nretry:\n#endif\n\tfd = get_unused_fd_flags(flags);")
-            # spoof call after do_filp_open
-            dop = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);"
-            if dop in c and "spoof_do_sys_openat" not in c:
-                spoof = """
+            if "is_inode_open_redirect" in c:
+                print("  fs/open.c: already hooked")
+            else:
+                # Single atomic replacement: replace the entire do_sys_open function body
+                # This avoids fragile per-line anchor strings that break on whitespace variation.
+                sig = "long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)\n{"
+                if sig in c:
+                    old_body = sig
+                    brace_depth = 1
+                    for ch in c[c.index(sig) + len(sig):]:
+                        if ch == '{': brace_depth += 1
+                        elif ch == '}': brace_depth -= 1
+                        old_body += ch
+                        if brace_depth == 0:
+                            break
+                    new_body = sig + """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\tbool is_inode_open_redirect = false;
+#endif
+\tstruct open_flags op;
+\tint fd = build_open_flags(flags, mode, &op);
+\tstruct filename *tmp;
+
+\tif (fd)
+\t\treturn fd;
+
+\ttmp = getname(filename);
+\tif (IS_ERR(tmp))
+\t\treturn PTR_ERR(tmp);
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+retry:
+#endif
+\tfd = get_unused_fd_flags(flags);
+\tif (fd >= 0) {
+\t\tstruct file *f = do_filp_open(dfd, tmp, &op);
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 \t\tif (!is_inode_open_redirect && f && !IS_ERR(f)) {
 \t\t\tstruct inode *inode_s = file_inode(f);
@@ -403,10 +424,22 @@ def step4_vfs_hooks():
 \t\t\t}
 \t\t}
 #endif
-"""
-                c = c.replace(dop, dop + spoof)
-            write_file(p, c)
-            print("  fs/open.c: do_sys_open hooked")
+\t\tif (IS_ERR(f)) {
+\t\t\tput_unused_fd(fd);
+\t\t\tfd = PTR_ERR(f);
+\t\t} else {
+\t\t\tfsnotify_open(f);
+\t\t\tfd_install(fd, f);
+\t\t}
+\t}
+\tputname(tmp);
+\treturn fd;
+}"""
+                    c = c.replace(old_body, new_body)
+                    write_file(p, c)
+                    print("  fs/open.c: do_sys_open hooked (atomic)")
+                else:
+                    print("  ERROR: do_sys_open signature not found"); ok = False
     else:
         print("  WARNING: fs/open.c not found"); ok = False
 
