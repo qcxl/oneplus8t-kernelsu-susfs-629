@@ -435,7 +435,7 @@ int susfs_open_redirect_spoof_seq_show(struct inode *inode, int *out_mnt_id, uns
 def step4_vfs_hooks():
     ok = True
 
-    # fs/open.c: extern + retry label + spoof call
+    # fs/open.c: do_sys_open retry logic (4.19 does NOT have do_sys_openat2)
     p = os.path.join(KERNEL_ROOT, "fs/open.c")
     if os.path.exists(p):
         c = read_file(p)
@@ -450,45 +450,53 @@ def step4_vfs_hooks():
             lines.insert(last + 1, ext)
             c = '\n'.join(lines)
 
-            # Add local variables after function opening brace
-            old = "static long do_sys_openat2(int dfd, const char __user *filename,\n\t\t\t   struct open_how *how)\n{"
-            alt = "static long do_sys_openat2(int dfd, const char __user *filename, struct open_how *how)\n{"
-            vars = "\n\tbool is_inode_open_redirect = false;\n"
-            if old in c:
-                c = c.replace(old, old + vars)
-            elif alt in c:
-                c = c.replace(alt, alt + vars)
+            # Add local variable inside do_sys_open
+            old_sig = "long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)\n{"
+            # Try different linebreak patterns
+            for sig in [
+                "long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)\n{",
+                "long do_sys_open(int dfd, const char __user *filename,\n\t\t\t int flags, umode_t mode)\n{",
+            ]:
+                if sig in c:
+                    var_decl = """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\tbool is_inode_open_redirect = false;
+#endif"""
+                    c = c.replace(sig, sig + var_decl)
+                    print("  fs/open.c: added is_inode_open_redirect variable")
+                    break
 
-            # Add retry label before get_unused_fd_flags
-            c = c.replace(
-                "\tfd = get_unused_fd_flags(how->flags);",
-                "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nretry:\n#endif\n\tfd = get_unused_fd_flags(how->flags);"
-            )
+            # Add retry label before get_unused_fd_flags(flags)
+            old_retry = "\tfd = get_unused_fd_flags(flags);"
+            if old_retry in c:
+                retry_label = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nretry:\n#endif\n\tfd = get_unused_fd_flags(flags);\n"
+                c = c.replace(old_retry, retry_label)
+                print("  fs/open.c: added retry label")
 
             # Add spoof call after do_filp_open
-            spoof = """
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-		if (!is_inode_open_redirect && f && !IS_ERR(f)) {
-			struct inode *inode_s = file_inode(f);
-			if (inode_s && (inode_s->i_state & INODE_STATE_OPEN_REDIRECT)) {
-				struct filename *fake = susfs_open_redirect_spoof_do_sys_openat(inode_s);
-				if (fake && !IS_ERR(fake)) {
-					is_inode_open_redirect = true;
-					filp_close(f, NULL);
-					putname(tmp);
-					tmp = fake;
-					goto retry;
-				}
-			}
-		}
-#endif
-"""
             dop = "\t\tstruct file *f = do_filp_open(dfd, tmp, &op);"
             if dop in c:
+                spoof = """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\t\tif (!is_inode_open_redirect && f && !IS_ERR(f)) {
+\t\t\tstruct inode *inode_s = file_inode(f);
+\t\t\tif (inode_s && (inode_s->i_state & INODE_STATE_OPEN_REDIRECT)) {
+\t\t\t\tstruct filename *fake = susfs_open_redirect_spoof_do_sys_openat(inode_s);
+\t\t\t\tif (fake && !IS_ERR(fake)) {
+\t\t\t\t\tis_inode_open_redirect = true;
+\t\t\t\t\tfilp_close(f, NULL);
+\t\t\t\t\tputname(tmp);
+\t\t\t\t\ttmp = fake;
+\t\t\t\t\tgoto retry;
+\t\t\t\t}
+\t\t\t}
+\t\t}
+#endif
+"""
                 c = c.replace(dop, dop + spoof)
+                print("  fs/open.c: added open redirect spoof call")
 
             write_file(p, c)
-            print("  fs/open.c: do_sys_openat2 hooked")
         else:
             print("  fs/open.c: already hooked")
     else:
@@ -598,6 +606,21 @@ def step5_dispatch():
         print("  dispatch.c: updated open_redirect calls")
     else:
         print("  dispatch.c: open_redirect calls already updated or not found")
+
+    # Also fix supercall.c (reboot handler) — injected by inject-susfs-dispatch.py
+    sc_path = find_file(KERNEL_ROOT, [
+        "drivers/kernelsu/supercall/supercall.c",
+    ])
+    if sc_path:
+        c = read_file(sc_path)
+        old_sc = '\t\t\treturn susfs_add_open_redirect((struct st_susfs_open_redirect __user *)uarg);\n'
+        new_sc = '\t\t\tsusfs_add_open_redirect(&uarg);\n\t\t\treturn 0;\n'
+        if old_sc in c:
+            c = c.replace(old_sc, new_sc)
+            write_file(sc_path, c)
+            print("  supercall.c: updated open_redirect call")
+        else:
+            print("  supercall.c: open_redirect call not found or already updated")
     return True
 
 

@@ -262,7 +262,7 @@ jobs:
           grep -c 'spoof_vfs_readlink' fs/susfs.c 2>/dev/null || echo "0"
           echo "susfs.c spoof_vfs_statfs:"
           grep -c 'spoof_vfs_statfs' fs/susfs.c 2>/dev/null || echo "0"
-          echo "fs/open.c hook:"
+          echo "fs/open.c (4.19 do_sys_open) hook:"
           grep -c 'spoof_do_sys_openat' fs/open.c 2>/dev/null || echo "0"
           echo "fs/namei.c hook:"
           grep -c 'spoof_vfs_readlink' fs/namei.c 2>/dev/null || echo "0"

@@ -211,13 +211,15 @@
 **教训**：不要用 `replace()` 假设特定 include 行存在。改用「找最后一个 `#include` 行追加」模式更鲁棒。
 **锚点**：FLOW.md §1e 常见失败模式 — 静默跳过
 
-### E022：4.19 无 do_sys_openat2，openat 钩子不可移植
-**现象**：编译报 `use of undeclared identifier 'is_inode_open_redirect'` + `use of undeclared identifier 'INODE_STATE_OPEN_REDIRECT'` + `incompatible pointer types passing to 'void **'`。
+### E022：4.19 do_sys_open 与 6.1 do_sys_openat2 签名不同
+**现象**：编译报 `undeclared identifier 'is_inode_open_redirect'` + `undeclared identifier 'INODE_STATE_OPEN_REDIRECT'` + `incompatible pointer types passing to 'void **'`。
 **根因**：
-1. `do_sys_openat2()` 是 Linux 5.6 才引入的。4.19 Lineage 内核没有此函数。注入脚本向 `fs/open.c` 插入的 `do_sys_openat2` retry 逻辑找不到函数定义，retry label 和变量声明插错位置，`is_inode_open_redirect` 未声明。
-2. `inject-susfs-dispatch.py` 在 `supercall.c`（reboot handler）中写了旧签名 `susfs_add_open_redirect(结构体*)`，但 `inject-open-redirect-enhanced.py` 只更新了 `dispatch.c`，漏了 `supercall.c`。
+1. `do_sys_openat2(dfd, filename, open_how*)` 是 Linux 5.6 引入的。4.19 用 `do_sys_open(dfd, filename, flags, mode)`，调用 `get_unused_fd_flags(flags)` 而非 `get_unused_fd_flags(how->flags)`。注入脚本用 5.6 的签名搜索 4.19 的函数，找不到则变量声明不插入，导致 `is_inode_open_redirect` 未声明。
+2. `inject-susfs-dispatch.py` 在 `supercall.c`（reboot handler）中写旧签名，修复脚本只更新了 `dispatch.c`，漏了 `supercall.c`。
 **教训**：
-1. 注入 VFS 钩子前必须确认目标函数在内核中存在——4.19 与 6.1 的函数签名差异很大
-2. 注入脚本必须同时修复 `dispatch.c`（IOCTL 表）和 `supercall.c`（reboot 分发器）两处
-3. 开新任务前应先 `/kport verify` 检查目标函数存在性
-**锚点**：FLOW.md §1a 源码阅读 — 确认目标函数存在
+1. VFS 钩子必须逐内核版本确认函数签名——2018 的 4.19 和 2024 的 6.1 差异极大
+2. 4.19 的 do_sys_open 签名是 `(int dfd, const char __user *filename, int flags, umode_t mode)`，不是 `(int dfd, const char __user *filename, struct open_how *how)`
+3. dispatch 需要同时更新 `dispatch.c`（IOCTL 表）和 `supercall.c`（reboot 分发器）两处
+4. 先 `/kport trace` 确认目标函数在 4.19 上的真实签名再写注入脚本
+**修复**：改用 4.19 签名模式搜索 `do_sys_open` 并插入变量/retry/spoof。保留全部功能。
+**锚点**：FLOW.md §1a 源码阅读 — 确认目标函数签名
