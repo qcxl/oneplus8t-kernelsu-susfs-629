@@ -186,3 +186,12 @@
 2. dispatch.c 的缩进风格混合了 tab 和空格，必须用 regex 匹配
 3. 插入到 struct 数组时用 `match.start() + 2`（跳过 `},`），不要在插入内容中加多余的逗号
 **锚点**：FLOW.md §1e 常见失败模式 — 文件版本差异 / 缩进不一致
+
+### E020：Python \n 被解释为换行符写入 C 文件
+**现象**：GHA 编译报 `missing terminating '"' character`，dispatch.c 中 `pr_err("get_version: copy_to_user failed` 字符串缺少闭合双引号。
+**根因**：`fix-ksu-uapi-v2.py` 中用 Python 三引号 `'''...'''` 定义 `do_get_info_legacy` C 代码模板。字符串中的 `\n` 被 Python 解析为换行符，导致 C 代码中：`pr_err("get_version: copy_to_user failed\n");` → 输出为 `pr_err("get_version: copy_to_user failed` + 换行 + `");` 语法错误。
+**教训**：
+1. Python 三引号中 `\n`、`\t` 会被解析，写 C 代码模板必须用 `r'''...'''`（raw string）
+2. `pr_err()` 等 C 字符串中的 `\n` 必须保持为字面量 `\n`，原始字符串自动保留
+3. 此类问题应在本地 `py_compile` + `grep \\\\n' 脚本输出` 前发现
+**锚点**：FLOW.md §1d 边界验证 — 缩进一致
