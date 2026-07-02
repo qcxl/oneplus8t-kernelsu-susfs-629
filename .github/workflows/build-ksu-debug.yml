@@ -87,6 +87,16 @@ jobs:
           echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
           echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
 
+      - name: Fix UAPI version mismatch (legacy → v2 compat)
+        working-directory: kernel
+        run: |
+          echo "=== Adding KERNEL_SU_UAPI_VERSION=2 to legacy KSU-Next ==="
+          python3 ../scripts/fix-ksu-uapi-v2.py .
+          echo "=== Verification ==="
+          grep -c 'KERNEL_SU_UAPI_VERSION' drivers/kernelsu/uapi/supercall.h 2>/dev/null || echo "0"
+          grep -c 'uapi_version = KERNEL_SU_UAPI_VERSION' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+          grep -c 'GET_INFO_LEGACY' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
