@@ -210,3 +210,14 @@
 **根因**：`c.replace("#include <linux/fs.h>", ...)` 假设 v1.5.5 的 `susfs.h` 含有 `#include <linux/fs.h>`，但该头文件可能根本没有这一行（50_add patch 产生的 `susfs.h` 内容不确定）。`replace()` 未匹配则静默失败，include 未添加。
 **教训**：不要用 `replace()` 假设特定 include 行存在。改用「找最后一个 `#include` 行追加」模式更鲁棒。
 **锚点**：FLOW.md §1e 常见失败模式 — 静默跳过
+
+### E022：4.19 无 do_sys_openat2，openat 钩子不可移植
+**现象**：编译报 `use of undeclared identifier 'is_inode_open_redirect'` + `use of undeclared identifier 'INODE_STATE_OPEN_REDIRECT'` + `incompatible pointer types passing to 'void **'`。
+**根因**：
+1. `do_sys_openat2()` 是 Linux 5.6 才引入的。4.19 Lineage 内核没有此函数。注入脚本向 `fs/open.c` 插入的 `do_sys_openat2` retry 逻辑找不到函数定义，retry label 和变量声明插错位置，`is_inode_open_redirect` 未声明。
+2. `inject-susfs-dispatch.py` 在 `supercall.c`（reboot handler）中写了旧签名 `susfs_add_open_redirect(结构体*)`，但 `inject-open-redirect-enhanced.py` 只更新了 `dispatch.c`，漏了 `supercall.c`。
+**教训**：
+1. 注入 VFS 钩子前必须确认目标函数在内核中存在——4.19 与 6.1 的函数签名差异很大
+2. 注入脚本必须同时修复 `dispatch.c`（IOCTL 表）和 `supercall.c`（reboot 分发器）两处
+3. 开新任务前应先 `/kport verify` 检查目标函数存在性
+**锚点**：FLOW.md §1a 源码阅读 — 确认目标函数存在
