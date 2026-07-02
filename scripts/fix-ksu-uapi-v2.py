@@ -17,12 +17,25 @@ import sys, os, re
 
 KSU_ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
 
+def find_file(root, candidates):
+    for c in candidates:
+        p = os.path.join(root, c)
+        if os.path.exists(p):
+            return p
+    return None
+
 def fix_supercall_h():
-    path = os.path.join(KSU_ROOT, "drivers/kernelsu/uapi/supercall.h")
-    if not os.path.exists(path):
-        path = os.path.join(KSU_ROOT, "KernelSU/kernel/uapi/supercall.h")
-    if not os.path.exists(path):
-        print("  ERROR: supercall.h not found")
+    # After setup.sh: drivers/kernelsu/ -> ../KernelSU-Next/kernel/ (symlink)
+    # uapi/ is at KernelSU-Next/uapi/ (repo root, not inside kernel/)
+    # Check via symlink, direct paths, and include/uapi symlink
+    path = find_file(KSU_ROOT, [
+        "drivers/kernelsu/../uapi/supercall.h",     # via symlink: KernelSU-Next/uapi/supercall.h
+        "drivers/kernelsu/include/uapi/supercall.h", # via symlink: .../include/uapi -> ../../uapi/
+        "KernelSU-Next/uapi/supercall.h",            # direct path
+        "KernelSU/kernel/uapi/supercall.h",          # fallback
+    ])
+    if not path:
+        print("  ERROR: supercall.h not found (checked: drivers/kernelsu/../uapi/, KernelSU-Next/uapi/)")
         return False
 
     with open(path) as f:
@@ -73,16 +86,11 @@ struct ksu_get_info_legacy_cmd {
 
 
 def fix_dispatch_c():
-    candidates = [
-        "drivers/kernelsu/supercall/dispatch.c",
-        "KernelSU/kernel/supercall/dispatch.c",
-    ]
-    dp_path = None
-    for c in candidates:
-        p = os.path.join(KSU_ROOT, c)
-        if os.path.exists(p):
-            dp_path = p
-            break
+    dp_path = find_file(KSU_ROOT, [
+        "drivers/kernelsu/supercall/dispatch.c",     # via symlink: KernelSU-Next/kernel/supercall/dispatch.c
+        "KernelSU-Next/kernel/supercall/dispatch.c", # direct path
+        "KernelSU/kernel/supercall/dispatch.c",      # fallback
+    ])
     if not dp_path:
         print("  ERROR: dispatch.c not found")
         return False
@@ -139,19 +147,23 @@ static int do_get_info_legacy(void __user *arg)
     content = content[:pos] + legacy_fn + content[pos:]
 
     # 3. Add table entry for KSU_IOCTL_GET_INFO_LEGACY after GET_INFO entry
-    #    Find the GET_INFO entry and add LEGACY after it
-    get_info_entry_end = content.find('},\n    {\n        .cmd = KSU_IOCTL_REPORT_EVENT,', pos)
-    if get_info_entry_end < 0:
-        print("  ERROR: GET_INFO table entry end not found")
+    #    Find the closing }, of GET_INFO and insert legacy entry before REPORT_EVENT
+    report_event_pat = re.compile(r'},\s*\{\s*\.cmd\s*=\s*KSU_IOCTL_REPORT_EVENT')
+    match = report_event_pat.search(content, pos)
+    if not match:
+        print("  ERROR: GET_INFO table entry end not found (pattern: KSU_IOCTL_REPORT_EVENT)")
         return False
+    # Insert right after the }, that closes GET_INFO (skip 2 chars)
+    get_info_entry_end = match.start() + 2
 
-    legacy_entry = '''    {
-        .cmd = KSU_IOCTL_GET_INFO_LEGACY,
-        .name = "GET_INFO_LEGACY",
-        .handler = do_get_info_legacy,
-        .perm_check = always_allow
-    },'''
-    content = content[:get_info_entry_end] + ',\n' + legacy_entry + content[get_info_entry_end:]
+    legacy_entry = '''\n\t{
+\t\t.cmd = KSU_IOCTL_GET_INFO_LEGACY,
+\t\t.name = "GET_INFO_LEGACY",
+\t\t.handler = do_get_info_legacy,
+\t\t.perm_check = always_allow
+\t},
+'''
+    content = content[:get_info_entry_end] + legacy_entry + content[get_info_entry_end:]
 
     with open(dp_path, 'w') as f:
         f.write(content)
