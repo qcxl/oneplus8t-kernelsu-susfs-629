@@ -440,14 +440,14 @@ def step4_vfs_hooks():
     if os.path.exists(p):
         c = read_file(p)
         if "susfs_open_redirect_spoof" not in c:
-            # Add extern declaration
-            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n#endif\n"
+            # Add include + extern declaration
+            incl = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\nextern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);\n#endif\n"
             lines = c.split('\n')
             last = 0
             for i, l in enumerate(lines):
                 if l.strip().startswith('#include'):
                     last = i
-            lines.insert(last + 1, ext)
+            lines.insert(last + 1, incl)
             c = '\n'.join(lines)
 
             # Add local variable inside do_sys_open
@@ -507,7 +507,7 @@ def step4_vfs_hooks():
     if os.path.exists(p):
         c = read_file(p)
         if "spoof_vfs_readlink" not in c:
-            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode, char __user *buffer, int buflen);\n#endif\n"
+            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\nextern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode, char __user *buffer, int buflen);\n#endif\n"
             lines = c.split('\n')
             last = 0
             for i, l in enumerate(lines):
@@ -543,7 +543,7 @@ def step4_vfs_hooks():
     if os.path.exists(p):
         c = read_file(p)
         if "spoof_do_proc_readlink" not in c:
-            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nextern int susfs_open_redirect_spoof_do_proc_readlink(struct inode *inode, char *tmp_buf, int buflen);\n#endif\n"
+            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\nextern int susfs_open_redirect_spoof_do_proc_readlink(struct inode *inode, char *tmp_buf, int buflen);\n#endif\n"
             lines = c.split('\n')
             last = 0
             for i, l in enumerate(lines):
@@ -574,6 +574,36 @@ def step4_vfs_hooks():
             print("  fs/proc/base.c: already hooked")
     else:
         print("  WARNING: fs/proc/base.c not found"); ok = False
+
+    # fs/statfs.c: vfs_statfs hook
+    p = os.path.join(KERNEL_ROOT, "fs/statfs.c")
+    if os.path.exists(p):
+        c = read_file(p)
+        if "susfs_open_redirect_spoof_vfs_statfs" not in c:
+            ext = "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n#include <linux/susfs_def.h>\nextern int susfs_open_redirect_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf);\n#endif\n"
+            marker = "int vfs_statfs(const struct path *path, struct kstatfs *buf)"
+            if marker in c:
+                c = c.replace(marker, ext + marker)
+            # Add spoof call inside vfs_statfs
+            old = "\tstruct inode *inode = d_backing_inode(path->dentry);"
+            new = """\tstruct inode *inode = d_backing_inode(path->dentry);
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\tif (inode && (inode->i_state & INODE_STATE_OPEN_REDIRECT)) {
+\t\tint ret = susfs_open_redirect_spoof_vfs_statfs(inode, buf);
+\t\tif (!ret)
+\t\t\treturn ret;
+\t}
+#endif"""
+            if old in c:
+                c = c.replace(old, new)
+                write_file(p, c)
+                print("  fs/statfs.c: hooked vfs_statfs")
+            else:
+                print("  WARNING: vfs_statfs pattern not found in fs/statfs.c")
+        else:
+            print("  fs/statfs.c: already hooked")
+    else:
+        print("  WARNING: fs/statfs.c not found"); ok = False
 
     return ok
 
