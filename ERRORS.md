@@ -204,3 +204,9 @@
 2. 4.19 上 `struct kstatfs` 需要显式 `#include <linux/statfs.h>`
 3. 结构体变化应在注入脚本中同步更新头文件的 include 列表
 **锚点**：FLOW.md §1a 源码阅读 — 结构体依赖追踪
+
+### E021v2：statfs.h include 追加失败（replace 可能未匹配）
+**现象**：第一次修复后依然报 `error: field has incomplete type 'struct kstatfs'`。
+**根因**：`c.replace("#include <linux/fs.h>", ...)` 假设 v1.5.5 的 `susfs.h` 含有 `#include <linux/fs.h>`，但该头文件可能根本没有这一行（50_add patch 产生的 `susfs.h` 内容不确定）。`replace()` 未匹配则静默失败，include 未添加。
+**教训**：不要用 `replace()` 假设特定 include 行存在。改用「找最后一个 `#include` 行追加」模式更鲁棒。
+**锚点**：FLOW.md §1e 常见失败模式 — 静默跳过
