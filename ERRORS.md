@@ -165,3 +165,12 @@
 4. `|| true` 掩盖了 patch/clone 失败。应改用 `|| echo WARNING` 或显式检查
 **锚点**：FLOW.md §2 代码审计 — Kconfig 一致性检查
 **标签**：cross-project
+
+### E018：SUSFS gitlab clone 间歇性网络失败
+**现象**：GHA 构建报 `ERROR: SUSFS clone failed!`，`/tmp/susfs/kernel_patches` 目录不存在，构建立即退出 1。
+**根因**：`git clone https://gitlab.com/simonpunk/susfs4ksu.git` 在 GHA runner 上间歇性网络超时（~20% 概率），gitlab.com 对中国大陆/部分区域的 CI 访问不稳定。
+**教训**：
+1. `exit 1` 直接终止整个构建，应该加重试循环。已改为 `for i in 1 2 3; do ... done` 最多重试 3 次
+2. `|| true` 掩盖问题不应直接 exit 1，但 clone 失败后续步骤确实无法进行，所以 retry 比 exit 更合理
+3. 长期方案：将 SUSFS 源码镜像到 GitHub（如 `qcxl/susfs4ksu-mirror`）避免依赖 gitlab.com
+**锚点**：FLOW.md §1e 常见失败模式 — CI 步骤顺序

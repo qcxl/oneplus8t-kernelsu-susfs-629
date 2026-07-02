@@ -100,10 +100,20 @@ jobs:
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
-          git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs
-          if [ ! -d "/tmp/susfs/kernel_patches" ]; then
-            echo "ERROR: SUSFS clone failed!"; exit 1
-          fi
+          # Retry SUSFS clone up to 3 times (gitlab.com network is unreliable)
+          for i in 1 2 3; do
+            echo "SUSFS clone attempt $i/3..."
+            rm -rf /tmp/susfs 2>/dev/null || true
+            git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>&1
+            if [ -d "/tmp/susfs/kernel_patches" ]; then
+              echo "SUSFS clone SUCCESS (attempt $i)"
+              break
+            fi
+            if [ "$i" = "3" ]; then
+              echo "ERROR: SUSFS clone failed after 3 attempts!"; exit 1
+            fi
+            sleep 5
+          done
           # kernel-4.19 branch HEAD = v1.5.5 (verified via include/linux/susfs.h)
           patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || echo "WARNING: 50_add patch failed (may already be applied)"
           cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
