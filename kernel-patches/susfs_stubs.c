@@ -57,19 +57,25 @@ EXPORT_SYMBOL(susfs_enable_log);
 
 void susfs_get_enabled_features(void __user **user_info)
 {
-    /* stub */
+    /* stub: no SUSFS features enabled */
+    char empty = 0;
+    copy_to_user(*user_info, &empty, 1);
 }
 EXPORT_SYMBOL(susfs_get_enabled_features);
 
 void susfs_show_variant(void __user **user_info)
 {
-    /* stub */
+    /* stub: return "NON-GKI" variant */
+    char buf[] = "NON-GKI";
+    copy_to_user(*user_info, buf, sizeof(buf));
 }
 EXPORT_SYMBOL(susfs_show_variant);
 
 void susfs_show_version(void __user **user_info)
 {
-    /* stub */
+    /* stub: return disabled version */
+    char buf[] = "v0.0.0";
+    copy_to_user(*user_info, buf, sizeof(buf));
 }
 EXPORT_SYMBOL(susfs_show_version);
 
@@ -90,6 +96,19 @@ bool susfs_ends_with(const char *str, const char *suffix)
     return strcmp(str + str_len - suffix_len, suffix) == 0;
 }
 EXPORT_SYMBOL(susfs_ends_with);
+
+/* Helper: check if inode is in sus_path list — always false when SUSFS disabled */
+bool susfs_is_inode_sus_path(struct inode *inode)
+{
+    return false;
+}
+EXPORT_SYMBOL(susfs_is_inode_sus_path);
+
+/* Helper: mark inode for kstat spoofing — no-op when SUSFS disabled */
+void susfs_mark_inode_sus_kstat(struct inode *inode)
+{
+}
+EXPORT_SYMBOL(susfs_mark_inode_sus_kstat);
 
 /* Stub for susfs_is_current_proc_umounted - not in kernel-4.19 */
 bool susfs_is_current_proc_umounted(void)
