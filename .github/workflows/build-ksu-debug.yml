@@ -242,6 +242,31 @@ jobs:
           echo "task_mmu.c extern updated:"
           grep -c 'susfs_show_map_vma_spoofer' fs/proc/task_mmu.c 2>/dev/null || echo "0"
 
+      - name: Inject open_redirect enhanced (v2.2.0 spoof_do_sys_openat/readlink/statfs)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting open_redirect enhanced (v2.2.0) ==="
+          python3 ../scripts/inject-open-redirect-enhanced.py .
+          echo "=== Verification ==="
+          echo "susfs_def.h UID_SCHEME:"
+          grep -c 'UID_NON_APP_PROC' include/linux/susfs_def.h 2>/dev/null || echo "0"
+          echo "susfs.h uid_scheme field:"
+          grep -c 'uid_scheme' include/linux/susfs.h 2>/dev/null || echo "0"
+          echo "susfs.c spoof_do_sys_openat:"
+          grep -c 'spoof_do_sys_openat' fs/susfs.c 2>/dev/null || echo "0"
+          echo "susfs.c spoof_vfs_readlink:"
+          grep -c 'spoof_vfs_readlink' fs/susfs.c 2>/dev/null || echo "0"
+          echo "susfs.c spoof_vfs_statfs:"
+          grep -c 'spoof_vfs_statfs' fs/susfs.c 2>/dev/null || echo "0"
+          echo "fs/open.c hook:"
+          grep -c 'spoof_do_sys_openat' fs/open.c 2>/dev/null || echo "0"
+          echo "fs/namei.c hook:"
+          grep -c 'spoof_vfs_readlink' fs/namei.c 2>/dev/null || echo "0"
+          echo "fs/proc/base.c hook:"
+          grep -c 'spoof_do_proc_readlink' fs/proc/base.c 2>/dev/null || echo "0"
+          echo "fs/statfs.c hook:"
+          grep -c 'spoof_vfs_statfs' fs/statfs.c 2>/dev/null || echo "0"
+
       - name: Apply manual hook source patches
         working-directory: kernel
         run: |
