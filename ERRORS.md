@@ -174,3 +174,15 @@
 2. `|| true` 掩盖问题不应直接 exit 1，但 clone 失败后续步骤确实无法进行，所以 retry 比 exit 更合理
 3. 长期方案：将 SUSFS 源码镜像到 GitHub（如 `qcxl/susfs4ksu-mirror`）避免依赖 gitlab.com
 **锚点**：FLOW.md §1e 常见失败模式 — CI 步骤顺序
+
+### E019：fix-ksu-uapi-v2.py 路径和 pattern 错误
+**现象**：GHA 构建报 `ERROR: supercall.h not found` 和 `ERROR: GET_INFO table entry end not found`，fix-ksu-uapi-v2.py 两个函数均返回 False 并 exit 1。
+**根因**：
+1. `supercall.h` 不在脚本检查的路径中。setup.sh 创建 symlink `drivers/kernelsu/ → ../KernelSU-Next/kernel/`，但 `uapi/supercall.h` 在 `KernelSU-Next/uapi/`（仓库根目录），不在 `kernel/` 子目录。脚本只检查了 `drivers/kernelsu/uapi/supercall.h` 和 `KernelSU/kernel/uapi/supercall.h`（连名字都拼错了，应该是 `KernelSU-Next`）
+2. `GET_INFO table entry end not found` 原因是匹配 pattern 用了 4 空格缩进 `    {`，但 legacy dispatch.c 使用 `\t{`（tab）
+3. 插入逻辑 `content[:P] + ',\n' + entry + content[P:]` 在 `},` 前后各加一次，导致双 `},\n},\n` 语法错误
+**教训**：
+1. 路径搜索应使用 `find_file()` 封装函数，枚举所有可能路径
+2. dispatch.c 的缩进风格混合了 tab 和空格，必须用 regex 匹配
+3. 插入到 struct 数组时用 `match.start() + 2`（跳过 `},`），不要在插入内容中加多余的逗号
+**锚点**：FLOW.md §1e 常见失败模式 — 文件版本差异 / 缩进不一致
