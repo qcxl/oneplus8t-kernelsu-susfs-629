@@ -382,3 +382,20 @@
 **锚点**：FLOW.md §2 代码审计 — 注入代码完整性
 
 **标签**：cross-project
+
+### E031：ksud 用户态不识 ID=5 → auto-enable 绕过
+
+**现象**：内核 `dmesg` 确认 `registered handler for selinux_hide (id=5)`，但 `ksud feature set 5 1` 报 `Unknown feature: 5`。符号在 kallsyms 中可见，特征无法从用户态启用。
+
+**根因**：ksud（`feature.rs`）的 `FeatureId::from_u32()` 有硬编码白名单（ID 0-4, 10003），ID=5 不在其中。KSU-Next v3.2.0 的 `SelinuxHide=4` 与 legacy 的 `selinux_hide_status=4` 冲突。Rust 编译的 ksud 无法简单 hex patch。
+
+**教训**：
+1. KSU FeatureId 在 userspace (ksud) 和 kernel 各有硬编码列表
+2. legacy 新增 feature ID 需同步更新 ksud 源码
+3. 编译 ksud 需要 Rust + NDK，受限环境不可行
+
+**修复**：`ksu_selinux_hide_init()` 在注册 handler 后额外调用 `hook_selinux_setprocattr()` + 设置 `ksu_selinux_hide_enabled = true` 自启用。
+
+**锚点**：FLOW.md §1b — 用户态工具支持
+
+**标签**：cross-project

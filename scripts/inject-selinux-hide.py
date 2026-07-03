@@ -116,9 +116,19 @@ static const struct ksu_feature_handler selinux_hide_handler = {
 	.get_handler = selinux_hide_get, .set_handler = selinux_hide_set,
 };
 
+static void ksu_selinux_hide_late_init(void)
+{
+	pr_info("ksu_selinux_hide: auto-enable\n");
+	hook_selinux_setprocattr();
+	WRITE_ONCE(ksu_selinux_hide_enabled, true);
+}
+
 static int __init ksu_selinux_hide_init(void)
 {
-	return ksu_register_feature_handler(&selinux_hide_handler);
+	int ret = ksu_register_feature_handler(&selinux_hide_handler);
+	if (ret) pr_err("ksu_selinux_hide: register handler failed\n");
+	ksu_selinux_hide_late_init();
+	return ret;
 }
 postcore_initcall(ksu_selinux_hide_init);
 """
