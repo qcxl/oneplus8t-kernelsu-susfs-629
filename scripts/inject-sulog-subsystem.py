@@ -28,6 +28,7 @@ FILES = [
     ("sulog/event.c", "sulog/event.c"),
     ("sulog/fd.h", "sulog/fd.h"),
     ("sulog/fd.c", "sulog/fd.c"),
+    ("uapi/sulog.h", "include/uapi/sulog.h"),
 ]
 
 def main():
