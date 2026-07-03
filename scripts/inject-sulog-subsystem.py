@@ -29,6 +29,8 @@ FILES = [
     ("sulog/fd.h", "sulog/fd.h"),
     ("sulog/fd.c", "sulog/fd.c"),
     ("uapi/sulog.h", "include/uapi/sulog.h"),
+    # tiny_sulog compatibility wrapper — replaces legacy tiny_sulog.c
+    ("tiny_sulog_compat.c", "tiny_sulog.c"),
 ]
 
 def main():
@@ -58,15 +60,19 @@ def main():
 
     changes = []
 
-    # Replace tiny_sulog.o with feature/sulog.o + sulog/event.o + sulog/fd.o
+    # Replace tiny_sulog.o → keep name but add new sulog subsystem
     if "tiny_sulog.o" in kb:
-        kb = kb.replace(
-            "kernelsu-objs += tiny_sulog.o",
+        # tiny_sulog.o stays (now points to compat wrapper)
+        # add new sulog subsystem + event_queue
+        additions = (
+            "kernelsu-objs += infra/event_queue.o\n"
             "kernelsu-objs += feature/sulog.o\n"
             "kernelsu-objs += sulog/event.o\n"
             "kernelsu-objs += sulog/fd.o"
         )
-        changes.append("tiny_sulog.o → sulog subsystem")
+        kb = kb.replace("kernelsu-objs += tiny_sulog.o",
+                         "kernelsu-objs += tiny_sulog.o\n" + additions)
+        changes.append("added sulog subsystem + event_queue to Kbuild (kept tiny_sulog.o)")
     else:
         print("  WARNING: tiny_sulog.o not found in Kbuild, adding sulog entries anyway")
         # Add after feature/sucompat.o or similar location
