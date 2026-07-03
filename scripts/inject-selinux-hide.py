@@ -40,6 +40,7 @@ SELINUX_HIDE_CORE = """
 #include <linux/init.h>
 
 static bool ksu_selinux_hide_enabled __read_mostly = false;
+static bool ksu_selinux_hide_running __read_mostly = false;
 static DEFINE_MUTEX(ksu_selinux_hide_mutex);
 
 typedef int (*setprocattr_fn)(const char *, void *, size_t);
