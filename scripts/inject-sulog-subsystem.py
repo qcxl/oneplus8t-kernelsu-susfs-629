@@ -108,16 +108,19 @@ def main():
                 f.write(fh)
             print("  FEATURE_H: added KSU_FEATURE_SULOG + ADB_ROOT")
 
-    # 4. Apply 4.19 compatibility patch
+    # 4. Apply 4.19 compatibility patches
     event_c = os.path.join(KSU, "sulog/event.c")
     if os.path.exists(event_c):
         with open(event_c) as f:
             ec = f.read()
         ec = ec.replace("strncpy_from_user_nofault(", "strncpy_from_user(")
         ec = ec.replace("ksu_strncpy_from_user(", "strncpy_from_user(")
+        # minmax.h was added in 5.1, use kernel.h in 4.19
+        ec = ec.replace("#include <linux/minmax.h>", "#include <linux/kernel.h>")
         with open(event_c, 'w') as f:
             f.write(ec)
         print("  COMPAT: strncpy_from_user_nofault → strncpy_from_user")
+        print("  COMPAT: linux/minmax.h → linux/kernel.h")
 
     print("  Result: %s" % ("ALL OK" if ok else "SOME FAILURES"))
     sys.exit(0 if ok else 1)
