@@ -296,3 +296,20 @@
 **锚点**：FLOW.md §1d 边界验证 — 符号冲突 / 内核版本兼容
 
 **标签**：cross-project
+
+### E027：static 函数 ksu_backup_policydb 在不同编译单元不可见
+
+**现象**：编译报 `error: implicit declaration of function 'ksu_backup_policydb' [-Werror,-Wimplicit-function-declaration]`，`selinux.c:414`。
+
+**根因**：`ksu_backup_policydb()` 定义为 `static` 并通过 `BACKUP_SEPOLICY` 注入到 `sepolicy.c`，但其调用者 `ksu_selinux_save_backup()` 在 `SELINUX_HIDE_CORE` 中注入到 `selinux.c`。两个不同的 `.c` 文件分别编译为独立的目标文件（`.o`），`static` 函数不出现在符号表中，链接器无法解析。
+
+**教训**：
+1. `static` 函数仅在定义它的编译单元内可见，不可跨 `.c` 文件调用
+2. 逻辑上属于同一功能模块的代码应注入到同一个 `.c` 文件中，避免跨文件依赖
+3. 注入脚本中关联的函数（backup + core）应放在同一个 snippet 中
+
+**修复**：将 `ksu_backup_policydb` 从 `BACKUP_SEPOLICY` 移入 `SELINUX_HIDE_CORE`，全部注入到 `selinux.c`。删除 `sepolicy.c` 的注入步骤。
+
+**锚点**：FLOW.md §1c 全链路追踪 — 功能可行性调研
+
+**标签**：cross-project

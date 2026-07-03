@@ -37,8 +37,13 @@ def inject(filepath, anchor, snippet, after=True):
 
 # ── Code snippets ──
 
-BACKUP_SEPOLICY = """
+SELINUX_HIDE_CORE = """
+#include <linux/rwlock.h>
 #include <linux/vmalloc.h>
+#include "ss/services.h"
+#include <linux/lsm_hooks.h>
+#include "policy/feature.h"
+
 static struct policydb *ksu_backup_policydb(struct policydb *src)
 {
 	void *data; struct policy_file fp; size_t len = src->len; struct policydb *dst;
@@ -51,13 +56,7 @@ static struct policydb *ksu_backup_policydb(struct policydb *src)
 	if (policydb_read(dst, &fp)) { policydb_destroy(dst); kvfree(dst); vfree(data); return NULL; }
 	dst->len = len; vfree(data);
 	pr_info("ksu_selinux_hide: backup ok, len=%zu\\n", len); return dst;
-}"""
-
-SELINUX_HIDE_CORE = """
-#include <linux/rwlock.h>
-#include "ss/services.h"
-#include <linux/lsm_hooks.h>
-#include "policy/feature.h"
+}
 
 static struct selinux_ss  ksu_backup_ss;
 static struct selinux_state ksu_fake_state;
@@ -235,13 +234,10 @@ def main():
     print("[selinux_hide] target=%s" % KERNEL_ROOT)
     ok = True
 
-    # 1. sepolicy.c: append backup function after #endif
-    ok &= inject(FILES["sepolicy.c"], "#endif // SELINUX_POLICY_INSTEAD_SELINUX_SS", BACKUP_SEPOLICY)
-
-    # 2. selinux.c: insert core code before existing hide_status functions
+    # 1. selinux.c: insert core code before existing hide_status functions (includes ksu_backup_policydb)
     ok &= inject(FILES["selinux.c"], "void ksu_selinux_hide_status_handle_second_stage(void)", SELINUX_HIDE_CORE, after=False)
 
-    # 3. rules.c: insert backup call in 4.19 path
+    # 2. rules.c: insert backup call in 4.19 path
     ok &= inject(FILES["rules.c"], "\tdb = get_policydb();\n", SELINUX_RULES_BACKUP)
 
     # 4. selinux.h: add declaration
