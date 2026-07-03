@@ -279,3 +279,20 @@
 4. 先 `/kport trace` 确认目标函数在 4.19 上的真实签名再写注入脚本
 **修复**：改用 4.19 签名模式搜索 `do_sys_open` 并插入变量/retry/spoof。保留全部功能。
 **锚点**：FLOW.md §1a 源码阅读 — 确认目标函数签名
+
+### E026：selinux.h 用 struct policydb* 参数导致 -Wvisibility 编译失败
+
+**现象**：编译报 `error: declaration of 'struct policydb' will not be visible outside of this function [-Werror,-Wvisibility]`，`selinux.h:52`，出错文件 `drivers/kernelsu/core/init.o`。
+
+**根因**：`selinux.h` 被注入 `void ksu_selinux_save_backup(struct policydb *db);`。`init.c` 包含 `selinux.h` 但无权访问 `security/selinux/ss/policydb.h`。GCC 将参数中的 `struct policydb` 视为前向声明，仅在该函数声明作用域内可见，`-Wvisibility` + `-Werror` 将其升级为编译错误。
+
+**教训**：
+1. KSU 的 `selinux.h` 会被 KSU core 文件（如 `init.c`）包含，这些文件无权访问 kernel 内部 `struct policydb`
+2. 跨模块暴露内部 SELinux 类型时必须用 `void *`，实现处强制转换
+3. GHA 验证路径也必须用 `drivers/kernelsu/selinux/` 前缀
+
+**修复**：`selinux.h` 声明改为 `void ksu_selinux_save_backup(void *db);`，实现处 `void ksu_selinux_save_backup(void *src_db_v) { struct policydb *src_db = src_db_v; ... }`
+
+**锚点**：FLOW.md §1d 边界验证 — 符号冲突 / 内核版本兼容
+
+**标签**：cross-project

@@ -66,8 +66,9 @@ static DEFINE_MUTEX(ksu_selinux_hide_mutex);
 static bool ksu_selinux_hide_enabled __read_mostly = false;
 static bool ksu_selinux_hide_running __read_mostly = false;
 
-void ksu_selinux_save_backup(struct policydb *src_db)
+void ksu_selinux_save_backup(void *src_db_v)
 {
+	struct policydb *src_db = src_db_v;
 	struct policydb *bak;
 	if (ksu_backup_ready) return;
 	bak = ksu_backup_policydb(src_db);
@@ -217,7 +218,7 @@ static const struct ksu_feature_handler selinux_hide_handler = {
 
 SELINUX_RULES_BACKUP = "	ksu_selinux_save_backup(db);  /* selinux_hide: snapshot */"
 
-SELINUX_H_DECL = "void ksu_selinux_save_backup(struct policydb *db);"
+SELINUX_H_DECL = "void ksu_selinux_save_backup(void *db);"
 
 UAPI_FEATURE_ENUM = "\tKSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide complete */"
 
