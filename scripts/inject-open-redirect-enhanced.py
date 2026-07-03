@@ -100,6 +100,7 @@ int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode, char __user *buf
 int susfs_open_redirect_spoof_do_proc_readlink(struct inode *inode, char *tmp_buf, int buflen);
 int susfs_open_redirect_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf);
 int susfs_open_redirect_spoof_seq_show(struct inode *inode, int *out_mnt_id, unsigned long *out_ino);
+int susfs_open_redirect_spoof_show_map_vma(struct inode *inode, unsigned long *out_ino, dev_t *out_dev, char *spoofed_name);
 #endif
 """
     marker = "int susfs_add_open_redirect(struct st_susfs_open_redirect* __user user_info);"
@@ -318,6 +319,23 @@ int susfs_open_redirect_spoof_seq_show(struct inode *inode, int *out_mnt_id, uns
 	srcu_read_unlock(&susfs_srcu_open_redirect, idx);
 	return -EINVAL;
 }
+
+int susfs_open_redirect_spoof_show_map_vma(struct inode *inode, unsigned long *out_ino, dev_t *out_dev, char *spoofed_name)
+{
+	struct st_susfs_open_redirect_hlist *entry = NULL;
+	int idx = srcu_read_lock(&susfs_srcu_open_redirect);
+	hash_for_each_possible_rcu(OPEN_REDIRECT_HLIST, entry, node, inode->i_ino) {
+		if (entry->reversed_lookup_only && entry->target_dev == inode->i_sb->s_dev) {
+			*out_ino = entry->redirected_ino;
+			*out_dev = entry->redirected_dev;
+			strscpy(spoofed_name, entry->redirected_pathname, SUSFS_MAX_LEN_PATHNAME - 1);
+			srcu_read_unlock(&susfs_srcu_open_redirect, idx);
+			return 0;
+		}
+	}
+	srcu_read_unlock(&susfs_srcu_open_redirect, idx);
+	return -EINVAL;
+}
 #endif /* CONFIG_KSU_SUSFS_OPEN_REDIRECT */
 
 /*
@@ -518,6 +536,60 @@ retry:
                 print("  fs/statfs.c: vfs_statfs hooked")
     else:
         print("  WARNING: fs/statfs.c not found"); ok = False
+
+    # fs/proc/task_mmu.c: show_map_vma open_redirect spoof
+    p = os.path.join(KERNEL_ROOT, "fs/proc/task_mmu.c")
+    if os.path.exists(p):
+        already = add_include_and_extern(p, "OPEN_REDIRECT",
+            "extern int susfs_open_redirect_spoof_show_map_vma(struct inode *inode, unsigned long *out_ino, dev_t *out_dev, char *spoofed_name);")
+        if not already:
+            c = read_file(p)
+            has_change = False
+            # 1. spoofed_redirected_name variable after 'const char *name = NULL;'
+            vvar = "const char *name = NULL;"
+            if vvar in c and "spoofed_name" not in c:
+                c = c.replace(vvar, vvar + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tchar spoofed_name[SUSFS_MAX_LEN_PATHNAME];\n#endif")
+                has_change = True
+            # 2. open_redirect check after 'struct inode *inode = file_inode(vma->vm_file);'
+            idecl = "struct inode *inode = file_inode(vma->vm_file);"
+            if idecl in c and "spoof_show_map_vma" not in c:
+                hook = """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\t\tif (inode->i_state & INODE_STATE_OPEN_REDIRECT) {
+\t\t\tspoofed_name[0] = '\\0';
+\t\t\tif (!susfs_open_redirect_spoof_show_map_vma(inode, &ino, &dev, spoofed_name)) {
+\t\t\t\tpgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
+\t\t\t\tgoto show_map_orig_flow;
+\t\t\t}
+\t\t}
+#endif"""
+                c = c.replace(idecl, idecl + hook)
+                has_change = True
+            # 3. orig_flow label before 'start = vma->vm_start;'
+            start_marker = "\tstart = vma->vm_start;"
+            if start_marker in c and "show_map_orig_flow:" not in c:
+                c = c.replace(start_marker, "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nshow_map_orig_flow:\n#endif\n" + start_marker)
+                has_change = True
+            # 4. spoofed name output before normal path output
+            # After batch2, the path output is 'seq_file_path(m, file, "\\n");'
+            path_out = 'seq_file_path(m, file, "\\n");'
+            if path_out in c and "spoofed_name" not in c.split(path_out)[0]:
+                spoof_out = """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+\tif (spoofed_name[0] != '\\0') {
+\t\tseq_pad(m, ' ');
+\t\tseq_puts(m, spoofed_name);
+\t\tseq_putc(m, '\\n');
+\t\treturn;
+\t}
+#endif"""
+                c = c.replace(path_out, spoof_out + "\n" + path_out)
+                has_change = True
+            if has_change:
+                write_file(p, c)
+                print("  fs/proc/task_mmu.c: show_map_vma open_redirect hook added")
+    else:
+        print("  WARNING: fs/proc/task_mmu.c not found"); ok = False
 
     return ok
 
