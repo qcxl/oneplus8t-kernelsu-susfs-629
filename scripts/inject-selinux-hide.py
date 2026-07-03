@@ -78,35 +78,16 @@ static void hook_selinux_setprocattr(void)
 	pr_err("ksu_selinux_hide: setprocattr entry not found\\n");
 }
 
-static void unhook_selinux_setprocattr(void)
-{
-	if (setprocattr_entry && orig_setprocattr) {
-		setprocattr_entry->hook.setprocattr = (void *)orig_setprocattr;
-		setprocattr_entry = NULL; orig_setprocattr = NULL;
-	}
-}
-
-static int selinux_hide_enable(void)
-{
-	pr_info("ksu_selinux_hide: enable\\n");
-	hook_selinux_setprocattr();
-	return 0;
-}
-
-static void selinux_hide_disable(void)
-{
-	pr_info("ksu_selinux_hide: disable\\n");
-	unhook_selinux_setprocattr();
-}
-
 static int selinux_hide_get(u64 *value) { *value = ksu_selinux_hide_enabled ? 1 : 0; return 0; }
 static int selinux_hide_set(u64 value)
 {
 	bool enable = !!value; int ret = 0;
 	mutex_lock(&ksu_selinux_hide_mutex);
+	if (enable && !ksu_selinux_hide_running) {
+		ksu_selinux_hide_running = true;
+		hook_selinux_setprocattr();
+	}
 	ksu_selinux_hide_enabled = enable;
-	if (enable) ret = selinux_hide_enable();
-	else selinux_hide_disable();
 	mutex_unlock(&ksu_selinux_hide_mutex);
 	return ret;
 }
@@ -120,9 +101,10 @@ static int __init ksu_selinux_hide_init(void)
 {
 	int ret = ksu_register_feature_handler(&selinux_hide_handler);
 	if (ret) pr_err("ksu_selinux_hide: register handler failed\\n");
-	pr_info("ksu_selinux_hide: auto-enable\\n");
 	hook_selinux_setprocattr();
+	ksu_selinux_hide_running = true;
 	WRITE_ONCE(ksu_selinux_hide_enabled, true);
+	pr_info("ksu_selinux_hide: auto-enable\\n");
 	return ret;
 }
 late_initcall(ksu_selinux_hide_init);

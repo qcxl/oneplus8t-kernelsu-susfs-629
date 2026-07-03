@@ -417,6 +417,24 @@
 
 **标签**：cross-project
 
+### E034：unhook_selinux_setprocattr 运行时崩溃
+
+**现象**：`ksud feature set 5 0` 触发 `unhook_selinux_setprocattr` 后设备立即崩溃，PMIC 记录 Unknown power-off reason。
+
+**根因**：`unhook_selinux_setprocattr()` 在运行时试图将 `security_hook_heads.setprocattr` 的 hook 指针恢复为 `orig_setprocattr`。但此时可能有其他进程正在通过该 hook 调用，导致竞争条件或空指针解引用。该 hook 在内核中跨多进程共享，直接替换指针是危险的。
+
+**教训**：
+1. security_hook_heads 的 hook 指针在运行时不应替换为可能在后续失效的地址
+2. 运行时 toggle 应通过标志位（`ksu_selinux_hide_enabled`）控制，而非物理替换 hook 指针
+3. `ksu_selinux_hide_running` 标志确保 hook 只安装一次（不重复），而 `enabled` 标志控制实际行为
+4. 禁用路径只需清除 `enabled` 标志，hook 会通过 `my_setprocattr` 的 if 判断直接放行
+
+**修复**：移除 `unhook_selinux_setprocattr`、`selinux_hide_disable`、`selinux_hide_enable`。set handler 中仅控制标志位 + 一次性的 hook 安装。
+
+**锚点**：FLOW.md §1c — 竞争条件 / 锁机制
+
+**标签**：cross-project
+
 ### E032：Python 三引号字符串中 `\n` 被解析为换行符，C 字符串截断
 
 **现象**：编译报 `error: missing terminating '"' character [-Werror,-Winvalid-pp-token]`，pr_info/pr_err 字符串未闭合。
