@@ -365,3 +365,20 @@
 **锚点**：FLOW.md §1b 依赖追踪 — 外部函数可用性确认
 
 **标签**：cross-project
+
+### E030：selinux_hide handler 未注册导致被编译器优化掉（死代码消除）
+
+**现象**：编译通过，刷机后 `kallsyms` 无 `ksu_selinux_hide` 符号，`ksud feature list` 不显示 ID=5 功能。
+
+**根因**：`static const struct ksu_feature_handler selinux_hide_handler` 没有任何代码引用它。虽然定义在源文件中，但编译器做死代码消除（dead code elimination）将其完全移除。KSU 的 feature 机制需要显式调用 `ksu_register_feature_handler()` 注册。
+
+**教训**：
+1. `static const` 结构体如果没有被任何函数引用（直接或通过 initcall 间接），编译器会将其视为死代码
+2. KSU feature handler 必须通过 `ksu_register_feature_handler()` 注册，不能仅靠定义结构体
+3. 验证方法：刷机后用 `cat /proc/kallsyms | grep ksu_selinux_hide` 或 `ksud feature list` 检查
+
+**修复**：添加 `static int __init ksu_selinux_hide_init(void) { return ksu_register_feature_handler(&selinux_hide_handler); } postcore_initcall(ksu_selinux_hide_init);` 确保 init 时注册。
+
+**锚点**：FLOW.md §2 代码审计 — 注入代码完整性
+
+**标签**：cross-project

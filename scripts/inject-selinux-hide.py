@@ -37,6 +37,7 @@ SELINUX_HIDE_CORE = """
 #include <linux/rwlock.h>
 #include <linux/lsm_hooks.h>
 #include "policy/feature.h"
+#include <linux/init.h>
 
 static bool ksu_selinux_hide_enabled __read_mostly = false;
 static DEFINE_MUTEX(ksu_selinux_hide_mutex);
@@ -114,6 +115,12 @@ static const struct ksu_feature_handler selinux_hide_handler = {
 	.feature_id = KSU_FEATURE_SELINUX_HIDE, .name = "selinux_hide",
 	.get_handler = selinux_hide_get, .set_handler = selinux_hide_set,
 };
+
+static int __init ksu_selinux_hide_init(void)
+{
+	return ksu_register_feature_handler(&selinux_hide_handler);
+}
+postcore_initcall(ksu_selinux_hide_init);
 """
 
 UAPI_FEATURE_ENUM = "\tKSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide route A: setprocattr */"
