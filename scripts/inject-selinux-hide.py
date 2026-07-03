@@ -118,7 +118,7 @@ static const struct ksu_feature_handler selinux_hide_handler = {
 
 static void ksu_selinux_hide_late_init(void)
 {
-	pr_info("ksu_selinux_hide: auto-enable\n");
+	pr_info("ksu_selinux_hide: auto-enable\\n");
 	hook_selinux_setprocattr();
 	WRITE_ONCE(ksu_selinux_hide_enabled, true);
 }
@@ -126,7 +126,7 @@ static void ksu_selinux_hide_late_init(void)
 static int __init ksu_selinux_hide_init(void)
 {
 	int ret = ksu_register_feature_handler(&selinux_hide_handler);
-	if (ret) pr_err("ksu_selinux_hide: register handler failed\n");
+	if (ret) pr_err("ksu_selinux_hide: register handler failed\\n");
 	ksu_selinux_hide_late_init();
 	return ret;
 }

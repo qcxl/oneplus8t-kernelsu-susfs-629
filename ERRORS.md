@@ -399,3 +399,20 @@
 **锚点**：FLOW.md §1b — 用户态工具支持
 
 **标签**：cross-project
+
+### E032：Python 三引号字符串中 `\n` 被解析为换行符，C 字符串截断
+
+**现象**：编译报 `error: missing terminating '"' character [-Werror,-Winvalid-pp-token]`，pr_info/pr_err 字符串未闭合。
+
+**根因**：`ksu_selinux_hide_init` 新增的两个 pr_info/pr_err 中用了 `\n`（单反斜杠）。Python 三引号 `"""..."""` 中 `\n` 会被解释为换行符而非字面量。写入 C 文件后字符串中间出现真实换行，双引号提前闭合。
+
+**教训**：
+1. Python 三引号内的 `\n` 必须写 `\\n` 才能在 C 代码中生成字面量 `\n`
+2. 之前 16 个 pr_* 调用全部用 `\\n` 正确，新增的 2 个遗漏了
+3. 此问题在本地 `py_compile` 检查中不报错，只有 GHA 编译时暴露
+
+**修复**：`\n` → `\\n`
+
+**锚点**：FLOW.md §1d — 缩进一致
+
+**标签**：cross-project
