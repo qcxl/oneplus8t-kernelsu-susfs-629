@@ -3,53 +3,68 @@
 inject-selinux-hide.py — 基于 GLM 5.2 MAX 方案的 selinux_hide 移植
 4.19 特有：使用 fake selinux_ss 替代 dev 的 selinux_policy
 不依赖 patch_memory/lsm_hook/symbol_resolver
+
+文件路径相对于 kernel 根目录。
+KSU 文件在 drivers/kernelsu/selinux/ 和 drivers/kernelsu/include/uapi/ 下。
 """
 
 import sys, os
 
 KERNEL_ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
-SCRIPT_MARK = "/* KSU_SELINUX_HIDE_INJECTED */"
-ENABLE_ROUTE_B = True
+KSU = os.path.join(KERNEL_ROOT, "drivers/kernelsu")
 
-def read_file(path):
-    p = os.path.join(KERNEL_ROOT, path)
+SCRIPT_MARK = "/* KSU_SELINUX_HIDE_INJECTED */"
+
+def rf(path):
+    p = os.path.join(KSU, path) if not path.startswith("/") and not os.path.isabs(path) and os.path.exists(os.path.join(KSU, path.split("/")[0])) else os.path.join(KERNEL_ROOT, path)
     if not os.path.exists(p): return None
     with open(p) as f: return f.read()
 
-def write_file(path, content):
-    with open(os.path.join(KERNEL_ROOT, path), 'w') as f: f.write(content)
+def wf(path, content):
+    p = os.path.join(KSU, path) if not path.startswith("/") and os.path.exists(os.path.join(KSU, path.split("/")[0])) else os.path.join(KERNEL_ROOT, path)
+    with open(p, 'w') as f: f.write(content)
 
-def inject(path, anchor, snippet, after=True):
-    c = read_file(path)
-    if c is None: print(f"  ERROR: {path} not found"); return False
-    if SCRIPT_MARK in c: print(f"  SKIP: {path} already injected"); return True
-    if anchor not in c: print(f"  ERROR: {path} anchor not found"); return False
+def fix_path(path):
+    """Resolve path relative to KSU dir or kernel root."""
+    ksu_path = os.path.join(KSU, path)
+    if os.path.exists(ksu_path):
+        return ksu_path
+    root_path = os.path.join(KERNEL_ROOT, path)
+    if os.path.exists(root_path):
+        return root_path
+    return ksu_path
+
+def inject(filepath, anchor, snippet, after=True):
+    fp = fix_path(filepath)
+    c = rf(fp)
+    if c is None: print(f"  ERROR: {fp} not found"); return False
+    if SCRIPT_MARK in c: print(f"  SKIP: {fp} already injected"); return True
+    if anchor not in c: print(f"  ERROR: anchor not found in {fp}"); return False
     block = "\n" + SCRIPT_MARK + "\n" + snippet.strip() + "\n"
     c = c.replace(anchor, (anchor + block) if after else (block + anchor), 1)
-    write_file(path, c)
-    print(f"  OK: {path}")
+    wf(fp, c)
+    print(f"  OK: {fp}")
     return True
 
-# Backup functions
-BACKUP_SEPOLICY = r"""
-/* KSU_SELINUX_HIDE_BACKUP */
+# ── Code snippets ──
+
+BACKUP_SEPOLICY = """
 #include <linux/vmalloc.h>
 static struct policydb *ksu_backup_policydb(struct policydb *src)
 {
 	void *data; struct policy_file fp; size_t len = src->len; struct policydb *dst;
-	if (!len) { pr_err("ksu_selinux_hide: backup src->len == 0\n"); return NULL; }
+	if (!len) { pr_err("ksu_selinux_hide: backup src->len == 0\\n"); return NULL; }
 	data = vmalloc(len); if (!data) return NULL;
 	fp.data = data; fp.len = len;
-	if (policydb_write(src, &fp)) { pr_err("ksu_selinux_hide: write failed\n"); vfree(data); return NULL; }
+	if (policydb_write(src, &fp)) { pr_err("ksu_selinux_hide: write failed\\n"); vfree(data); return NULL; }
 	dst = kvzalloc(sizeof(*dst), GFP_KERNEL); if (!dst) { vfree(data); return NULL; }
 	policydb_init(dst); fp.data = data; fp.len = len;
 	if (policydb_read(dst, &fp)) { policydb_destroy(dst); kvfree(dst); vfree(data); return NULL; }
 	dst->len = len; vfree(data);
-	pr_info("ksu_selinux_hide: backup ok, len=%zu\n", len); return dst;
+	pr_info("ksu_selinux_hide: backup ok, len=%zu\\n", len); return dst;
 }"""
 
-SELINUX_HIDE_CORE = r"""
-/* KSU_SELINUX_HIDE_CORE */
+SELINUX_HIDE_CORE = """
 #include <linux/rwlock.h>
 #include "ss/services.h"
 #include <linux/lsm_hooks.h>
@@ -67,13 +82,13 @@ void ksu_selinux_save_backup(struct policydb *src_db)
 	struct policydb *bak;
 	if (ksu_backup_ready) return;
 	bak = ksu_backup_policydb(src_db);
-	if (!bak) { pr_err("ksu_selinux_hide: save backup failed\n"); return; }
+	if (!bak) { pr_err("ksu_selinux_hide: save backup failed\\n"); return; }
 	ksu_backup_ss = *selinux_state.ss;
 	rwlock_init(&ksu_backup_ss.policy_rwlock);
 	ksu_backup_ss.policydb = *bak; kvfree(bak);
 	ksu_fake_state = selinux_state; ksu_fake_state.ss = &ksu_backup_ss;
 	ksu_backup_ready = true;
-	pr_info("ksu_selinux_hide: backup policy ready\n");
+	pr_info("ksu_selinux_hide: backup policy ready\\n");
 }
 
 typedef int (*setprocattr_fn)(const char *, void *, size_t);
@@ -86,8 +101,8 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 		int error; u32 mysid = current_sid(), sid; char *str = value;
 		error = avc_has_perm(&selinux_state, mysid, mysid, SECCLASS_PROCESS, PROCESS__SETCURRENT, NULL);
 		if (error) return error;
-		if (size && str[0] && str[0] != '\n') {
-			if (str[size - 1] == '\n') { str[size - 1] = 0; size--; }
+		if (size && str[0] && str[0] != '\\n') {
+			if (str[size - 1] == '\\n') { str[size - 1] = 0; size--; }
 			error = security_context_to_sid(&ksu_fake_state, str, size, &sid, GFP_KERNEL);
 			if (error) return error;
 		}
@@ -101,15 +116,15 @@ static void hook_selinux_setprocattr(void)
 	if (setprocattr_entry) return;
 	heads = (struct security_hook_heads *)kallsyms_lookup_name("security_hook_heads");
 	target = (setprocattr_fn)kallsyms_lookup_name("selinux_setprocattr");
-	if (!heads || !target) { pr_err("ksu_selinux_hide: symbols not found\n"); return; }
+	if (!heads || !target) { pr_err("ksu_selinux_hide: symbols not found\\n"); return; }
 	hlist_for_each_entry(hp, &heads->setprocattr, list) {
 		if ((setprocattr_fn)hp->hook.setprocattr == target) {
 			orig_setprocattr = target; setprocattr_entry = hp;
 			hp->hook.setprocattr = (void *)my_setprocattr;
-			pr_info("ksu_selinux_hide: selinux_setprocattr hooked\n"); return;
+			pr_info("ksu_selinux_hide: selinux_setprocattr hooked\\n"); return;
 		}
 	}
-	pr_err("ksu_selinux_hide: setprocattr entry not found\n");
+	pr_err("ksu_selinux_hide: setprocattr entry not found\\n");
 }
 
 static void unhook_selinux_setprocattr(void)
@@ -157,17 +172,17 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
 	length = security_context_str_to_sid(&ksu_fake_state, tcon, &tsid, GFP_KERNEL);
 	if (length) goto out;
 	security_compute_av_user(&ksu_fake_state, ssid, tsid, tclass, &avd);
-	length = scnprintf(buf, KSU_SIMPLE_TX_LIMIT, "%x %x %x %x %u %x", avd.allowed, 0xffffffff, avd.auditallow, avd.auditdeny, avd.seqno, avd.flags);
+	length = scnprintf(buf, KSU_SIMPLE_TX_LIMIT, "%%x %%x %%x %%x %%u %%x", avd.allowed, 0xffffffff, avd.auditallow, avd.auditdeny, avd.seqno, avd.flags);
 out: kfree(tcon); kfree(scon); return length;
 }
 
 static void hook_selinux_write_ops(void)
 {
 	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
-	if (!selinux_write_op) { pr_err("ksu_selinux_hide: write_op not found\n"); return; }
+	if (!selinux_write_op) { pr_err("ksu_selinux_hide: write_op not found\\n"); return; }
 	orig_write_context = selinux_write_op[5]; selinux_write_op[5] = my_write_context;
 	orig_write_access = selinux_write_op[6]; selinux_write_op[6] = my_write_access;
-	pr_info("ksu_selinux_hide: write_op[5/6] context/access hooked\n");
+	pr_info("ksu_selinux_hide: write_op[5/6] context/access hooked\\n");
 }
 
 static void unhook_selinux_write_ops(void)
@@ -179,8 +194,8 @@ static void unhook_selinux_write_ops(void)
 
 static int selinux_hide_enable(void)
 {
-	pr_info("ksu_selinux_hide: enable\n");
-	if (!ksu_backup_ready) { pr_err("backup not ready\n"); return -EAGAIN; }
+	pr_info("ksu_selinux_hide: enable\\n");
+	if (!ksu_backup_ready) { pr_err("backup not ready\\n"); return -EAGAIN; }
 	hook_selinux_setprocattr();
 	hook_selinux_write_ops();
 	return 0;
@@ -188,7 +203,7 @@ static int selinux_hide_enable(void)
 
 static void selinux_hide_disable(void)
 {
-	pr_info("ksu_selinux_hide: disable\n");
+	pr_info("ksu_selinux_hide: disable\\n");
 	unhook_selinux_setprocattr();
 	unhook_selinux_write_ops();
 }
@@ -211,33 +226,39 @@ static const struct ksu_feature_handler selinux_hide_handler = {
 };
 """
 
-SELINUX_RULES_BACKUP = """\
-	ksu_selinux_save_backup(db);  /* selinux_hide: snapshot before rules */
-"""
+SELINUX_RULES_BACKUP = "	ksu_selinux_save_backup(db);  /* selinux_hide: snapshot */"
 
 SELINUX_H_DECL = "void ksu_selinux_save_backup(struct policydb *db);"
 
-UAPI_FEATURE_ENUM = "    KSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide complete */"
+UAPI_FEATURE_ENUM = "\tKSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide complete */"
 
-# ── Main injection sequence ──
+# ── File-relative paths for fix_path resolution ──
+FILES = {
+    "sepolicy.c": "selinux/sepolicy.c",
+    "selinux.c": "selinux/selinux.c",
+    "rules.c": "selinux/rules.c",
+    "selinux.h": "selinux/selinux.h",
+    "feature.h": "include/uapi/feature.h",
+}
+
 def main():
     print("[selinux_hide] target=%s" % KERNEL_ROOT)
     ok = True
 
-    # 1. sepolicy.c: backup function (append after #endif)
-    ok &= inject("selinux/sepolicy.c", "#endif // SELINUX_POLICY_INSTEAD_SELINUX_SS", BACKUP_SEPOLICY)
+    # 1. sepolicy.c: append backup function after #endif
+    ok &= inject(FILES["sepolicy.c"], "#endif // SELINUX_POLICY_INSTEAD_SELINUX_SS", BACKUP_SEPOLICY)
 
-    # 2. selinux.c: core code (insert before existing hide_status functions)
-    ok &= inject("selinux/selinux.c", "void ksu_selinux_hide_status_handle_second_stage(void)", SELINUX_HIDE_CORE, after=False)
+    # 2. selinux.c: insert core code before existing hide_status functions
+    ok &= inject(FILES["selinux.c"], "void ksu_selinux_hide_status_handle_second_stage(void)", SELINUX_HIDE_CORE, after=False)
 
-    # 3. rules.c: backup call in 4.19 path
-    ok &= inject("selinux/rules.c", "\tdb = get_policydb();\n", SELINUX_RULES_BACKUP)
+    # 3. rules.c: insert backup call in 4.19 path
+    ok &= inject(FILES["rules.c"], "\tdb = get_policydb();\n", SELINUX_RULES_BACKUP)
 
-    # 4. selinux.h: declaration (insert after existing hide_status decl)
-    ok &= inject("selinux/selinux.h", "void ksu_selinux_hide_status_init(void);", SELINUX_H_DECL)
+    # 4. selinux.h: add declaration
+    ok &= inject(FILES["selinux.h"], "void ksu_selinux_hide_status_init(void);", SELINUX_H_DECL)
 
-    # 5. uapi/feature.h: add KSU_FEATURE_SELINUX_HIDE to enum
-    ok &= inject("include/uapi/feature.h", "KSU_FEATURE_SELINUX_HIDE_STATUS = 4,", UAPI_FEATURE_ENUM)
+    # 5. uapi/feature.h: add KSU_FEATURE_SELINUX_HIDE
+    ok &= inject(FILES["feature.h"], "KSU_FEATURE_SELINUX_HIDE_STATUS = 4,", UAPI_FEATURE_ENUM)
 
     print("  Result: %s" % ("ALL OK" if ok else "SOME FAILURES"))
     sys.exit(0 if ok else 1)
