@@ -323,6 +323,23 @@ jobs:
 
           echo "=== Compatibility fixes applied ==="
 
+      - name: Inject KSU dev-infra stubs (symbol_resolver for 4.19)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting symbol_resolver stub ==="
+          mkdir -p drivers/kernelsu/infra
+          cp ../kernel-patches/symbol_resolver_stub.h drivers/kernelsu/infra/symbol_resolver.h
+          cp ../kernel-patches/symbol_resolver_stub.c drivers/kernelsu/infra/symbol_resolver.c
+          if ! grep -q "symbol_resolver\.o" drivers/kernelsu/Kbuild 2>/dev/null; then
+            sed -i '/^kernelsu-objs += infra\/su_mount_ns\.o$/a kernelsu-objs += infra/symbol_resolver.o' drivers/kernelsu/Kbuild
+            echo "Added symbol_resolver.o to Kbuild"
+          else
+            echo "symbol_resolver.o already in Kbuild"
+          fi
+          echo "=== Verification ==="
+          ls -la drivers/kernelsu/infra/symbol_resolver.* 2>/dev/null
+          grep -c "symbol_resolver" drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
+
       - name: Configure kernel (device config + KSU + debug)
         working-directory: kernel
         run: |
