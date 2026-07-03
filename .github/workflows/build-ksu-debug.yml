@@ -347,7 +347,7 @@ jobs:
           python3 ../scripts/inject-selinux-hide.py .
           echo "=== Verification ==="
           grep -c 'KSU_SELINUX_HIDE_INJECTED' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
-          grep -c 'ksu_selinux_save_backup' drivers/kernelsu/selinux/rules.c 2>/dev/null || echo "0"
+          grep -c 'KSU_FEATURE_SELINUX_HIDE' drivers/kernelsu/include/uapi/feature.h 2>/dev/null || echo "0"
 
       - name: Configure kernel (device config + KSU + debug)
         working-directory: kernel

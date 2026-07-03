@@ -348,3 +348,20 @@
 **锚点**：FLOW.md §1d 边界验证 — 内核版本兼容
 
 **标签**：cross-project
+
+### E029：policydb_* 在 4.19 上不可从 KSU 模块调用 → Route A only
+
+**现象**：即使注入 `sepolicy.c`（KSU selinux 模块），仍报 `implicit declaration of function 'policydb_init'`。E026-E028 三轮回退后确认此根本限制。
+
+**根因**：`policydb_init/write/read/destroy` 是 SELinux SS 内部函数，声明在 `security/selinux/ss/policydb.h`。该头文件在 kernel 4.19 上仅对 `security/selinux/` 内部可见，`drivers/kernelsu/selinux/` 无权访问。
+
+**决策**：缩减为 **Route A only**（仅 setprocattr hook），不依赖 `policydb_*`，不备份。
+- Route B（context/access + backup）标记为 "4.19 不可行"
+
+**教训**：任何涉及 `policydb_*` 的代码都不能在 KSU 模块编译通过。GLM HTML 报告的完整方案假设了这些函数可访问，实际 4.19 上不行。
+
+**修复**：删除 BACKUP_SEPOLICY / SELINUX_RULES_BACKUP / SELINUX_H_DECL。仅注入 `selinux.c`（setprocattr hook）+ `feature.h`（UAPI 枚举）。
+
+**锚点**：FLOW.md §1b 依赖追踪 — 外部函数可用性确认
+
+**标签**：cross-project
