@@ -15,34 +15,23 @@ KSU = os.path.join(KERNEL_ROOT, "drivers/kernelsu")
 
 SCRIPT_MARK = "/* KSU_SELINUX_HIDE_INJECTED */"
 
-def rf(path):
-    p = os.path.join(KSU, path) if not path.startswith("/") and not os.path.isabs(path) and os.path.exists(os.path.join(KSU, path.split("/")[0])) else os.path.join(KERNEL_ROOT, path)
-    if not os.path.exists(p): return None
-    with open(p) as f: return f.read()
-
-def wf(path, content):
-    p = os.path.join(KSU, path) if not path.startswith("/") and os.path.exists(os.path.join(KSU, path.split("/")[0])) else os.path.join(KERNEL_ROOT, path)
-    with open(p, 'w') as f: f.write(content)
-
-def fix_path(path):
-    """Resolve path relative to KSU dir or kernel root."""
-    ksu_path = os.path.join(KSU, path)
-    if os.path.exists(ksu_path):
-        return ksu_path
-    root_path = os.path.join(KERNEL_ROOT, path)
-    if os.path.exists(root_path):
-        return root_path
-    return ksu_path
+def resolve(path):
+    """Try multiple candidates (symlink or direct path)."""
+    for base in [KSU, KERNEL_ROOT]:
+        p = os.path.join(base, path)
+        if os.path.exists(p):
+            return p
+    return os.path.join(KSU, path)
 
 def inject(filepath, anchor, snippet, after=True):
-    fp = fix_path(filepath)
-    c = rf(fp)
-    if c is None: print(f"  ERROR: {fp} not found"); return False
+    fp = resolve(filepath)
+    if not os.path.exists(fp): print(f"  ERROR: {fp} not found"); return False
+    with open(fp) as f: c = f.read()
     if SCRIPT_MARK in c: print(f"  SKIP: {fp} already injected"); return True
     if anchor not in c: print(f"  ERROR: anchor not found in {fp}"); return False
     block = "\n" + SCRIPT_MARK + "\n" + snippet.strip() + "\n"
     c = c.replace(anchor, (anchor + block) if after else (block + anchor), 1)
-    wf(fp, c)
+    with open(fp, 'w') as f: f.write(c)
     print(f"  OK: {fp}")
     return True
 
