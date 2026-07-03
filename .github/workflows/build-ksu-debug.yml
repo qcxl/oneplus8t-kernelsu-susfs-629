@@ -361,6 +361,18 @@ jobs:
           grep -c 'event_queue.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'KSU_FEATURE_SULOG' drivers/kernelsu/include/uapi/feature.h 2>/dev/null || echo "0"
 
+      - name: Inject adb_root (from dev)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting adb_root ==="
+          python3 ../scripts/inject-adb-root.py .
+          echo "=== Verification ==="
+          for f in feature/adb_root.c feature/adb_root.h; do
+            if [ -f "drivers/kernelsu/$f" ]; then echo "  ✅ $f"; else echo "  ❌ $f MISSING"; fi
+          done
+          grep -c 'escape_to_root_for_adb_root' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
+          grep -c 'adb_root' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
+
       - name: Configure kernel (device config + KSU + debug)
         working-directory: kernel
         run: |
