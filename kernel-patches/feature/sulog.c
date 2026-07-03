@@ -1,5 +1,6 @@
 #include <linux/cache.h>
 #include <linux/compiler_types.h>
+#include <linux/init.h>
 
 #include "feature/sulog.h"
 #include "klog.h" // IWYU pragma: keep
@@ -64,3 +65,5 @@ void __exit ksu_sulog_exit(void)
     ksu_sulog_events_exit();
     ksu_unregister_feature_handler(KSU_FEATURE_SULOG);
 }
+
+late_initcall(ksu_sulog_init);
