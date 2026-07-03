@@ -544,16 +544,19 @@ retry:
             "extern int susfs_open_redirect_spoof_show_map_vma(struct inode *inode, unsigned long *out_ino, dev_t *out_dev, char *spoofed_name);")
         if not already:
             c = read_file(p)
-            has_change = False
-            # 1. spoofed_redirected_name variable after 'const char *name = NULL;'
-            vvar = "const char *name = NULL;"
-            if vvar in c and "spoofed_name" not in c:
-                c = c.replace(vvar, vvar + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tchar spoofed_name[SUSFS_MAX_LEN_PATHNAME];\n#endif")
-                has_change = True
-            # 2. open_redirect check after 'struct inode *inode = file_inode(vma->vm_file);'
-            idecl = "struct inode *inode = file_inode(vma->vm_file);"
-            if idecl in c and "spoof_show_map_vma" not in c:
-                hook = """
+            if "spoofed_name" in c:
+                print("  fs/proc/task_mmu.c: show_map_vma already hooked")
+            else:
+                # Single atomic injection: replace the 'start = vma->vm_start;' section
+                # to add variable, redirect check + got, orig_flow label, and spoofed output
+                start_marker = "\tstart = vma->vm_start;"
+                if start_marker in c:
+                    # Find the file_inode line to know where to insert the redirect check
+                    # We use the existing dev assignment as stable anchor
+                    dev_anchor = "\t\tdev = inode->i_sb->s_dev;"
+                    vma_originals = ""
+                    if dev_anchor in c:
+                        vma_originals = """
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 \t\tif (inode->i_state & INODE_STATE_OPEN_REDIRECT) {
 \t\t\tspoofed_name[0] = '\\0';
@@ -562,19 +565,29 @@ retry:
 \t\t\t\tgoto show_map_orig_flow;
 \t\t\t}
 \t\t}
-#endif"""
-                c = c.replace(idecl, idecl + hook)
-                has_change = True
-            # 3. orig_flow label before 'start = vma->vm_start;'
-            start_marker = "\tstart = vma->vm_start;"
-            if start_marker in c and "show_map_orig_flow:" not in c:
-                c = c.replace(start_marker, "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\nshow_map_orig_flow:\n#endif\n" + start_marker)
-                has_change = True
-            # 4. spoofed name output before normal path output
-            # After batch2, the path output is 'seq_file_path(m, file, "\\n");'
-            path_out = 'seq_file_path(m, file, "\\n");'
-            if path_out in c and "spoofed_name" not in c.split(path_out)[0]:
-                spoof_out = """
+#endif
+"""
+                        c = c.replace(dev_anchor, vma_originals + dev_anchor)
+
+                    # Add orig_flow label, spoofed_name var, and spoofed output
+                    spoof_block = """
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+show_map_orig_flow:
+#endif
+""" + start_marker
+                    # Need to add char spoofed_name[SUSFS_MAX_LEN_PATHNAME] and path spoof
+                    # 1. Variable declaration after 'const char *name = NULL;'
+                    name_var = "\tconst char *name = NULL;"
+                    if name_var in c:
+                        c = c.replace(name_var, name_var + "\n#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT\n\tchar spoofed_name[SUSFS_MAX_LEN_PATHNAME];\n#endif")
+
+                    # 2. Replace start_marker with orig_flow + start
+                    c = c.replace(start_marker, spoof_block)
+
+                    # 3. Add spoofed name output before first seq_file_path
+                    path_out = '\t\tseq_file_path(m, file, "\\n");'
+                    if path_out in c:
+                        spoof_out = """
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 \tif (spoofed_name[0] != '\\0') {
 \t\tseq_pad(m, ' ');
@@ -582,12 +595,14 @@ retry:
 \t\tseq_putc(m, '\\n');
 \t\treturn;
 \t}
-#endif"""
-                c = c.replace(path_out, spoof_out + "\n" + path_out)
-                has_change = True
-            if has_change:
-                write_file(p, c)
-                print("  fs/proc/task_mmu.c: show_map_vma open_redirect hook added")
+#endif
+"""
+                        c = c.replace(path_out, spoof_out + "\n" + path_out)
+
+                    write_file(p, c)
+                    print("  fs/proc/task_mmu.c: show_map_vma open_redirect hook added (atomic)")
+                else:
+                    print("  WARNING: start = vma->vm_start not found in task_mmu.c"); ok = False
     else:
         print("  WARNING: fs/proc/task_mmu.c not found"); ok = False
 
