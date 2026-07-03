@@ -64,8 +64,7 @@ def main():
 
     # 2. Add escape_to_root_for_adb_root() to selinux.c
     selinux_c = os.path.join(KSU, "selinux/selinux.c")
-    # Anchor: the existing transive_to_domain function
-    ok &= inject(selinux_c, "commit_creds(cred);\n}", ESCAPE_TO_ROOT)
+    ok &= inject(selinux_c, "void setup_ksu_cred(void)", ESCAPE_TO_ROOT, after=False)
 
     # 3. Add hook call in ksud_integration.c sys_execve_handler_pre
     ksud_int = os.path.join(KSU, "runtime/ksud_integration.c")
