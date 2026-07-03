@@ -400,6 +400,23 @@
 
 **标签**：cross-project
 
+### E033：ksu_feature_init 在 device_initcall 清空 feature_handlers
+
+**现象**：`dmesg` 显示 `registered handler for selinux_hide (id=5)`，但 `ksud-new feature set 5 1` 报 `EOPNOTSUPP`。
+
+**根因**：`ksu_feature_init()` 在 `module_init`（≈ `device_initcall`，level 6）阶段将 `feature_handlers[0..KSU_FEATURE_MAX]` 全部置 NULL。注入的 `postcore_initcall`（level 2）先于 KSU 的 `device_initcall` 执行，注册的 handler 指针被后续清零。
+
+**教训**：
+1. KSU feature handler 必须注册在 **`ksu_feature_init()` 之后**，即 `late_initcall`（level 7）或更晚
+2. `postcore_initcall` 虽保证 init 顺序靠前，但可能被同模块的后续初始化破坏
+3. `dmesg` 注册成功 + kallsyms 符号可见 ≠ 功能可用（可能被后续代码覆盖）
+
+**修复**：`postcore_initcall` → `late_initcall`
+
+**锚点**：FLOW.md §1b — 锁机制 / init 顺序
+
+**标签**：cross-project
+
 ### E032：Python 三引号字符串中 `\n` 被解析为换行符，C 字符串截断
 
 **现象**：编译报 `error: missing terminating '"' character [-Werror,-Winvalid-pp-token]`，pr_info/pr_err 字符串未闭合。
