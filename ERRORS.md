@@ -313,3 +313,20 @@
 **锚点**：FLOW.md §1c 全链路追踪 — 功能可行性调研
 
 **标签**：cross-project
+
+### E028：合入 selinux.c 后缺 policydb.h 头文件导致 implicit declaration
+
+**现象**：编译报 `error: implicit declaration of function 'policydb_init' [-Werror,-Wimplicit-function-declaration]`，`selinux.c:411`。
+
+**根因**：`ksu_backup_policydb()` 移入 `SELINUX_HIDE_CORE`（注入 `selinux.c`）后，需要 `policydb_init/policydb_write/policydb_read/policydb_destroy` 等函数。这些函数声明在 `<security/selinux/ss/policydb.h>` 中，但注入代码只包含了 `ss/services.h`（KSU 本地），未包含该头文件。
+
+**教训**：
+1. 跨编译单元移动代码时，必须同步检查头文件依赖是否完整
+2. `sepolicy.c` 能编译通过不一定是因为其显式 include，可能是因为它间接从其他 include 链获得了类型
+3. `policydb_*` 系列函数在 4.19 上位于 `security/selinux/ss/`，KSU 作为 `obj-y` 内建驱动可在链接时访问这些符号，但编译期仍需要显式 include
+
+**修复**：`SELINUX_HIDE_CORE` 增加 `#include <security/selinux/ss/policydb.h>`
+
+**锚点**：FLOW.md §1d 边界验证 — 内核版本兼容
+
+**标签**：cross-project

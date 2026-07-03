@@ -40,6 +40,7 @@ def inject(filepath, anchor, snippet, after=True):
 SELINUX_HIDE_CORE = """
 #include <linux/rwlock.h>
 #include <linux/vmalloc.h>
+#include <security/selinux/ss/policydb.h>
 #include "ss/services.h"
 #include <linux/lsm_hooks.h>
 #include "policy/feature.h"
