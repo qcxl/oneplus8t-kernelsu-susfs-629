@@ -314,7 +314,25 @@
 
 **标签**：cross-project
 
-### E028：合入 selinux.c 后缺 policydb.h 头文件导致 implicit declaration
+### E028：合入 selinux.c 后缺 policydb.h 头文件 → 应回归 sepolicy.c + extern void*
+
+**现象**：编译报 `fatal error: 'security/selinux/ss/policydb.h' file not found` 或 `implicit declaration of function 'policydb_init'`。
+
+**根因**：
+1. 试错方案1：用 `#include <security/selinux/ss/policydb.h>` — 该头文件在 kernel 4.19 中属于 SELinux 内部（`security/selinux/ss/`），不在公开 include path 中，编译找不到
+2. 试错方案2：将 `ksu_backup_policydb` 移入 `selinux.c` — 该文件无权访问 `struct policydb` 及 `policydb_*` 函数，因为 `security/selinux/ss/policydb.h` 不对外暴露
+
+**教训**：
+1. SELinux 内部头文件（`security/selinux/ss/`）不可从外部驱动包含。这不是 include path 问题，是内核架构限制
+2. 使用 SELinux SS 层类型的代码必须放在 KSU 的 `sepolicy.c` 中（该文件通过 `ss/services.h` 间接获得类型）
+3. 跨文件调用时：定义方用具体类型（`struct policydb *`），调用方在 extern 声明中用 `void *`
+4. C 语言中 `void *` ↔ T* 的隐式转换在 extern 声明中完全合法，链接器按符号名解析即可
+
+**修复**：`ksu_backup_policydb` 回到 `BACKUP_SEPOLICY` 注入 `sepolicy.c`，去掉 `static`。`SELINUX_HIDE_CORE` 中加 `extern void *ksu_backup_policydb(void *src);`。保持 `ksu_selinux_save_backup` 用 `void *src_db_v` cast。
+
+**锚点**：FLOW.md §1d 边界验证 — 符号冲突 / 内核版本兼容
+
+**标签**：cross-project
 
 **现象**：编译报 `error: implicit declaration of function 'policydb_init' [-Werror,-Wimplicit-function-declaration]`，`selinux.c:411`。
 
