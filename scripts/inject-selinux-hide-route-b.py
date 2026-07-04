@@ -83,6 +83,7 @@ struct policydb *ksu_backup_policydb(struct policydb *src)
 # ── 2. selinux.c: Route B core ──
 ROUTE_B_CORE = """
 #include <linux/set_memory.h>
+#include <security.h>
 
 static struct selinux_ss ksu_backup_ss;
 static struct selinux_state ksu_fake_state;
@@ -217,24 +218,10 @@ def main():
     sel_h = os.path.join(KSU, "selinux/selinux.h")
     ok &= inject(sel_h, "void ksu_selinux_hide_status_init(void);", SELINUX_H_DECL)
 
-    # Step 5: Update selinux_hide_enable/set to include write_ops
-    # Find the selinux_hide_set function and update it
-    with open(sel_c) as f: sc = f.read()
-    write_op_hook_code = """
-\t/* Route B: hook write_ops if backup is ready */
-\tif (ksu_backup_ready)
-\t\thook_selinux_write_ops();
-\tselinux_hide_running_check:
-"""
-    # Insert hook_selinux_write_ops() call after hook_selinux_setprocattr()
-    old = "\t\thook_selinux_setprocattr();"
-    new = "\t\thook_selinux_setprocattr();\n\tif (ksu_backup_ready)\n\t\thook_selinux_write_ops();"
-    if old in sc and "Route B: hook write_ops" not in sc:
-        sc = sc.replace(old, new, 1)
-        with open(sel_c, 'w') as f: f.write(sc)
-        print(f"  UPDATE: selinux_hide_enable → added write_op hook")
-    else:
-        print(f"  SKIP: write_op hook already in selinux_hide_enable or anchor not found")
+    # Step 5 is handled by Route A's init — Route A runs second and its init
+    # already calls hook_selinux_setprocattr(). The write_op hook is called
+    # from Route B's init below (injected before Route A's init).
+    print("  NOTE: write_op hook activated via shared ksu_selinux_hide_enabled flag")
 
     print("  Result: %s" % ("ALL OK" if ok else "SOME FAILURES"))
     sys.exit(0 if ok else 1)
