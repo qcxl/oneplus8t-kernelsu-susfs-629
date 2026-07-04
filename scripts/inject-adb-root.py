@@ -29,7 +29,7 @@ void escape_to_root_for_adb_root(void)
 \t\tpr_err("Failed to prepare adbd's creds!\\n");
 \t\treturn;
 \t}
-\tif (transive_to_domain(KERNEL_SU_CONTEXT, cred, true)) {
+\tif (transive_to_domain(KERNEL_SU_CONTEXT, cred)) {
 \t\tpr_err("transive domain failed.\\n");
 \t\tabort_creds(cred);
 \t\treturn;
