@@ -66,7 +66,7 @@ static bool remove_avtab_node(struct policydb *db, struct avtab_node *node)
             if (prev)
                 prev->next = n->next;
             else
-                db->te_avtab.htable[i] = n->next;
+                flex_array_put_ptr(db->te_avtab.htable, i, n->next, GFP_ATOMIC);
 
             if (db->te_avtab.nel > 0)
                 db->te_avtab.nel--;
@@ -75,7 +75,7 @@ static bool remove_avtab_node(struct policydb *db, struct avtab_node *node)
                 shrink_size += sizeof(u8) + sizeof(u8) + sizeof(u32) * ARRAY_SIZE(n->datum.u.xperms->perms.p);
             }
             n->next = NULL;
-            removed.htable[0] = n;
+            flex_array_put_ptr(removed.htable, 0, n, GFP_ATOMIC);
             removed.nel = 1;
             avtab_destroy(&removed);
             if (db->len >= shrink_size)
