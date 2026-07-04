@@ -69,7 +69,7 @@ def main():
     if SCRIPT_MARK not in sc:
         # Find a unique insertion point: after setup_selinux function
         # Use the closing brace + blank line before setup_ksu_cred as anchor
-        anchor = "}\n\nvoid setup_ksu_cred(void)"
+        anchor = "\n\nvoid setup_ksu_cred(void)"
         if anchor in sc:
             block = "\n" + ESCAPE_TO_ROOT.strip() + "\n"
             sc = sc.replace(anchor, block + anchor, 1)
@@ -77,17 +77,8 @@ def main():
                 f.write(sc)
             print(f"  OK: {selinux_c}")
         else:
-            # Fallback: try matching with exact line end
-            anchor2 = "return;\n    }\n}\n\nvoid setup_ksu_cred(void)"
-            if anchor2 in sc:
-                block = "\n" + ESCAPE_TO_ROOT.strip() + "\n"
-                sc = sc.replace(anchor2, anchor2 + block, 1)
-                with open(selinux_c, 'w') as f:
-                    f.write(sc)
-                print(f"  OK: {selinux_c} (fallback)")
-            else:
-                print(f"  ERROR: anchor not found in {selinux_c}")
-                ok = False
+            print(f"  ERROR: anchor not found in {selinux_c}")
+            ok = False
     else:
         print(f"  SKIP: {selinux_c} already injected")
 
