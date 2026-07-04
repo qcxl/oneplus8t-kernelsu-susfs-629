@@ -349,6 +349,15 @@ jobs:
           grep -c 'KSU_SELINUX_HIDE_INJECTED' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
           grep -c 'KSU_FEATURE_SELINUX_HIDE' drivers/kernelsu/include/uapi/feature.h 2>/dev/null || echo "0"
 
+      - name: Inject selinux_hide Route B (context/access + backup)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting selinux_hide Route B (context/access + backup) ==="
+          python3 ../scripts/inject-selinux-hide-route-b.py .
+          echo "=== Verification ==="
+          grep -c 'KSU_SELINUX_HIDE_ROUTE_B' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
+          grep -c 'ksu_selinux_save_backup' drivers/kernelsu/selinux/selinux.h 2>/dev/null || echo "0"
+
       - name: Inject sulog subsystem (event_queue + sulog from dev)
         working-directory: kernel
         run: |
