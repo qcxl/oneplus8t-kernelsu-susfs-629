@@ -60,14 +60,14 @@ Cortex-A77 兼容性         █████████████████
 
 | 功能 | 不可行原因 | 4.19 替代方案 |
 |------|-----------|-------------|
-| **selinux_hide Route B（backup）** | `policydb_*` 是 SELinux SS 内部函数，`security/selinux/ss/policydb.h` 不可从 KSU 访问。`policydb_init` 是 `static` 函数 | 过滤模式（已完成） |
-| **patch_memory arm64** | dev 用于修改只读代码页。4.19 无 `copy_to_kernel_nofault`/`set_fixmap` 完整栈 | `write_op[]` 直接赋值（已验证） |
-| **lsm_hook 完整版** | 依赖 `patch_memory` 和 6.6+ 静态调用 | hlist 遍历 `security_hook_heads`（已验证） |
-| **syscall_hook arm64 完整版** | `sys_call_table` 在 rodata 段只读，需 `set_memory_rw` hack。Cortex-A77 有历史回退记录。工作量 30h+ | legacy kprobe 方式可用 |
-| **rules.c 策略新架构** | `struct selinux_ss`（4.19）与 `struct selinux_policy`（5.10+）架构不兼容，`rcu_assign_pointer` 不能替换 ss | legacy `stop_machine` + `policy_rwlock` 方式正确 |
-| **syscall_event_bridge / tp_marker** | 依赖 syscall_table hook（任务 A）。legacy 已有等效实现 | legacy `hook_manager.c` 内联实现 |
-| **throne_tracker 重写** | 纯性能优化（哈希加速），legacy 版本功能等价 | legacy 版本 |
-| **x86_64/ 下所有文件** | 设备为 ARM64 | 不相关 |
+| **selinux_hide Route B（backup）** | ① `policydb_write/read/init/destroy` 声明在 `security/selinux/ss/policydb.h`（387行），该头文件通过 `#include "symtab.h"`/`"avtab.h"` 等链式引用 SELinux SS 内部类型。虽然 `-I$(srctree)/security/selinux` 在 Kbuild 中，包含路径可达，但 `policydb_init()` 是 `static` 函数（`security/selinux/ss/policydb.c:283`），外部模块不能调用。② dev 的 `ksu_dup_sepolicy` 接受 `struct selinux_policy *`（5.10+），4.19 用 `struct selinux_ss *`，两者字段差一个 `policy_rwlock`（4.19 有）和 `rcu_head`（dev 有），不能通用。③ `security_context_to_sid_with_policy` 在 4.19 不存在（dev 的 `#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0)` 块中有 300 行内联实现）。总工作量 25h+。 | 过滤模式（已完成） |
+| **patch_memory arm64** | dev 用 `ksu_patch_text()` 修改只读代码页，依赖 `stop_machine` + fixmap（`FIX_TEXT_POKE0`）+ `copy_to_kernel_nofault` 完整栈。`copy_to_kernel_nofault` 是 5.4+ 才有的 API，4.19 只有 `probe_kernel_write`。`set_fixmap_offset` 虽在 4.19 arm64 存在，但 `FIX_TEXT_POKE0` 的枚举值可能与 dev 假设不同。 | `write_op[]` 直接赋值（已验证可行） |
+| **lsm_hook 完整版** | dev 的 `ksu_lsm_hook()` 框架在 `hook/lsm_hook.c` 中，依赖 `patch_memory` 修改 security_hook_heads 链表（通过文本补丁替换 LSM hook 函数指针）。4.19 没有 `patch_memory`，且 `security_hook_heads` 链表在 4.19 中用 `hlist_head`+`hlist_node`（非 dev 的 `list_head`）。 | hlist 遍历 `security_hook_heads`（已验证可行） |
+| **syscall_hook arm64 完整版** | ① `sys_call_table` 在 4.19 arm64 `.rodata` 段，`CONFIG_RODATA_FULL_DEFAULT_ENABLED=y` 下只读，需要 `set_memory_rw()` 临时解除写保护——这是 hack 方式，稳定性存疑。② 需要 `CONFIG_KALLSYMS_ALL=y` 才能从 kallsyms 查到 `sys_call_table` 地址（data 段符号），用户项目的 `ksu.config` 是否开启不确定。③ 需要 `copy_to_kernel_nofault`（4.19 用 `probe_kernel_write` 替代）。④ Cortex-A77 有历史回退记录（v1.1.1 hotfix）。⑤ 总工作量 30h+，包括新建 7+ 文件、删除 `hook_manager.c`、重写 `sucompat.c`、修改 `setuid_hook.c`/`ksud_integration.c` 等。 | legacy kprobe 方式可用 |
+| **rules.c 策略新架构** | 4.19 `struct selinux_ss` 的 `struct policydb policydb` 是**内嵌字段**（不是指针），`struct sidtab *sidtab` 是唯一可以替换的指针。dev 用 `rcu_assign_pointer(selinux_state.policy, pol)` 原子替换整个 policy，4.19 的 `selinux_state.ss` 指向「内核初始化时分配、生命周期与内核相同」的 ss 对象，不能替换。`policy_rwlock` 用于保护 ss 内部数据，替换 ss 会导致锁状态混乱。 | legacy `stop_machine`+`write_lock`（功能正确） |
+| **syscall_event_bridge / tp_marker** | dev 的 `syscall_event_bridge.c` 通过 `ksu_syscall_table[orig_nr](regs)` 调用原始 syscall，深度依赖 syscall_table hook（任务 A）。功能上 legacy 的 `hook_manager.c` + `feature/sucompat.c` 已有等效实现（bypass 逻辑在 sucompat.c，process marking 在 hook_manager.c）。tp_marker 拆分是纯代码组织优化。 | `hook_manager.c` 内联实现（功能完整） |
+| **throne_tracker 重写（哈希化）** | dev 用 `DEFINE_HASHTABLE(apk_path_hash_list, 8)` + `kref` 引用计数替代 legacy 的线性链表。但 `apk_path_hash_list` 用于缓存已扫描的应用路径，通常 <100 条，链表 O(N) vs 哈希 O(1) 差异微乎其微。Legacy 的 bitmap 快速路径已覆盖 99% 的 uid 查询。 | legacy 线性链表（性能足够） |
+| **x86_64/ 下所有文件** | Snapdragon 865 是 ARM64 SoC，x86_64 syscall hook 不适用。 | 不相关 |
 
 ---
 
@@ -106,18 +106,18 @@ selinux RCU 修复           █████████████████
 ksu_cred allowlist         ████████████████░░░░  80%  依赖 allowlist 重构，高风险
 ```
 
-| 功能 | GLM 结论 | 建议 |
-|------|---------|------|
-| **allowlist 哈希化** | ❌ 不建议 | UAPI 变更（v3→v4），需要改 5+ 个调用方 + ksud 用户态。工作量 20-30h。保留 legacy bitmap+list 实现 |
-| **KSU_VERSION +150** | ✅ 保持现状 | `+150` 是 legacy 的安全补偿。用户项目已用 sed 强制覆盖为 33188，`+150` 不影响实际行为 |
-| **sucompat 清理** | ❌ 不移植 | 依赖 syscall_table hook（任务 A），不可独立移植。legacy 功能完整 |
-| **stackprotector** | ❌ 无需移植 | dev 和 legacy 代码逐字节相同，都是内联在 `core/init.c` 中 |
-| **process marking** | ❌ 不移植 | dev 拆分到 `tp_marker.c` 是代码组织优化，legacy 内联在 `hook_manager.c` 中等效 |
-| **seccomp reset** | ✅ 已在 legacy 中 | legacy 4.19 路径正确走 `put_seccomp_filter(current)` |
-| **umount 隔离修复** | ✅ 已在 legacy 中 | `is_zygote` 逻辑和隔离进程处理已在 legacy `kernel_umount.c` 中 |
-| **throne OOB 修复** | ✅ 已在 legacy 中 | `DT_DIR \|\| DT_UNKNOWN` 和 `GFP_KERNEL` 已在 legacy `throne_tracker.c` 中 |
-| **selinux RCU 修复** | ✅ 无需移植 | legacy 用 `stop_machine` + `policy_rwlock` 是 4.19 正确做法 |
-| **ksu_cred allowlist** | ❌ 不建议 | 是 allowlist 重构的副作用，不可独立移植。legacy 的 `ksu_cred` 用法已足够 |
+| 功能 | GLM 结论 | 根因分析（源码证据） |
+|------|---------|-------------------|
+| **allowlist 哈希化** | ❌ 不建议 | dev 的哈希化与 UAPI 版本升级（v3→v4）深度耦合——`current_uid` 重命名为 `curr_uid`、`struct root_profile` 新增 `flags` 字段。必须同步修改 `throne_tracker.c`/`kernel_umount.c`/`sucompat.c`/`setuid_hook.c`/`ksud_integration.c` 共 5+ 文件外加 ksud 用户态。API 从 `bool ksu_get_app_profile(out)` 改为 `ptr = ksu_get_app_profile(uid)` + 调用方必须配对 `ksu_put_app_profile()`。工作量 20-30h。且 legacy 的 bitmap+list 实现在 <100 条记录场景下性能足够。 |
+| **KSU_VERSION +150** | ✅ 保持现状 | `+150` 是 legacy 分支的版本补偿机制——legacy 分支提交数比 dev 少，不加 `+150` 计算出的版本号（~33000）会低于 KSU manager app 的最低要求（>=33188）。用户项目的 GHA workflow 已用 `sed -i 's/ccflags-y += -DKSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/'` 强制覆盖，`+150` 已无效。删除 `+150` 不影响实际行为，但保留作为安全网。 |
+| **sucompat 清理** | ❌ 不移植 | dev 的 sucompat 完全依赖 syscall_table hook——通过 `ksu_syscall_table[orig_nr](regs)` 直接调用原始 syscall。legacy 通过 kprobe 截获，sucompat 只是被 kprobe handler 调用的辅助函数（签名完全不同：dev 用 `ksu_handle_faccessat_sucompat(int orig_nr, const struct pt_regs *regs)`，legacy 用 `ksu_handle_faccessat(int *dfd, const char __user **filename_user, ...)`）。dev 新增的 `is_ksud_exists()` + `override_creds(ksu_cred)` 等功能在 kprobe atomic context 下不可用。 |
+| **stackprotector** | ❌ 无需移植 | 任务描述本身就是误解。`dev` 和 legacy 的 `__stack_chk_guard` 代码逐字节相同（都在 `core/init.c` 第 39-70 行），已验证 `diff` 无输出。`__stack_chk_fail` 由内核本身提供（`kernel/panic.c`），不是 KSU 的责任。如果遇到 `undefined reference to __stack_chk_fail`，是内核配置问题，不是缺失代码。 |
+| **process marking** | ❌ 不移植 | dev 的 process marking 在 commit e05540f4 中随 syscall_table 重构一同拆分到 `tp_marker.c`。legacy 在 `hook_manager.c` 中内联实现相同的函数（`tracepoint_reg_count`/`ksu_clear_task_tracepoint_flag_if_needed`/`ksu_mark_all_process` 等），功能完全一一对应。拆分是纯代码组织优化，无功能差异。且 dev 的 tp_marker 与 `syscall_hook_manager.c` 深度耦合（用 kretprobe 监听 tracepoint 注册），脱离 syscall_table 后拆分无收益。 |
+| **seccomp reset** | ✅ 已在 legacy 中 | legacy `app_profile.c:113` 在 4.19 路径（`LINUX_VERSION_CODE < KERNEL_VERSION(5,9,0)`）正确调用 `put_seccomp_filter(current)`。dev 的改进（`GFP_ATOMIC→GFP_KERNEL` + 统一清理路径）是 5.9+ 的优化，4.19 路径功能等价。 |
+| **umount 隔离修复** | ✅ 已在 legacy 中 | legacy `kernel_umount.c` 第 87-106 行的注释已完整说明 6 种 zygote 派生场景的处理逻辑，并调用 `is_zygote(current_cred())` 做隔离进程检测。dev 的 umount 方式不同（用 `ksys_umount`），但 legacy 的 `ksu_sys_umount` + `get_fs/set_fs` 方式在 4.19 上同样正确。 |
+| **throne OOB 修复** | ✅ 已在 legacy 中 | `DT_DIR \|\| DT_UNKNOWN` 判断已在 legacy `throne_tracker.c:112-124` 中存在。`apk_path_hash` 分配已用 `GFP_KERNEL`（legacy `throne_tracker.c:152` 原用 `GFP_ATOMIC` 的行已在 legacy 中移除）。 |
+| **selinux RCU 修复** | ✅ 无需移植 | dev 用 `rcu_assign_pointer` + `synchronize_rcu` 原子切换 policy。legacy 用 `stop_machine` + `write_lock(policy_rwlock)`。4.19 不能移植 RCU 方式，因为 `struct selinux_ss` 的 `policydb` 是内嵌字段（不是指针），且 `ss` 本身不能替换（生命周期与内核相同）。legacy 的 `stop_machine` 方式虽然"丑陋"，但在 4.19 上功能正确。 |
+| **ksu_cred allowlist** | ❌ 不建议 | dev 中 `ksu_cred` 的新增用法（`override_creds(ksu_cred)` 在 faccessat/stat/execve 时切换 cred）是 allowlist 重构 + sucompat 重写的副作用，不是独立功能。legacy 已有 `ksu_cred` 用于 `setup_ksu_cred()` 和 `kernel_umount.c`，功能完整。 |
 
 ---
 
