@@ -64,7 +64,6 @@ struct policydb *ksu_backup_policydb(struct policydb *src)
 		vfree(data);
 		return NULL;
 	}
-	policydb_init(dst);
 
 	if (policydb_read(dst, &fp)) {
 		pr_err("ksu_selinux_hide: read failed\\n");
