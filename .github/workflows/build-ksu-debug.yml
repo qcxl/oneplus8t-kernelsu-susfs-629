@@ -340,23 +340,16 @@ jobs:
           ls -la drivers/kernelsu/infra/symbol_resolver.* 2>/dev/null
           grep -c "symbol_resolver" drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
-      - name: Inject selinux_hide (from dev, GLM scheme)
+      - name: Inject selinux_hide (complete 4.19 port)
         working-directory: kernel
         run: |
-          echo "=== Injecting selinux_hide (GLM scheme, 4.19-native) ==="
+          echo "=== Injecting selinux_hide (complete 4.19 port) ==="
           python3 ../scripts/inject-selinux-hide.py .
           echo "=== Verification ==="
-          grep -c 'KSU_SELINUX_HIDE_INJECTED' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
-          grep -c 'KSU_FEATURE_SELINUX_HIDE' drivers/kernelsu/include/uapi/feature.h 2>/dev/null || echo "0"
-
-      - name: Inject selinux_hide Route B (context/access + backup)
-        working-directory: kernel
-        run: |
-          echo "=== Injecting selinux_hide Route B (context/access + backup) ==="
-          python3 ../scripts/inject-selinux-hide-route-b.py .
-          echo "=== Verification ==="
-          grep -c 'KSU_SELINUX_HIDE_ROUTE_B' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
-          grep -c 'ksu_selinux_save_backup' drivers/kernelsu/selinux/selinux.h 2>/dev/null || echo "0"
+          grep -c 'KSU_SELINUX_HIDE_V2_INJECTED' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
+          grep -c 'ksu_selinux_hide_init' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
+          ls -la drivers/kernelsu/feature/selinux_hide.c 2>/dev/null && echo "selinux_hide.c OK" || echo "selinux_hide.c MISSING"
+          grep -c 'feature/selinux_hide.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
       - name: Inject sulog subsystem (event_queue + sulog from dev)
         working-directory: kernel
@@ -381,12 +374,6 @@ jobs:
           done
           grep -c 'escape_to_root_for_adb_root' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
           grep -c 'adb_root' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
-
-      - name: Inject P1 fixes (seccomp reset / throne OOB / umount / selinux RCU)
-        working-directory: kernel
-        run: |
-          echo "=== Injecting P1 fixes ==="
-          python3 ../scripts/inject-p1-fixes.py .
 
       - name: Configure kernel (device config + KSU + debug)
         working-directory: kernel
