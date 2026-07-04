@@ -59,7 +59,7 @@ static bool remove_avtab_node(struct policydb *db, struct avtab_node *node)
 
     for (i = 0; i < db->te_avtab.nslot; i++) {
         prev = NULL;
-        for (n = db->te_avtab.htable[i]; n; prev = n, n = n->next) {
+        for (n = (struct avtab_node *)flex_array_get(db->te_avtab.htable, i); n; prev = n, n = n->next) {
             if (n != node)
                 continue;
 
