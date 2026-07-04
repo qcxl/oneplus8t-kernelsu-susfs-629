@@ -85,6 +85,9 @@ ROUTE_B_CORE = """
 #include <linux/set_memory.h>
 #include "ss/services.h"
 
+/* Forward declarations (defined in Route A, injected below) */
+extern bool ksu_selinux_hide_enabled;
+
 static struct selinux_ss ksu_backup_ss;
 static struct selinux_state ksu_fake_state;
 static bool ksu_backup_ready __read_mostly = false;
