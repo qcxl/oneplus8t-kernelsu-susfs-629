@@ -451,3 +451,24 @@
 **锚点**：FLOW.md §1d — 缩进一致
 
 **标签**：cross-project
+
+### E035：GLM 生成的 remove_avtab_node 未适配 4.19 flex_array avtab
+
+**现象**：编译报 `error: assigning to 'struct flex_array' from incompatible type 'struct avtab_node *'`，位置在 `sepolicy.c` 第 55/62/71 行。
+
+**根因**：GLM 5.2 生成 `remove_avtab_node()` 时假设 `struct avtab` 的 `htable` 是 `struct avtab_node **`（dev 分支 5.10+ 的做法）。但 4.19 上 `struct avtab { struct flex_array *htable; ... }`，访问元素需用 `flex_array_get()`，写入需用 `flex_array_put_ptr()`。
+
+**教训**：
+1. GLM/AI 生成的代码基于 dev 分支（5.10+）的 API，移植到 4.19 时 flex_array 适配必须手动处理
+2. 4.19 SELinux 的 avtab 使用 `struct flex_array *htable`（元素 = `struct avtab_node *` 指针），不是直接指针数组
+3. 读取：`(struct avtab_node *)flex_array_get(htable, idx)`
+4. 写入：`flex_array_put_ptr(htable, idx, ptr, GFP_ATOMIC)`
+5. 删除节点后必须先置 `n->next = NULL` 再放入 temp avtab，否则 `avtab_destroy` 会顺着 next 指针释放整个链表
+
+**修复**：替换 `htable[i]` 为：
+- 读取：`(struct avtab_node *)flex_array_get(db->te_avtab.htable, i)`
+- 写入：`flex_array_put_ptr(db->te_avtab.htable, i, n->next, GFP_ATOMIC)`
+
+**锚点**：FLOW.md §1e 常见失败模式 — 内核版本兼容
+
+**标签**：cross-project
