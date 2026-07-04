@@ -83,7 +83,7 @@ struct policydb *ksu_backup_policydb(struct policydb *src)
 # ── 2. selinux.c: Route B core ──
 ROUTE_B_CORE = """
 #include <linux/set_memory.h>
-#include <security.h>
+#include "ss/services.h"
 
 static struct selinux_ss ksu_backup_ss;
 static struct selinux_state ksu_fake_state;
