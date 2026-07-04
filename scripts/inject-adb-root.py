@@ -91,6 +91,24 @@ def main():
     else:
         print(f"  SKIP: {selinux_c} already injected")
 
+    # 3. Add declaration to selinux.h for cross-file visibility
+    selinux_h = os.path.join(KSU, "selinux/selinux.h")
+    adb_decl = "void escape_to_root_for_adb_root(void);"
+    if os.path.exists(selinux_h):
+        with open(selinux_h) as f:
+            sh = f.read()
+        if adb_decl not in sh:
+            # Find a good insertion point
+            for anchor_h in ["void setup_ksu_cred(void);", "bool is_zygote", "int ksu_sid"]:
+                if anchor_h in sh:
+                    sh = sh.replace(anchor_h, adb_decl + "\n" + anchor_h, 1)
+                    with open(selinux_h, 'w') as f:
+                        f.write(sh)
+                    print(f"  DECL: {selinux_h}")
+                    break
+        else:
+            print(f"  SKIP: {selinux_h} already has declaration")
+
     # 3. Add hook call in ksud_integration.c sys_execve_handler_pre
     ksud_int = os.path.join(KSU, "runtime/ksud_integration.c")
     anchor = "\treturn ksu_handle_execveat_ksud(AT_FDCWD, &filename_p, &argv, NULL, NULL);"
