@@ -375,6 +375,22 @@ jobs:
           grep -c 'escape_to_root_for_adb_root' drivers/kernelsu/selinux/selinux.c 2>/dev/null || echo "0"
           grep -c 'adb_root' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
+      - name: Inject remove_avtab_node (redundant avtab cleanup)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting remove_avtab_node ==="
+          python3 ../scripts/inject-remove-avtab.py .
+          echo "=== Verification ==="
+          grep -c 'KSU_REMOVE_AVTAB_INJECTED' drivers/kernelsu/selinux/sepolicy.c 2>/dev/null || echo "0"
+
+      - name: Inject setuid_hook simplification (spin_lock protection)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting setuid_hook simplification ==="
+          python3 ../scripts/inject-setuid-hook.py .
+          echo "=== Verification ==="
+          grep -c 'KSU_SETUID_HOOK_SIMPLIFIED' drivers/kernelsu/hook/setuid_hook.c 2>/dev/null || echo "0"
+
       - name: Configure kernel (device config + KSU + debug)
         working-directory: kernel
         run: |
