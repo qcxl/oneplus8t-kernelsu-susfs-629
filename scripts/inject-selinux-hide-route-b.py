@@ -85,9 +85,6 @@ ROUTE_B_CORE = """
 #include <linux/set_memory.h>
 #include "ss/services.h"
 
-/* Forward declarations (defined in Route A, injected below) */
-extern bool ksu_selinux_hide_enabled;
-
 static struct selinux_ss ksu_backup_ss;
 static struct selinux_state ksu_fake_state;
 static bool ksu_backup_ready __read_mostly = false;
@@ -170,6 +167,13 @@ static void hook_selinux_write_ops(void)
 
 	set_memory_ro(page_addr, 1);
 }
+
+static void ksu_selinux_hide_enable_write_ops(void)
+{
+	hook_selinux_write_ops();
+	pr_info("ksu_selinux_hide: write_op hook installed\\n");
+}
+late_initcall(ksu_selinux_hide_enable_write_ops);
 """
 
 # ── 3. rules.c: backup call ──
