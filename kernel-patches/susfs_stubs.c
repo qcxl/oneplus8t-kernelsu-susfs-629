@@ -179,7 +179,6 @@ EXPORT_SYMBOL(ipa_stack_to_dts);
 
 /* Stub for susfs_is_current_proc_umounted_app - v2.2.0 new, always needed
    because open_redirect spoof code references it even when SUSFS=y. */
-   because open_redirect spoof code references it even when SUSFS=y. */
 bool susfs_is_current_proc_umounted_app(void)
 {
     return false;
