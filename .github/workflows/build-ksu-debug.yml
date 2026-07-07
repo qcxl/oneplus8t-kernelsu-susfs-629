@@ -87,6 +87,9 @@ jobs:
           # Must patch both Makefile AND Kbuild (Kbuild takes precedence).
           sed -i 's/ccflags-y += -DKSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Kbuild 2>/dev/null || true
           sed -i 's/ccflags-y += -DKSU_VERSION=.*/ccflags-y += -DKSU_VERSION=33188/' drivers/kernelsu/Makefile 2>/dev/null || true
+          # Remove legacy +150 compensation (superseded by explicit version above)
+          sed -i 's/+150//' drivers/kernelsu/Kbuild 2>/dev/null || true
+          sed -i 's/+150//' drivers/kernelsu/Makefile 2>/dev/null || true
           # Verify
           echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
           echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
