@@ -102,15 +102,14 @@ static int watch_one_dir(struct watch_dir *wd)
 }
 
 /*
- * 4.19 compatible handle_event callback.
- * On 4.19, file_name is const unsigned char * (c-string), not struct qstr *.
+ * OnePlus 4.19 (lineage-20) handle_event callback signature.
+ * Uses iter_info instead of inode_mark/vfsmount_mark (backported from 5.1+).
  */
 static int susfs_handle_sdcard_event(struct fsnotify_group *group,
 				     struct inode *inode,
-				     struct fsnotify_mark *inode_mark,
-				     struct fsnotify_mark *vfsmount_mark,
 				     u32 mask, const void *data, int data_type,
-				     const unsigned char *file_name, u32 cookie)
+				     const unsigned char *file_name, u32 cookie,
+				     struct fsnotify_iter_info *iter_info)
 {
 	if (!file_name || strncmp(file_name, "Android", 7))
 		return 0;
