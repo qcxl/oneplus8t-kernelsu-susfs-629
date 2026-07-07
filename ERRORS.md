@@ -504,3 +504,14 @@
 3. 修复后加 SCRIPT_MARK 标记防止幂等问题
 **检查清单锚点**：注入前检测目标功能是否已存在
 **标签**：cross-project
+
+### E039：预存 section mismatch 导致延迟 panic
+**现象**：`fastboot boot` 新内核后设备正常进入桌面，约 4 分钟后自动关机进入 fastboot。dmesg 无 panic/BUG/Oops 日志（ramoops 在 sm8250 复位后被清零）。PMIC 关机原因为 PS_HOLD 正常关机。系统恢复原始 boot 后正常。
+**根因**：`WARNING: modpost: Found 6 section mismatch(es)` 预存于成功构建中（build #184 也存在）。非 __init 代码引用了 __init 标记的函数/数据，init 内存释放后访问触发 panic。`reboot=panic_warm` 导致 warm reboot 进入 fastboot。
+**教训**：
+1. section mismatch 虽然不阻止编译，但在运行时可能导致延迟 panic
+2. sm8250 上 ramoops 不跨复位保留，panic 日志无法获取
+3. 启用 `CONFIG_DEBUG_SECTION_MISMATCH=y` 获取具体 mismatch 详情
+4. 修复方式：删除不安全函数上的 `__init`/`__exit` 标记，或确保不通过持久结构体引用 __init 函数
+**检查清单锚点**：编译 section mismatch 检查
+**标签**：cross-project
