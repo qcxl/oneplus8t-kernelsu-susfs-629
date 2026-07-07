@@ -278,25 +278,6 @@ jobs:
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 
-      - name: Inject init.rc module RC support (from dev d3e454f)
-        working-directory: kernel
-        run: |
-          echo "=== Injecting init.rc module RC support ==="
-          python3 ../scripts/inject-initrc.py .
-          echo "=== Verification ==="
-          echo "module_rc_buf: $(grep -c 'module_rc_buf' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
-          echo "load_module_rc_once: $(grep -c 'load_module_rc_once' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
-          echo "append_module_rc in read_proxy: $(grep -c 'append_module_rc' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
-          echo "ksu_no_custom_rc: $(grep -c 'ksu_no_custom_rc' drivers/kernelsu/core/init.c 2>/dev/null || echo '0')"
-
-      - name: Inject allow_shell module param
-        working-directory: kernel
-        run: |
-          echo "=== Injecting allow_shell module param ==="
-          python3 ../scripts/inject-allow-shell.py .
-          echo "=== Verification ==="
-          grep -c 'allow_shell' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
-
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
         run: |
@@ -369,6 +350,25 @@ jobs:
           grep -c 'ksu_selinux_hide_init' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
           ls -la drivers/kernelsu/feature/selinux_hide.c 2>/dev/null && echo "selinux_hide.c OK" || echo "selinux_hide.c MISSING"
           grep -c 'feature/selinux_hide.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
+
+      - name: Inject init.rc module RC support (from dev d3e454f)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting init.rc module RC support ==="
+          python3 ../scripts/inject-initrc.py .
+          echo "=== Verification ==="
+          echo "module_rc_buf: $(grep -c 'module_rc_buf' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
+          echo "load_module_rc_once: $(grep -c 'load_module_rc_once' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
+          echo "append_module_rc in read_proxy: $(grep -c 'append_module_rc' drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null || echo '0')"
+          echo "ksu_no_custom_rc: $(grep -c 'ksu_no_custom_rc' drivers/kernelsu/core/init.c 2>/dev/null || echo '0')"
+
+      - name: Inject allow_shell module param
+        working-directory: kernel
+        run: |
+          echo "=== Injecting allow_shell module param ==="
+          python3 ../scripts/inject-allow-shell.py .
+          echo "=== Verification ==="
+          grep -c 'allow_shell' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
 
       - name: Inject sulog subsystem (event_queue + sulog from dev)
         working-directory: kernel

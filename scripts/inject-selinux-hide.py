@@ -188,57 +188,36 @@ def patch_init_c():
     include_block = f'\n{SCRIPT_MARK}\n#include "feature/selinux_hide.h"'
     content = content.replace(include_anchor, include_anchor + include_block, 1)
 
-    # 在 late_loaded 路径添加 ksu_selinux_hide_init() 调用
-    # 锚点: ksu_selinux_hide_status_init(); (出现在 late_loaded 路径，后跟 setup_ksu_cred)
-    late_anchor = "\t\tksu_selinux_hide_status_init();\n\t\tsetup_ksu_cred();"
-    late_inject = "\t\tksu_selinux_hide_status_init();\n\t\tksu_selinux_hide_init();\n\t\tsetup_ksu_cred();"
-    if late_anchor in content:
-        content = content.replace(late_anchor, late_inject, 1)
-        log_ok("added ksu_selinux_hide_init() to late_loaded path")
-    else:
-        log_info("late_loaded anchor not found exactly, trying flexible match...")
-        # 灵活匹配：找到 ksu_selinux_hide_status_init(); 后添加 ksu_selinux_hide_init();
-        pattern = re.compile(r"(\t+)ksu_selinux_hide_status_init\(\);")
-        matches = list(pattern.finditer(content))
-        if len(matches) >= 2:
-            # 第二个匹配是 normal 路径，第一个是 late 路径
-            # 在第一个匹配后插入
-            m = matches[0]
-            insert_pos = m.end()
-            indent = m.group(1)
-            content = content[:insert_pos] + f"\n{indent}ksu_selinux_hide_init();" + content[insert_pos:]
-            log_ok("added ksu_selinux_hide_init() to late_loaded path (flexible)")
-        elif len(matches) == 1:
-            m = matches[0]
-            insert_pos = m.end()
-            indent = m.group(1)
-            content = content[:insert_pos] + f"\n{indent}ksu_selinux_hide_init();" + content[insert_pos:]
-            log_ok("added ksu_selinux_hide_init() (single match)")
-        else:
-            log_err("could not find ksu_selinux_hide_status_init() anchor")
-            return False
+    # 统计现有 ksu_selinux_hide_init() 调用次数
+    init_call_count = content.count("ksu_selinux_hide_init();")
 
-    # 在 normal 路径添加 ksu_selinux_hide_init() 调用
-    # 检查是否已经添加（防止重复）
-    if content.count("ksu_selinux_hide_init();") < 2:
-        normal_anchor = "\t\tksu_selinux_hide_status_init();\n\n\t\tksu_allowlist_init();"
-        normal_inject = "\t\tksu_selinux_hide_status_init();\n\t\tksu_selinux_hide_init();\n\n\t\tksu_allowlist_init();"
-        if normal_anchor in content:
-            content = content.replace(normal_anchor, normal_inject, 1)
-            log_ok("added ksu_selinux_hide_init() to normal path")
-        else:
-            # 尝试另一种锚点
-            alt_anchor = "\t\tksu_selinux_hide_status_init();"
-            # 找到第二个出现位置（normal 路径）
-            first_idx = content.find(alt_anchor)
-            if first_idx != -1:
-                second_idx = content.find(alt_anchor, first_idx + 1)
-                if second_idx != -1:
-                    insert_pos = second_idx + len(alt_anchor)
-                    content = content[:insert_pos] + "\n\t\tksu_selinux_hide_init();" + content[insert_pos:]
-                    log_ok("added ksu_selinux_hide_init() to normal path (second occurrence)")
-                else:
-                    log_info("only one ksu_selinux_hide_status_init() found, normal path may use different layout")
+    # 新版 legacy（commit 430a739 后）init.c 已自带 ksu_selinux_hide_init() 调用
+    # 旧版 legacy 需要注入。兼容两种版本。
+    if init_call_count >= 2:
+        log_ok("init.c already has ksu_selinux_hide_init() calls (legacy was updated)")
+    else:
+        # 尝试新版函数名，再尝试旧版
+        matched = False
+        for fn_name in ["ksu_selinux_hide_init", "ksu_selinux_hide_status_init"]:
+            pattern = re.compile(r"(\t+)" + fn_name + r"\(\);")
+            matches = list(pattern.finditer(content))
+            if len(matches) >= 1:
+                m = matches[0]
+                insert_pos = m.end()
+                indent = m.group(1)
+                content = content[:insert_pos] + f"\n{indent}ksu_selinux_hide_init();" + content[insert_pos:]
+                log_ok(f"added ksu_selinux_hide_init() (flexible, fn={fn_name})")
+                matched = True
+                # 第二次调用（normal 路径）
+                if len(matches) >= 2:
+                    m2 = matches[1]
+                    insert_pos2 = m2.end()
+                    content = content[:insert_pos2] + f"\n{indent}ksu_selinux_hide_init();" + content[insert_pos2:]
+                    log_ok(f"added ksu_selinux_hide_init() to normal path (fn={fn_name})")
+                break
+        if not matched:
+            log_err(f"could not find selinux_hide_init anchor in init.c")
+            return False
 
     # 在 kernelsu_exit() 添加 ksu_selinux_hide_exit() 调用
     exit_anchor = "\t// Phase 1: Stop all hooks first to prevent new callbacks\n\tksu_syscall_hook_manager_exit();"

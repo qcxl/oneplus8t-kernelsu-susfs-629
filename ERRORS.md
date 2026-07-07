@@ -472,3 +472,14 @@
 **锚点**：FLOW.md §1e 常见失败模式 — 内核版本兼容
 
 **标签**：cross-project
+
+### E036：注入脚本锚点被上游分支更新无声破坏
+**现象**：GHA 构建在 `Inject selinux_hide` 步骤失败，报 `ERROR: could not find ksu_selinux_hide_status_init() anchor`，注入脚本返回 exit 1。
+**根因**：上游 KSU-Next legacy 分支于 430a739 将 `init.c` 中 `ksu_selinux_hide_status_init()` 重命名为 `ksu_selinux_hide_init()`。项目注入脚本的精确锚点匹配找不到该模式。灵活回退也因函数名变更而失败。
+**教训**：
+1. 项目通过 `curl setup.sh | bash -s legacy` 在 GHA 运行时拉取最新 legacy 源码，上游 commit 随时可能改变目标文件结构。
+2. 注入脚本应使用更稳定的锚点（如标记注释）替代精确函数名+缩进匹配。
+3. 注入尽量在已有标记基础上做幂等检查，避免重复注入。
+4. 新注入步骤应放在已有注入步骤之后，防止新步骤修改文件结构破坏旧步骤的锚点。
+**检查清单锚点**：GHA 注入顺序 — 新步骤加在已有步骤之后
+**标签**：cross-project
