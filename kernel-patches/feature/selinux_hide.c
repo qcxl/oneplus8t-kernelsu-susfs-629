@@ -17,11 +17,10 @@
  *   - 用直接修改 security_hook_heads.setprocattr 链表替代 ksu_lsm_hook()
  *   - 不使用 backup_sepolicy（4.19 无 ksu_dup_sepolicy），改用过滤模式
  *
- * Feature ID: KSU_FEATURE_SELINUX_HIDE
- *
- * 与 legacy 分支已有的 KSU_FEATURE_SELINUX_HIDE_STATUS (=4) 共存：
- *   - ID=4 (selinux_hide_status): fake status page
- *   - ID=5 (selinux_hide):         context_write + access_write + setprocattr
+ * Feature ID: KSU_FEATURE_SELINUX_HIDE (=4，覆盖 legacy STATUS)
+ *   - 注册时通过 ksu_register_feature_handler 的 overwrite 行为
+ *     覆盖 legacy 的 SELINUX_HIDE_STATUS handler
+ *   - 控制 context_write + access_write + setprocattr 三个钩子
  */
 
 #include <linux/init.h>

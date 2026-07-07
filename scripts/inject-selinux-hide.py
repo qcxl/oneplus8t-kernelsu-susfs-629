@@ -295,7 +295,7 @@ def patch_feature_h():
     if has_status and not has_hide:
         # 已有 SELINUX_HIDE_STATUS，只添加 SELINUX_HIDE
         anchor = "KSU_FEATURE_SELINUX_HIDE_STATUS = 4,"
-        inject = "KSU_FEATURE_SELINUX_HIDE_STATUS = 4,\n    KSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide: context+access+setprocattr */"
+        inject = "/* KSU_FEATURE_SELINUX_HIDE_STATUS = 4 removed */\n    KSU_FEATURE_SELINUX_HIDE = 4, /* selinux_hide: context+access+setprocattr */"
         if anchor not in content:
             log_err(f"anchor '{anchor}' not found in feature.h")
             return False
@@ -305,17 +305,17 @@ def patch_feature_h():
         return True
 
     if not has_status and not has_hide:
-        # 两个都没有，添加两个
+        # 两个都没有，只添加 SELINUX_HIDE（STATUS 已弃用，HIDE 覆盖其 ID）
         anchors = [
             "KSU_FEATURE_KERNEL_UMOUNT = 1,",
             "KSU_FEATURE_SU_COMPAT = 0,",
         ]
         for anchor in anchors:
             if anchor in content:
-                inject = anchor + "\n    KSU_FEATURE_SELINUX_HIDE_STATUS = 4, /* fake status page (legacy) */\n    KSU_FEATURE_SELINUX_HIDE = 5, /* selinux_hide: context+access+setprocattr */"
+                inject = anchor + "\n    KSU_FEATURE_SELINUX_HIDE = 4, /* selinux_hide: context+access+setprocattr (overrides legacy STATUS) */"
                 content = content.replace(anchor, inject, 1)
                 write_file(feature_h, content)
-                log_ok("feature.h patched (added both enums)")
+                log_ok("feature.h patched (added KSU_FEATURE_SELINUX_HIDE=4)")
                 return True
         log_err("no suitable anchor found in feature.h")
         return False
