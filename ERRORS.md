@@ -494,3 +494,13 @@
 4. 注入脚本日志应输出到 GHA 便于排查
 **检查清单锚点**：注入脚本混合缩进
 **标签**：cross-project
+
+### E038：注入脚本与上游更新后的 adb_root 冲突（redefinition + 参数数量）
+**现象**：编译报 `redefinition of 'escape_to_root_for_adb_root'` 和 `too few arguments to function call, expected 3, have 2`，均在 `drivers/kernelsu/selinux/selinux.c`。
+**根因**：上游 430a739 将 dev 的 `escape_to_root_for_adb_root()` 和 3 参数 `transive_to_domain()` 同步到了 legacy。但 inject-adb-root.py 仍按旧版 2 参数注入，导致函数重定义+签名不匹配。
+**教训**：
+1. 所有注入脚本必须做「目标功能是否已存在」的检测，存在则跳过注入
+2. legacy 更新 430a739 同步了 adb_root/sulog/selinux_hide 到 legacy 基线。这些功能对应的注入脚本可能出现重定义
+3. 修复后加 SCRIPT_MARK 标记防止幂等问题
+**检查清单锚点**：注入前检测目标功能是否已存在
+**标签**：cross-project

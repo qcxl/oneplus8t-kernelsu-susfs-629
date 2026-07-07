@@ -29,7 +29,8 @@ void escape_to_root_for_adb_root(void)
 \t\tpr_err("Failed to prepare adbd's creds!\\n");
 \t\treturn;
 \t}
-\tif (transive_to_domain(KERNEL_SU_CONTEXT, cred)) {
+\t/* Note: 4.19 legacy transive_to_domain now takes 3 args (commit 430a739) */
+\tif (transive_to_domain(KERNEL_SU_CONTEXT, cred, true)) {
 \t\tpr_err("transive domain failed.\\n");
 \t\tabort_creds(cred);
 \t\treturn;
@@ -63,10 +64,19 @@ def main():
         print(f"  COPY: {dst_rel}")
 
     # 2. Add escape_to_root_for_adb_root() to selinux.c (uses static transive_to_domain)
+    #    Note: commit 430a739 already added this function to legacy, check first
     selinux_c = os.path.join(KSU, "selinux/selinux.c")
     with open(selinux_c) as f:
         sc = f.read()
-    if SCRIPT_MARK not in sc:
+    if SCRIPT_MARK in sc:
+        print(f"  SKIP: {selinux_c} already injected")
+    elif "escape_to_root_for_adb_root" in sc:
+        print(f"  SKIP: {selinux_c} already has escape_to_root_for_adb_root (legacy 430a739)")
+        # Add mark for idempotency
+        sc = sc.replace("void escape_to_root_for_adb_root(void)", SCRIPT_MARK + "\nvoid escape_to_root_for_adb_root(void)", 1)
+        with open(selinux_c, 'w') as f:
+            f.write(sc)
+    else:
         # Find a unique insertion point: after setup_selinux function
         # Use the closing brace + blank line before setup_ksu_cred as anchor
         anchor = "\n\nvoid setup_ksu_cred(void)"
@@ -79,8 +89,6 @@ def main():
         else:
             print(f"  ERROR: anchor not found in {selinux_c}")
             ok = False
-    else:
-        print(f"  SKIP: {selinux_c} already injected")
 
     # 3. Add declaration to selinux.h for cross-file visibility
     selinux_h = os.path.join(KSU, "selinux/selinux.h")
