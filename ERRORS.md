@@ -483,3 +483,14 @@
 4. 新注入步骤应放在已有注入步骤之后，防止新步骤修改文件结构破坏旧步骤的锚点。
 **检查清单锚点**：GHA 注入顺序 — 新步骤加在已有步骤之后
 **标签**：cross-project
+
+### E037：注入脚本混合缩进匹配失败（tab vs space）
+**现象**：编译报 `use of undeclared label 'append_module_rc'`，`goto` 已注入但目标 label 注入失败。同时 ksu_apply_init_rc_proxy 和 manual fstat 的锚点也静默跳过。
+**根因**：legacy `ksud_integration.c` 混合使用 tab 缩进（read_proxy 系列）和 4-space 缩进（ksu_apply_init_rc_proxy 系列）。注入脚本只用了 tab 锚点，space 缩进的部分全部匹配失败。此外 read_proxy 结尾 `return ret;` 前有一个空行，read_iter_proxy 没有，锚点漏掉了这个差异。
+**教训**：
+1. 注入前用 `grep -c $'^[ ]' target.c` 确认目标文件缩进风格
+2. 混合缩进文件要做 tab/space 两种 fallback
+3. goto + label 必须同时注入，否则编译不通过
+4. 注入脚本日志应输出到 GHA 便于排查
+**检查清单锚点**：注入脚本混合缩进
+**标签**：cross-project

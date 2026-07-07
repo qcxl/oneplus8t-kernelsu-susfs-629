@@ -325,18 +325,27 @@ static void free_module_rc(void)
     #     return ret;
     # }
 
+    # read_proxy ends with (legacy ksud_integration.c):
+    # \t\t\tpr_info("read_proxy: append done\n");
+    # \t\t}
+    # \t\tret += append_count;
+    # \t}
+    #                    ← blank line
+    # \treturn ret;
+    # }
     read_proxy_end = (
-        '\t\tpr_info("read_proxy: append done\\n");\n'
+        '\t\t\tpr_info("read_proxy: append done\\n");\n'
+        '\t\t}\n'
+        '\t\tret += append_count;\n'
         '\t}\n'
-        '\tret += append_count;\n'
-        '\t}\n'
+        '\n'
         '\treturn ret;\n'
         '}'
     )
     read_proxy_rep = (
-        '\t\tpr_info("read_proxy: append done\\n");\n'
-        '\t}\n'
-        '\tret += append_count;\n'
+        '\t\t\tpr_info("read_proxy: append done\\n");\n'
+        '\t\t}\n'
+        '\t\tret += append_count;\n'
         '\t}\n'
         '\n'
         'append_module_rc:\n'
@@ -358,21 +367,45 @@ static void free_module_rc(void)
         '\t\t\tfree_module_rc();\n'
         '\t\t}\n'
         '\t}\n'
+        '\n'
         '\treturn ret;\n'
         '}'
     )
-    if read_proxy_end not in ksud_content:
-        # try tab
-        rp_end_tab = read_proxy_end.replace('    ', '\t')
-        rp_rep_tab = read_proxy_rep.replace('    ', '\t')
-        if rp_end_tab in ksud_content:
-            ksud_content = ksud_content.replace(rp_end_tab, rp_rep_tab, 1)
-            print("OK: read_proxy — added append_module_rc (tab)")
-        else:
-            print("WARNING: read_proxy — end anchor not found, skipping")
-    else:
+    if read_proxy_end in ksud_content:
         ksud_content = ksud_content.replace(read_proxy_end, read_proxy_rep, 1)
         print("OK: read_proxy — added append_module_rc")
+    else:
+        # tab after injection might differ; use flexible anchor: last \t}\n\n\treturn ret;\n}
+        import re as _re
+        rp_flex = _re.search(r'\t\}\n\n\treturn ret;\n\}', ksud_content)
+        if rp_flex:
+            ksud_content = ksud_content[:rp_flex.start()] + (
+                '\t}\n'
+                '\n'
+                'append_module_rc:\n'
+                '\tif (module_rc_pos < module_rc_len && (size_t)ret < count) {\n'
+                '\t\tsize_t append_count = module_rc_len - module_rc_pos;\n'
+                '\t\tif (append_count > count - ret)\n'
+                '\t\t\tappend_count = count - ret;\n'
+                '\t\tif (copy_to_user(buf + ret, module_rc_buf + module_rc_pos,\n'
+                '\t\t\t    append_count)) {\n'
+                '\t\t\tpr_info("read_proxy: module append error, tot %zd\\n",\n'
+                '\t\t\t\tmodule_rc_pos);\n'
+                '\t\t\treturn ret;\n'
+                '\t\t}\n'
+                '\t\tpr_info("read_proxy: append module %zu\\n", append_count);\n'
+                '\t\tmodule_rc_pos += append_count;\n'
+                '\t\tret += append_count;\n'
+                '\t\tif (module_rc_pos == (ssize_t)module_rc_len) {\n'
+                '\t\t\tpr_info("read_proxy: module append done\\n");\n'
+                '\t\t\tfree_module_rc();\n'
+                '\t\t}\n'
+                '\t}\n'
+                '\n'
+            ) + ksud_content[rp_flex.start():]
+            print("OK: read_proxy — added append_module_rc (flexible)")
+        else:
+            print("WARNING: read_proxy — end anchor not found, skipping")
 
     # ============ PART 5: Modify read_iter_proxy similarly ============
     # 5a: Add early module RC goto
@@ -434,18 +467,25 @@ static void free_module_rc(void)
         print("OK: read_iter_proxy — modified return check")
 
     # 5c: Add append_module_rc to read_iter_proxy (before its return ret;)
+    # read_iter_proxy ends with (legacy ksud_integration.c):
+    # \t\t\tpr_info("read_iter_proxy: append done\n");
+    # \t\t}
+    # \t\tret += append_count;
+    # \t}
+    # \treturn ret;
+    # }
     rip_end = (
-        '\t\tpr_info("read_iter_proxy: append done\\n");\n'
-        '\t}\n'
-        '\tret += append_count;\n'
+        '\t\t\tpr_info("read_iter_proxy: append done\\n");\n'
+        '\t\t}\n'
+        '\t\tret += append_count;\n'
         '\t}\n'
         '\treturn ret;\n'
         '}'
     )
     rip_end_mod = (
-        '\t\tpr_info("read_iter_proxy: append done\\n");\n'
-        '\t}\n'
-        '\tret += append_count;\n'
+        '\t\t\tpr_info("read_iter_proxy: append done\\n");\n'
+        '\t\t}\n'
+        '\t\tret += append_count;\n'
         '\t}\n'
         '\n'
         'append_module_rc:\n'
@@ -468,45 +508,70 @@ static void free_module_rc(void)
         '\treturn ret;\n'
         '}'
     )
-    if rip_end not in ksud_content:
-        rip_end_tab = rip_end.replace('    ', '\t')
-        rip_end_mod_tab = rip_end_mod.replace('    ', '\t')
-        if rip_end_tab in ksud_content:
-            ksud_content = ksud_content.replace(rip_end_tab, rip_end_mod_tab, 1)
-            print("OK: read_iter_proxy — added append_module_rc (tab)")
-        else:
-            print("WARNING: read_iter_proxy — end anchor not found, skipping")
-    else:
+    if rip_end in ksud_content:
         ksud_content = ksud_content.replace(rip_end, rip_end_mod, 1)
         print("OK: read_iter_proxy — added append_module_rc")
+    else:
+        import re as _re
+        rip_flex = _re.search(r'\t\}\n\treturn ret;\n\}', ksud_content)
+        if rip_flex:
+            ksud_content = ksud_content[:rip_flex.start()] + (
+                '\t}\n'
+                '\n'
+                'append_module_rc:\n'
+                '\tif (module_rc_pos < module_rc_len) {\n'
+                '\t\tappend_count = copy_to_iter(module_rc_buf + module_rc_pos,\n'
+                '\t\t\tmodule_rc_len - module_rc_pos, to);\n'
+                '\t\tif (!append_count) {\n'
+                '\t\t\tpr_info("read_iter_proxy: module append error, appended %zd\\n",\n'
+                '\t\t\t\tmodule_rc_pos);\n'
+                '\t\t\treturn ret;\n'
+                '\t\t}\n'
+                '\t\tpr_info("read_iter_proxy: append module %zu\\n", append_count);\n'
+                '\t\tmodule_rc_pos += append_count;\n'
+                '\t\tret += append_count;\n'
+                '\t\tif (module_rc_pos == (ssize_t)module_rc_len) {\n'
+                '\t\t\tpr_info("read_iter_proxy: module append done\\n");\n'
+                '\t\t\tfree_module_rc();\n'
+                '\t\t}\n'
+                '\t}\n'
+            ) + ksud_content[rip_flex.start():]
+            print("OK: read_iter_proxy — added append_module_rc (flexible)")
+        else:
+            print("WARNING: read_iter_proxy — end anchor not found, skipping")
 
     # ============ PART 6: ksu_apply_init_rc_proxy — load_module_rc_once() ============
-    # Find `rc_hooked = true;\n\tpr_info("read init.rc,...`
-    # and add load_module_rc_once() call and update log
-
+    # Legacy ksud_integration.c uses 4-space indentation for this function (not tabs).
+    # pr_info is on TWO lines with continuation indent.
     anchor_notify = re.compile(
-        r'(\trc_hooked = true;)\n'
-        r'(\tpr_info\("read init\.rc, comm: %s, rc_count: %zu\\n",\s*current->comm,\s*ksu_rc_len\);)\n'
+        r'( {4}rc_hooked = true;)\n'
+        r'( {4}pr_info\("read init\.rc, comm: %s, rc_count: %zu\\n",\s*current->comm,\s*\n'
+        r' {12}ksu_rc_len\);)\n'
     )
-    if not anchor_notify.search(ksud_content):
-        # try tab-only variant
-        anchor_notify = re.compile(
-            r'\trc_hooked = true;\n'
-            r'\tpr_info\("read init\.rc, comm: %s, rc_count: %zu\\n",\s*current->comm,\s*ksu_rc_len\);'
-        )
-
     match = anchor_notify.search(ksud_content)
     if match:
         replacement = (
-            f'{match.group(1)}\n'
-            f'\tload_module_rc_once();\n'
-            f'\tpr_info("read init.rc, comm: %s, rc_count: %zu, module_rc: %zu\\n",\n'
-            f'\t\tcurrent->comm, ksu_rc_len, module_rc_len);\n'
+            f'    rc_hooked = true;\n'
+            f'    load_module_rc_once();\n'
+            f'    pr_info("read init.rc, comm: %s, rc_count: %zu, module_rc: %zu\\n",\n'
+            f'            current->comm, ksu_rc_len, module_rc_len);\n'
         )
         ksud_content = anchor_notify.sub(replacement, ksud_content, 1)
         print("OK: ksu_apply_init_rc_proxy — added load_module_rc_once()")
     else:
-        print("WARNING: ksu_apply_init_rc_proxy — anchor not found, manual check needed")
+        # fallback: just find rc_hooked = true; and inject after it
+        fallback_anchor = '    rc_hooked = true;'
+        if fallback_anchor in ksud_content:
+            idx = ksud_content.find(fallback_anchor)
+            after = ksud_content[idx + len(fallback_anchor):]
+            ksud_content = ksud_content[:idx + len(fallback_anchor)] + (
+                '\n    load_module_rc_once();\n'
+                '\n    pr_info("read init.rc, comm: %s, rc_count: %zu, module_rc: %zu\\n",\n'
+                '            current->comm, ksu_rc_len, module_rc_len);'
+            ) + after
+            print("OK: ksu_apply_init_rc_proxy — added load_module_rc_once() (fallback)")
+        else:
+            print("WARNING: ksu_apply_init_rc_proxy — anchor not found, manual check needed")
 
     # ============ PART 7: fstat handlers — add module_rc_len ============
     # 7a: Kprobe path: sys_fstat_handler_post
@@ -540,17 +605,11 @@ static void free_module_rc(void)
             print("WARNING: sys_fstat_handler_post — kprobe size anchor not found, skipping")
 
     # 7b: Manual hook path: ksu_common_newfstat_ret
-    # new_size = size + ksu_rc_len;
-    # (second occurrence — different function)
-    fstat_manual = re.compile(
-        r'new_size = size \+ ksu_rc_len;\n'
-        r'\t\tpr_info\("%s: adding ksu_rc_len:'
-    )
-    if fstat_manual.search(ksud_content):
-        # Use negative lookbehind to make sure we match the right one
-        # The manual hook has a different log format.
+    # Actual format (legacy HEAD): \tnew_size = size + ksu_rc_len; (ONE tab)
+    fstat_manual_pat = r'new_size = size \+ ksu_rc_len;(?=\n\tpr_info\("%s: adding ksu_rc_len:)'
+    if re.search(fstat_manual_pat, ksud_content, re.MULTILINE):
         ksud_content = re.sub(
-            r'new_size = size \+ ksu_rc_len;(?=\n\t\tpr_info\("%s: adding ksu_rc_len:)',
+            fstat_manual_pat,
             'new_size = size + ksu_rc_len + module_rc_len;',
             ksud_content,
             1
