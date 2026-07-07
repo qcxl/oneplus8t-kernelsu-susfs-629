@@ -14,7 +14,7 @@
 | Kconfig 选项 | 17/17 编译启用 | ksu.config 全部 `=y`，GHA 额外注册 HAS_MAGIC_MOUNT(n) 共 18 个 |
 | Dispatch 条目 | **16/20**（IOCTL + reboot 两处均已添加） | 4 个跳过（GKI only） |
 | v1.5.5 原生功能 | 13/13 保留 | 全部无需修改 |
-| v2.2.0 新增功能（非 GKI） | **15/16** 已移植 | 仅 **sdcard 监听** 未开始 |
+| v2.2.0 新增功能（非 GKI） | **16/16** 已移植 | 全部完成，sdcard 监听已移植 |
 | GKI only 功能 | 有意跳过（4 个） | SHOW_SUS_SU_WORKING_MODE / IS_SUS_SU_READY / SUS_SU / ADD_SUS_KSTAT_STATICALLY |
 | open_redirect 增强 | **8/8** 完成 | 5 spoof 函数 + UID_SCHEME + 增强 add + spoof_show_map_vma |
 | stub 签名修复 | **8/8** 已修正 | commit `f3e205f` |
@@ -45,14 +45,20 @@ SUS_PATH / SUS_MOUNT / SUS_KSTAT / UPDATE_SUS_KSTAT / TRY_UMOUNT / SPOOF_UNAME /
 | show_version/variant err 字段 | dispatch 内联 | 0（结构对齐） | 静态分析 |
 | stub 签名修正 | `susfs_stubs.c` 修改 | 0 | 静态分析 |
 
-### ❌ sdcard 监听（未开始）
+### ❌ sdcard 监听（已于 2026-07-07 完成移植）
 
 | 函数 | 当前状态 | 工作量 | 风险 |
 |------|---------|--------|------|
-| `susfs_start_sdcard_monitor_fn` | ❌ 仅 stub 返回 0 | 🔴 高 | 内核线程 + workqueue |
-| `susfs_stop_sdcard_monitor_fn` | ❌ 不存在 | 🔴 高 | 同上 |
-| `susfs_should_allow_for_sdcard` | ❌ 不存在 | 🟡 中 | 路径检测逻辑 |
-| `susfs_should_skip_sdcard` | ❌ 不存在 | 🟡 中 | 路径检测逻辑 |
+| `susfs_start_sdcard_monitor_fn` | ✅ 4.19 适配移植 | ~4h | 🟡 中（fsnotify API 差异） |
+| `susfs_sdcard_cleanup_fn` | ✅ 已实现 | 同上 | 🟢 低 |
+| `susfs_handle_sdcard_event` | ✅ 用 handle_event 替代 handle_inode_event | 同上 | 🟡 中（4.19 回调签名差异） |
+| `watch_one_dir` + `add_mark_on_inode` | ✅ 已实现 | 同上 | 🟢 低 |
+
+> 移植说明：
+> - 4.19 无 `handle_inode_event`（5.1+），改用 `handle_event`，`file_name` 为 `const unsigned char *`
+> - 代替 `setup_selinux()` 使用 `override_creds(ksu_cred)`（跨模块兼容）
+> - 通过 `late_initcall` 自动启动，不依赖 KSU 初始化顺序
+> - 旧 stub 已移除，由 `kernel-patches/feature/susfs_sdcard_monitor.c` 提供真实实现
 
 ### ⏭️ GKI only（有意跳过，非 4.19 平台）
 

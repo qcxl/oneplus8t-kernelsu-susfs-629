@@ -274,6 +274,15 @@ jobs:
           echo "fs/statfs.c hook:"
           grep -c 'spoof_vfs_statfs' fs/statfs.c 2>/dev/null || echo "0"
 
+      - name: Inject sdcard monitor (v2.2.0 fsnotify, 4.19 adapted)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting sdcard monitor ==="
+          python3 ../scripts/inject-susfs-sdcard-monitor.py .
+          echo "=== Verification ==="
+          ls -la fs/susfs_sdcard_monitor.c 2>/dev/null && echo "  susfs_sdcard_monitor.c OK" || echo "  susfs_sdcard_monitor.c MISSING"
+          grep -c 'susfs_sdcard_monitor.o' fs/Makefile 2>/dev/null || echo "0"
+
       - name: Apply manual hook source patches
         working-directory: kernel
         run: |
@@ -465,7 +474,7 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
           # Cache buster: change this env var to force ccache miss on any workflow/config change
-          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../build-boot-img.py"
+          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../build-boot-img.py"
           # ^ ccache includes these file hashes in its key, so any change to workflow/config/inject
           #   automatically invalidates the compilation cache.
 
