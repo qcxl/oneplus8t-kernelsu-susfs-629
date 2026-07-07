@@ -515,3 +515,10 @@
 4. 修复方式：删除不安全函数上的 `__init`/`__exit` 标记，或确保不通过持久结构体引用 __init 函数
 **检查清单锚点**：编译 section mismatch 检查
 **标签**：cross-project
+
+### E040：OnePlus 4.19 内核 fsnotify 回调签名差异
+**现象**：编译报 `incompatible function pointer types`，`susfs_sdcard_monitor.c` 中 `handle_event` 回调类型不匹配。
+**根因**：OnePlus lineage-20 内核从 5.1+ 反向移植了 fsnotify API，`handle_event` 为 8 参数（含 `iter_info`），非标准的 9 参数（含两个 mark 指针）。
+**教训**：1. OnePlus 内核非标准 4.19，API 签名以实际头文件为准 2. 移植前检查目标内核 `fsnotify_backend.h` 中 `struct fsnotify_ops`
+**检查清单锚点**：目标内核 API 签名验证
+**标签**：cross-project
