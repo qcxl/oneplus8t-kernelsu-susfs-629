@@ -111,17 +111,7 @@ jobs:
           FILE="drivers/kernelsu/Kbuild"
           # Add default package name if not already set
           if ! grep -q 'KSU_MANAGER_PACKAGE' "$FILE" 2>/dev/null; then
-            cat >> "$FILE" << 'KBUILD_EOF'
-
-ifndef KSU_MANAGER_PACKAGE
-KSU_MANAGER_PACKAGE := com.rifsxd.ksunext
-endif
-
-ifdef KSU_MANAGER_PACKAGE
-ccflags-y += -DKSU_MANAGER_PACKAGE=\"$(KSU_MANAGER_PACKAGE)\"
-$(info -- KernelSU-Next Manager package name: $(KSU_MANAGER_PACKAGE))
-endif
-KBUILD_EOF
+            printf '\nifndef KSU_MANAGER_PACKAGE\nKSU_MANAGER_PACKAGE := com.rifsxd.ksunext\nendif\n\nifdef KSU_MANAGER_PACKAGE\nccflags-y += -DKSU_MANAGER_PACKAGE=\\"$(KSU_MANAGER_PACKAGE)\\"\n$(info -- KernelSU-Next Manager package name: $(KSU_MANAGER_PACKAGE))\nendif\n' >> "$FILE"
             echo "  Added KSU_MANAGER_PACKAGE=com.rifsxd.ksunext to Kbuild"
           else
             echo "  KSU_MANAGER_PACKAGE already in Kbuild, skipping"
