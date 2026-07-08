@@ -110,9 +110,11 @@ jobs:
           echo "=== Adding KSU_MANAGER_PACKAGE auto-crown logic ==="
           FILE="drivers/kernelsu/Kbuild"
           # Add default package name if not already set
-          if ! grep -q 'KSU_MANAGER_PACKAGE' "$FILE" 2>/dev/null; then
-            printf '\nifndef KSU_MANAGER_PACKAGE\nKSU_MANAGER_PACKAGE := com.rifsxd.ksunext\nendif\n\nifdef KSU_MANAGER_PACKAGE\nccflags-y += -DKSU_MANAGER_PACKAGE=\\"$(KSU_MANAGER_PACKAGE)\\"\n$(info -- KernelSU-Next Manager package name: $(KSU_MANAGER_PACKAGE))\nendif\n' >> "$FILE"
-            echo "  Added KSU_MANAGER_PACKAGE=com.rifsxd.ksunext to Kbuild"
+          # Note: upstream legacy Kbuild already has 'ifdef KSU_MANAGER_PACKAGE' block
+          # but WITHOUT a default value. Check specifically for our default line.
+          if ! grep -q 'KSU_MANAGER_PACKAGE := com.rifsxd.ksunext' "$FILE" 2>/dev/null; then
+            printf '\nifndef KSU_MANAGER_PACKAGE\nKSU_MANAGER_PACKAGE := com.rifsxd.ksunext\nendif\n' >> "$FILE"
+            echo "  Added KSU_MANAGER_PACKAGE default=com.rifsxd.ksunext to Kbuild"
           else
             echo "  KSU_MANAGER_PACKAGE already in Kbuild, skipping"
           fi
