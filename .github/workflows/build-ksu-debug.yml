@@ -393,6 +393,21 @@ jobs:
             sed -i 's/MODULE_LICENSE("GPL")/MODULE_LICENSE("GPL v2")/g' drivers/kernelsu/core/init.c 2>/dev/null || true
           fi
 
+          # __NR_execveat: init uses execveat() for second_stage on Android 13+,
+          # but KSUN only hooks __NR_execve. Register the same handler for both
+          # so the init second_stage hook in ksud_integration.c actually fires.
+          if [ -f "drivers/kernelsu/hook/syscall_hook_manager.c" ]; then
+            if ! grep -q '__NR_execveat' drivers/kernelsu/hook/syscall_hook_manager.c 2>/dev/null; then
+              sed -i '/ksu_register_syscall_hook(__NR_execve, ksu_hook_execve);/a ksu_register_syscall_hook(__NR_execveat, ksu_hook_execve);' drivers/kernelsu/hook/syscall_hook_manager.c
+              sed -i '/ksu_unregister_syscall_hook(__NR_execve);/a ksu_unregister_syscall_hook(__NR_execveat);' drivers/kernelsu/hook/syscall_hook_manager.c
+              echo "  __NR_execveat hook registered (same handler as __NR_execve)"
+            else
+              echo "  __NR_execveat hook already present, skipping"
+            fi
+          else
+            echo "  WARNING: syscall_hook_manager.c not found"
+          fi
+
           echo "=== Compatibility fixes applied ==="
 
       - name: Inject KSU dev-infra stubs (symbol_resolver for 4.19)
