@@ -161,7 +161,6 @@ jobs:
           else
             echo "  WARNING: $FILE not found"
           fi
-          fi
 
       - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
         working-directory: kernel
