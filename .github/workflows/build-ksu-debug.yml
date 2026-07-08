@@ -104,6 +104,58 @@ jobs:
           grep -c 'uapi_version = KERNEL_SU_UAPI_VERSION' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
           grep -c 'GET_INFO_LEGACY' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
 
+      - name: Auto-crown manager by package name (KSU_MANAGER_PACKAGE)
+        working-directory: kernel
+        run: |
+          echo "=== Adding KSU_MANAGER_PACKAGE auto-crown logic ==="
+          FILE="drivers/kernelsu/Kbuild"
+          # Add default package name if not already set
+          if ! grep -q 'KSU_MANAGER_PACKAGE' "$FILE" 2>/dev/null; then
+            cat >> "$FILE" << 'KBUILD_EOF'
+
+ifndef KSU_MANAGER_PACKAGE
+KSU_MANAGER_PACKAGE := com.rifsxd.ksunext
+endif
+
+ifdef KSU_MANAGER_PACKAGE
+ccflags-y += -DKSU_MANAGER_PACKAGE=\"$(KSU_MANAGER_PACKAGE)\"
+$(info -- KernelSU-Next Manager package name: $(KSU_MANAGER_PACKAGE))
+endif
+KBUILD_EOF
+            echo "  Added KSU_MANAGER_PACKAGE=com.rifsxd.ksunext to Kbuild"
+          else
+            echo "  KSU_MANAGER_PACKAGE already in Kbuild, skipping"
+          fi
+
+          # Add package-name matching code in throne_tracker.c
+          FILE2="drivers/kernelsu/manager/throne_tracker.c"
+          if [ -f "$FILE2" ]; then
+            # Insert the matching block before 'if (prune_only)'
+            if ! grep -q 'Auto-crown manager by package name' "$FILE2" 2>/dev/null; then
+              sed -i '/\/\/ now update uid list/,/if (prune_only)/{
+                /if (prune_only)/i\
+#ifdef KSU_MANAGER_PACKAGE\n\t{\n\t\tstruct uid_data *manager_entry = NULL;\n\t\tlist_for_each_entry(np, \&uid_list, list) {\n\t\t\tif (strcmp(np->package, KSU_MANAGER_PACKAGE) == 0) {\n\t\t\t\tmanager_entry = np;\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t\tif (manager_entry) {\n\t\t\tif (!ksu_is_manager_appid_valid() ||\n\t\t\t    ksu_get_manager_appid() != manager_entry->uid) {\n\t\t\t\tksu_set_manager_appid(manager_entry->uid);\n\t\t\t}\n\t\t}\n\t}\n#endif\n
+              }' "$FILE2"
+              echo "  Package-name matching code inserted into throne_tracker.c"
+            else
+              echo "  Code already present in throne_tracker.c, skipping"
+            fi
+          else
+            echo "  WARNING: $FILE2 not found"
+          fi
+
+          # Remove "KernelSU: " prefix from klog.h
+          FILE3="drivers/kernelsu/include/klog.h"
+          if [ -f "$FILE3" ]; then
+            sed -i 's/#define pr_fmt(fmt) "KernelSU: " fmt/#define pr_fmt(fmt) fmt/' "$FILE3"
+            echo "  Removed KernelSU: prefix from klog.h"
+          else
+            echo "  WARNING: $FILE3 not found"
+          fi
+          echo "=== Verification ==="
+          grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
+          grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
+
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
