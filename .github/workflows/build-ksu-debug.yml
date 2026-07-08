@@ -156,6 +156,17 @@ KBUILD_EOF
           grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
 
+      - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
+        working-directory: kernel
+        run: |
+          echo "=== Converting pr_info/pr_warn to pr_debug ==="
+          find drivers/kernelsu -name "*.c" -exec sed -i 's/pr_info(/pr_debug(/g' {} +
+          find drivers/kernelsu -name "*.c" -exec sed -i 's/pr_warn(/pr_debug(/g' {} +
+          echo "  Done: all pr_info/pr_warn converted to pr_debug"
+          echo "=== Verification (should be 0) ==="
+          grep -r 'pr_info(' drivers/kernelsu --include="*.c" | wc -l
+          grep -r 'pr_warn(' drivers/kernelsu --include="*.c" | wc -l
+
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
