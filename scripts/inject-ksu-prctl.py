@@ -50,11 +50,11 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
     }
 
     if (arg2 == 2) {
-        /* Legacy get_info: auto-register caller as manager if not set */
+        /* Legacy get_info: register/update caller as manager */
         uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
-        if (!ksu_is_manager_appid_valid()) {
+        if (ksu_get_manager_appid() != uid) {
             ksu_set_manager_appid(uid);
-            pr_debug("prctl: auto-registered manager uid=%d\\n", uid);
+            pr_debug("prctl: set manager uid=%d\\n", uid);
         }
 
         u32 __user *version_ptr = (u32 __user *)arg3;
@@ -117,8 +117,8 @@ EXPORT_SYMBOL(ksu_handle_prctl);
         
         marker = '    if (is_manager()) {\n        cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;'
         auto_reg = """
-    /* Auto-register caller as manager if not set */
-    if (!ksu_is_manager_appid_valid()) {
+    /* Register/update caller as manager (handles reinstall with new UID) */
+    if (ksu_get_manager_appid() != current_uid().val % KSU_PER_USER_RANGE) {
         ksu_set_manager_appid(current_uid().val % KSU_PER_USER_RANGE);
     }
     if (is_manager()) {
