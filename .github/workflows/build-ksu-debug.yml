@@ -160,7 +160,7 @@ jobs:
             # 2. Add apply_kernelsu_rules + cache_sid + setup_ksu_cred
             #    to on_post_fs_data() after stop_input_hook()
             if ! grep -q 'apply_kernelsu_rules' "$F1" 2>/dev/null; then
-              sed -i '/stop_input_hook();/a\\t\/\/ deferred cred setup for built-in\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();' "$F1"
+              sed -i '/stop_input_hook();/a\\t\/\/ deferred cred setup for built-in\n\textern void apply_kernelsu_rules(void);\n\textern void cache_sid(void);\n\textern void setup_ksu_cred(void);\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();' "$F1"
               echo "  Added deferred apply_kernelsu_rules+setup_ksu_cred to on_post_fs_data"
             else
               echo "  boot_event.c already patched"
@@ -597,8 +597,8 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             2>&1 | tee build.log
-          # Preserve make's exit code (PIPESTATUS[0]), not tee's
-          exit ${PIPESTATUS[0]}
+          # Preserve make's exit code (PIPESTATUS[0] is bash-only, not sh)
+          bash -c 'exit ${PIPESTATUS[0]}'
 
       - name: Verify kernel image
         working-directory: kernel
