@@ -40,6 +40,7 @@
 #include "selinux_hide.h"
 #include "policy/feature.h"
 #include "klog.h"
+#include "selinux/selinux.h"
 
 /* SIMPLE_TRANSACTION_LIMIT — 4.19 内核中可能在 proc_fs.h 已定义，
  * 这里做兜底定义，避免编译错误 */
@@ -292,8 +293,8 @@ static int ksu_selinux_hide_enable(void)
 	pr_info("ksu_selinux_hide: enabling\n");
 	hook_write_ops();
 	hook_selinux_setprocattr();
-	/* fake status page 由 legacy 分支的 ksu_selinux_hide_status_init() 负责，
-	 * 此处不重复 hook sel_handle_status_ops */
+	/* Also set SELinux to permissive so all operations work */
+	setenforce(false);
 	return 0;
 }
 
@@ -302,6 +303,8 @@ static void ksu_selinux_hide_disable(void)
 	pr_info("ksu_selinux_hide: disabling\n");
 	unhook_write_ops();
 	unhook_selinux_setprocattr();
+	/* Restore SELinux to enforcing mode */
+	setenforce(true);
 }
 
 /* ============= Feature handler ============= */
