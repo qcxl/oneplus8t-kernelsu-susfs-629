@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'scripts/inject-*.py'
+      - 'scripts/apply-ksu-hooks.py'
       - '!scripts/__pycache__/**'
       - 'build-boot-img.py'
       - 'kernel-patches/**'
