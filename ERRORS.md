@@ -522,3 +522,42 @@
 **教训**：1. OnePlus 内核非标准 4.19，API 签名以实际头文件为准 2. 移植前检查目标内核 `fsnotify_backend.h` 中 `struct fsnotify_ops`
 **检查清单锚点**：目标内核 API 签名验证
 **标签**：cross-project
+
+### E041：`track_throne()` 包名匹配在 `prune_only` 之前执行
+**现象**：每次重装 APK 后，KSU 管理器 App 显示"不支持/未集成"，需要手动 `ksud debug set-manager`
+**根因**：内置内核模式下 `track_throne()` 的 `prune_only` 检查跳过管理器搜索。`on_boot_completed()` 传入 `prune_only=true`，管理器搜索代码在检查之后，开机后从不执行
+**教训**：
+1. 任何需要在 `prune_only=true` 路径下执行的逻辑必须放在 `prune_only` 检查之前
+2. `uid_list`（包名↔UID 映射）在检查前已完整解析，可直接用于包名匹配
+3. 包名匹配不可走 VFS（SUSFS 会隐藏路径），应直接遍历内存中的 `uid_list`
+4. 重装后 UID 变化时，需同时检查 `!ksu_is_manager_appid_valid()` 和 `ksu_get_manager_appid() != uid`
+**检查清单锚点**：「包名匹配在 `prune_only` 之前」+「`KSU_MANAGER_PACKAGE` 编译时定义」
+**标签**：cross-project
+
+### E042：`boot_complete_lock` 阻止 `on_boot_completed` 重复触发
+**现象**：重装 APK 后 UID 变化，手动调用 `ksud boot-completed` 无效
+**根因**：`dispatch.c` 中 `static bool boot_complete_lock` 确保 `on_boot_completed()` 只执行一次，重装后需再次触发自动注册但被锁阻止
+**教训**：`track_throne()`、`avc_spoof_late_init()`、`selinux_hide_drop_backup_if_unused()` 均幂等，不需要锁保护
+**检查清单锚点**：「`boot_complete_lock` 已移除」
+**标签**：cross-project
+
+### E043：YAML 内嵌 heredoc 的缩进冲突
+**现象**：CI 构建失败：`Invalid workflow file: YAML syntax error on line 116`
+**根因**：YAML `|` block 中使用 shell heredoc，内容缩进与 YAML 块不一致
+**教训**：YAML `|` 块内全部内容必须保持一致的缩进级别。内嵌 heredoc 改用 `printf` 或外部 Python 脚本
+**检查清单锚点**：「避免 YAML 内嵌 heredoc」
+**标签**：cross-project
+
+### E044：`setenforce` 在管理器中因 SELinux 域错误失败
+**现象**：App 设置中切换 SELinux 模式后提示"设置SELinux模式失败: 0"
+**根因**：`withNewRootShell` 创建的 shell 继承 App 的 SELinux 上下文（`untrusted_app`），没有 `SECURITY__SETENFORCE` 权限
+**教训**：默认 root shell（`ShellUtils.fastCmdResult`）在 libsu 初始化时已建立，权限更可靠
+**检查清单锚点**：「SELinux 切换使用默认 root shell」
+**标签**：cross-project
+
+### E045：dmesg 泄漏：`"KernelSU: "` 前缀 + 大量 `pr_info`/`pr_warn` 调用
+**现象**：`dmesg` 中大量 `"KernelSU: "` 前缀泄漏内核修改。`pr_info`/`pr_warn` 泄漏操作详情
+**根因**：`klog.h` 定义 `pr_fmt` 为 `"KernelSU: " fmt`。33 个 `.c` 文件共 491 处 `pr_*` 调用，仅 7 处受保护
+**教训**：生产构建应将 `pr_info`/`pr_warn` 转为 `pr_debug`；`klog.h` 移除 `"KernelSU: "` 前缀
+**检查清单锚点**：「`klog.h` 移除 `KernelSU:` 前缀」+「`pr_info`/`pr_warn`→`pr_debug`」
+**标签**：cross-project
