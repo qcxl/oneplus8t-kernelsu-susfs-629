@@ -34,39 +34,39 @@ def main():
             
             # Add function at end of file (before last newline)
             func = '''
-+int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
-+                     unsigned long arg4, unsigned long arg5)
-+{
-+    if (option != KSU_INSTALL_MAGIC1)
-+        return 0;
-+
-+    if (arg2 == KSU_INSTALL_MAGIC2) {
-+        int fd = ksu_install_fd();
-+        if (fd >= 0) {
-+            if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
-+                pr_debug("prctl: install fd copy_to_user failed\\n");
-+        }
-+        return 1;
-+    }
-+
-+    if (arg2 == 2) {
-+        u32 __user *version_ptr = (u32 __user *)arg3;
-+        u32 __user *flags_ptr = (u32 __user *)arg4;
-+        u32 version = KERNEL_SU_VERSION;
-+        u32 flags = 0;
-+
-+        if (ksu_is_manager_appid_valid())
-+            flags |= KSU_GET_INFO_FLAG_MANAGER;
-+
-+        copy_to_user(version_ptr, &version, sizeof(version));
-+        copy_to_user(flags_ptr, &flags, sizeof(flags));
-+        return 1;
-+    }
-+
-+    return 0;
-+}
-+EXPORT_SYMBOL(ksu_handle_prctl);
-+'''
+int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
+                     unsigned long arg4, unsigned long arg5)
+{
+    if (option != KSU_INSTALL_MAGIC1)
+        return 0;
+
+    if (arg2 == KSU_INSTALL_MAGIC2) {
+        int fd = ksu_install_fd();
+        if (fd >= 0) {
+            if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
+                pr_debug("prctl: install fd copy_to_user failed\\n");
+        }
+        return 1;
+    }
+
+    if (arg2 == 2) {
+        u32 __user *version_ptr = (u32 __user *)arg3;
+        u32 __user *flags_ptr = (u32 __user *)arg4;
+        u32 version = KERNEL_SU_VERSION;
+        u32 flags = 0;
+
+        if (ksu_is_manager_appid_valid())
+            flags |= KSU_GET_INFO_FLAG_MANAGER;
+
+        copy_to_user(version_ptr, &version, sizeof(version));
+        copy_to_user(flags_ptr, &flags, sizeof(flags));
+        return 1;
+    }
+
+    return 0;
+}
+EXPORT_SYMBOL(ksu_handle_prctl);
+'''
             content = content.rstrip() + '\n' + func
             
             with open(c_path, 'w') as f:
