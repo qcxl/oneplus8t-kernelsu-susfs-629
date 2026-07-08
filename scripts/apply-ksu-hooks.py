@@ -46,7 +46,7 @@ VAR_DECL_RE = re.compile(
     r'dev_t |ino_t |mode_t |nlink_t |blkcnt_t |'
     r'atomic_t |wait_queue_head_t |spinlock_t |mutex |'
     r'vm_flags_t |gfp_t |fmode_t |'
-    r'unsigned |signed |'
+    r'unsigned |signed'
     r')'
 )
 
