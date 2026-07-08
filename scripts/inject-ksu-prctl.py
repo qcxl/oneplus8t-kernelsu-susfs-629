@@ -50,6 +50,13 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
     }
 
     if (arg2 == 2) {
+        /* Legacy get_info: auto-register caller as manager if not set */
+        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
+        if (!ksu_is_manager_appid_valid()) {
+            ksu_set_manager_appid(uid);
+            pr_debug("prctl: auto-registered manager uid=%d\\n", uid);
+        }
+
         u32 __user *version_ptr = (u32 __user *)arg3;
         u32 __user *flags_ptr = (u32 __user *)arg4;
         u32 version = KERNEL_SU_VERSION;
@@ -101,6 +108,32 @@ EXPORT_SYMBOL(ksu_handle_prctl);
             print("  ksu_handle_prctl declaration injected into supercall.h")
         else:
             print("  ksu_handle_prctl already in supercall.h, skipping")
+    
+    # Also inject auto-registration into dispatch.c do_get_info
+    d_path = os.path.join(kernel_dir, "drivers/kernelsu/supercall/dispatch.c")
+    if os.path.exists(d_path):
+        with open(d_path, 'r') as f:
+            content = f.read()
+        
+        marker = '    if (is_manager()) {\n        cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;'
+        auto_reg = """
+    /* Auto-register caller as manager if not set */
+    if (!ksu_is_manager_appid_valid()) {
+        ksu_set_manager_appid(current_uid().val % KSU_PER_USER_RANGE);
+    }
+    if (is_manager()) {
+        cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;"""
+        
+        if 'auto-register caller as manager' not in content:
+            if marker in content:
+                content = content.replace(marker, auto_reg, 1)
+                with open(d_path, 'w') as f:
+                    f.write(content)
+                print("  do_get_info auto-registration injected into dispatch.c")
+            else:
+                print("  [WARN] do_get_info marker not found in dispatch.c")
+        else:
+            print("  do_get_info auto-registration already in dispatch.c, skipping")
     
     if success:
         print("\n=== Verification ===")
