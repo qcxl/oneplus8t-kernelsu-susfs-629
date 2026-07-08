@@ -597,6 +597,8 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             2>&1 | tee build.log
+          # Preserve make's exit code (PIPESTATUS[0]), not tee's
+          exit ${PIPESTATUS[0]}
 
       - name: Verify kernel image
         working-directory: kernel
