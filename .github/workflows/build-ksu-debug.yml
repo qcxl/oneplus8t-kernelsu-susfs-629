@@ -152,17 +152,7 @@ jobs:
           FILE="drivers/kernelsu/core/init.c"
           if [ -f "$FILE" ]; then
             if ! grep -q 'built-in: setup_ksu_cred' "$FILE" 2>/dev/null; then
-              python3 << 'PYEOF'
-              import os
-              c = open(os.environ['FILE']).read()
-              block = chr(9) + '// built-in: setup_ksu_cred\n'
-              block += chr(9) + 'apply_kernelsu_rules();\n'
-              block += chr(9) + 'cache_sid();\n'
-              block += chr(9) + 'setup_ksu_cred();\n'
-              c = c.replace('ksu_file_wrapper_init();', 'ksu_file_wrapper_init();\n' + block, 1)
-              open(os.environ['FILE'], 'w').write(c)
-              print('  Added setup_ksu_cred to built-in path')
-              PYEOF
+              python3 ../scripts/inject-deferred-ksu-cred.py .
             else
               echo "  Already patched, skipping"
             fi
