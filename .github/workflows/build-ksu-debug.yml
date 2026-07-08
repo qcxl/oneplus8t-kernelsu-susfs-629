@@ -118,21 +118,7 @@ jobs:
           fi
 
           # Add package-name matching code in throne_tracker.c
-          FILE2="drivers/kernelsu/manager/throne_tracker.c"
-          if [ -f "$FILE2" ]; then
-            # Insert the matching block before 'if (prune_only)'
-            if ! grep -q 'Auto-crown manager by package name' "$FILE2" 2>/dev/null; then
-              sed -i '/\/\/ now update uid list/,/if (prune_only)/{
-                /if (prune_only)/i\
-#ifdef KSU_MANAGER_PACKAGE\n\t{\n\t\tstruct uid_data *manager_entry = NULL;\n\t\tlist_for_each_entry(np, \&uid_list, list) {\n\t\t\tif (strcmp(np->package, KSU_MANAGER_PACKAGE) == 0) {\n\t\t\t\tmanager_entry = np;\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t\tif (manager_entry) {\n\t\t\tif (!ksu_is_manager_appid_valid() ||\n\t\t\t    ksu_get_manager_appid() != manager_entry->uid) {\n\t\t\t\tksu_set_manager_appid(manager_entry->uid);\n\t\t\t}\n\t\t}\n\t}\n#endif\n
-              }' "$FILE2"
-              echo "  Package-name matching code inserted into throne_tracker.c"
-            else
-              echo "  Code already present in throne_tracker.c, skipping"
-            fi
-          else
-            echo "  WARNING: $FILE2 not found"
-          fi
+          python3 ../scripts/inject-ksu-manager-auto-crown.py .
 
           # Remove "KernelSU: " prefix from klog.h
           FILE3="drivers/kernelsu/include/klog.h"
