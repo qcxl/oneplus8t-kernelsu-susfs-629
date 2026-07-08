@@ -128,6 +128,17 @@ jobs:
           else
             echo "  WARNING: $FILE3 not found"
           fi
+
+          # Remove boot_complete_lock so on_boot_completed can retrigger
+          FILE4="drivers/kernelsu/supercall/dispatch.c"
+          if [ -f "$FILE4" ]; then
+            sed -i 's/static bool boot_complete_lock = false;/\/\/ REMOVED: static bool boot_complete_lock = false;/' "$FILE4"
+            sed -i 's/if (!boot_complete_lock) {/\/\/ REMOVED: if (!boot_complete_lock) {/' "$FILE4"
+            sed -i 's/boot_complete_lock = true;/\/\/ REMOVED: boot_complete_lock = true;/' "$FILE4"
+            echo "  Removed boot_complete_lock from dispatch.c"
+          else
+            echo "  WARNING: $FILE4 not found"
+          fi
           echo "=== Verification ==="
           grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
