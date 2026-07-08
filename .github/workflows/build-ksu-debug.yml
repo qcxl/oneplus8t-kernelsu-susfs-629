@@ -149,27 +149,7 @@ jobs:
         working-directory: kernel
         run: |
           echo "=== Adding deferred cred setup to on_post_fs_data ==="
-          # Root cause: built-in kernels setup_ksu_cred() is called too early
-          # (before SELinux policy loaded). Move the critical calls to
-          # on_post_fs_data() which runs after policy is loaded.
-          F1="drivers/kernelsu/runtime/boot_event.c"
-          F2="drivers/kernelsu/core/init.c"
-          if [ -f "$F1" ] && [ -f "$F2" ]; then
-            # 1. Remove setup_ksu_cred from LKM block in init.c (leave for LKM)
-            #    For built-in, these need to be deferred.
-            # 2. Add apply_kernelsu_rules + cache_sid + setup_ksu_cred
-            #    to on_post_fs_data() after stop_input_hook()
-            if ! grep -q 'apply_kernelsu_rules' "$F1" 2>/dev/null; then
-              sed -i '/stop_input_hook();/a\\t\/\/ deferred cred setup for built-in\n\textern void apply_kernelsu_rules();\n\textern void cache_sid();\n\textern void setup_ksu_cred();\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();' "$F1"
-              echo "  Added deferred apply_kernelsu_rules+setup_ksu_cred to on_post_fs_data"
-            else
-              echo "  boot_event.c already patched"
-            fi
-            echo "=== Verification ==="
-            grep -B1 -A5 'apply_kernelsu_rules' "$F1"
-          else
-            echo "  WARNING: boot_event.c or init.c not found"
-          fi
+          python3 ../scripts/inject-deferred-ksu-cred.py .
 
       - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
         working-directory: kernel
