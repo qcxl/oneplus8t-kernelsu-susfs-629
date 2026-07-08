@@ -132,9 +132,9 @@ jobs:
           # Remove boot_complete_lock so on_boot_completed can retrigger
           FILE4="drivers/kernelsu/supercall/dispatch.c"
           if [ -f "$FILE4" ]; then
-            sed -i 's/static bool boot_complete_lock = false;/\/\/ REMOVED: static bool boot_complete_lock = false;/' "$FILE4"
-            sed -i 's/if (!boot_complete_lock) {/\/\/ REMOVED: if (!boot_complete_lock) {/' "$FILE4"
-            sed -i 's/boot_complete_lock = true;/\/\/ REMOVED: boot_complete_lock = true;/' "$FILE4"
+            sed -i 's/static bool boot_complete_lock = false;/\/\/ boot_complete_lock removed/' "$FILE4"
+            sed -i 's/if (!boot_complete_lock) {/{ \/\/ boot_complete_lock removed/' "$FILE4"
+            sed -i 's/boot_complete_lock = true;/\/\/ boot_complete_lock = true; (removed)/' "$FILE4"
             echo "  Removed boot_complete_lock from dispatch.c"
           else
             echo "  WARNING: $FILE4 not found"
