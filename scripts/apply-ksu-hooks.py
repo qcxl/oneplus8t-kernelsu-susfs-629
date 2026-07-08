@@ -165,6 +165,42 @@ def main():
             else:
                 print(f"  [WARN] SYSCALL_DEFINE4(reboot) marker not found")
 
+    # For kernel/sys.c (prctl syscall), add prctl hook
+    sys_path = os.path.join(KERNEL_DIR, "kernel", "sys.c")
+    if os.path.exists(sys_path):
+        with open(sys_path) as f:
+            content = f.read()
+        if 'ksu_handle_prctl' not in content:
+            lines = content.split('\n')
+            last_include = -1
+            for i, line in enumerate(lines):
+                if line.startswith('#include'):
+                    last_include = i
+            if last_include >= 0:
+                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\n'
+                lines.insert(last_include + 1, extern_block)
+                content = '\n'.join(lines)
+
+            # Hook inside SYSCALL_DEFINE5(prctl...) BEFORE the switch(option).
+            marker = '\terror = 0;\n\tswitch (option) {'
+            hook = (
+                '\terror = 0;'
+                '\n\t/* KSU hook: handle prctl(0xDEADBEEF, ...) for manager fd */'
+                '\n\tif (IS_ENABLED(CONFIG_KSU) && option == 0xDEADBEEF) {'
+                '\n\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
+                '\n\t}'
+                '\n\tswitch (option) {'
+            )
+            if marker in content:
+                content = content.replace(marker, hook, 1)
+                with open(sys_path, 'w') as f:
+                    f.write(content)
+                print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
+            else:
+                print(f"  [WARN] SYSCALL_DEFINE5(prctl) marker not found")
+        else:
+            print(f"  prctl hook already present, skipping")
+
     # Standard insert_hook for the other files
     for hook in HOOKS:
         insert_hook(hook["file"], hook["func_pattern"], hook["code"])
@@ -181,6 +217,11 @@ def main():
     if os.path.exists(rp):
         rc = sum(1 for l in open(rp) if "ksu_handle_sys_reboot" in l)
         print(f"  ksu_handle_sys_reboot: {'OK' if rc >= 1 else 'MISSING!'}")
+    # Verify sys.c separately
+    sp = os.path.join(KERNEL_DIR, "kernel", "sys.c")
+    if os.path.exists(sp):
+        sc = sum(1 for l in open(sp) if "ksu_handle_prctl" in l)
+        print(f"  ksu_handle_prctl: {'OK' if sc >= 1 else 'MISSING!'}")
 
 if __name__ == "__main__":
     main()
