@@ -54,7 +54,22 @@ def main():
     new_content = content.replace("if (prune_only)", block + "if (prune_only)", 1)
 
     if new_content == content:
-        print("  ERROR: 'if (prune_only)' not found in throne_tracker.c")
+        # Try alternate: the legacy branch uses do_track_throne_core()
+        # The target might have different formatting
+        print("  WARNING: first replace attempt failed, trying fallback patterns...")
+        # Try with surrounding context to handle formatting differences
+        new_content = content.replace(
+            "\tstruct uid_data *n;\n\n\tif (prune_only)",
+            "\tstruct uid_data *n;\n\n" + block + "\tif (prune_only)", 1
+        )
+
+    if new_content == content:
+        print("  ERROR: 'if (prune_only)' not found in throne_tracker.c - injection FAILED")
+        # Print the relevant section for debugging
+        lines = content.split('\n')
+        for i, line in enumerate(lines):
+            if 'prune_only' in line:
+                print(f"  Found 'prune_only' at line {i+1}: {repr(line)}")
         sys.exit(1)
 
     with open(filepath, 'w') as f:
