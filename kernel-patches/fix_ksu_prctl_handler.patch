@@ -1,0 +1,63 @@
+Add ksu_handle_prctl handler for Manager APK KSU fd acquisition.
+
+prctl(0xDEADBEEF, ...) is NOT blocked by seccomp for untrusted_app,
+unlike SYS_reboot. This allows the Manager App to request a KSU fd
+directly from its own process context.
+
+diff --git a/drivers/kernelsu/supercall/supercall.c b/drivers/kernelsu/supercall/supercall.c
+--- a/drivers/kernelsu/supercall/supercall.c
++++ b/drivers/kernelsu/supercall/supercall.c
+@@ -14,6 +14,7 @@
+ #include "supercall/internal.h"
+ #include "arch.h"
+ #include "klog.h"
++#include "ksu.h"
+ #include "manager/manager_identity.h"
+ 
+ #include "sulog/event.h"
+@@ -239,3 +240,53 @@ void __exit ksu_supercalls_exit(void){
+ 	ksu_supercall_cleanup_state();
+ }
++
++int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
++                     unsigned long arg4, unsigned long arg5)
++{
++    if (option != KSU_INSTALL_MAGIC1)
++        return 0;
++
++    if (arg2 == KSU_INSTALL_MAGIC2) {
++        int fd = ksu_install_fd();
++        if (fd >= 0) {
++            if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
++                pr_debug("prctl: install fd copy_to_user failed\n");
++        }
++        return 1;
++    }
++
++    if (arg2 == 2) {
++        u32 __user *version_ptr = (u32 __user *)arg3;
++        u32 __user *flags_ptr = (u32 __user *)arg4;
++        u32 version = KERNEL_SU_VERSION;
++        u32 flags = 0;
++
++        if (ksu_is_manager_appid_valid())
++            flags |= KSU_GET_INFO_FLAG_MANAGER;
++
++        copy_to_user(version_ptr, &version, sizeof(version));
++        copy_to_user(flags_ptr, &flags, sizeof(flags));
++        return 1;
++    }
++
++    return 0;
++}
++EXPORT_SYMBOL(ksu_handle_prctl);
+diff --git a/drivers/kernelsu/supercall/supercall.h b/drivers/kernelsu/supercall/supercall.h
+--- a/drivers/kernelsu/supercall/supercall.h
++++ b/drivers/kernelsu/supercall/supercall.h
+@@ -15,3 +15,6 @@
+ // Install KSU fd to current process
+ int ksu_install_fd(void);
+ 
++// Handle prctl(0xDEADBEEF, ...) for Manager App KSU fd
++int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
++                     unsigned long arg4, unsigned long arg5);
