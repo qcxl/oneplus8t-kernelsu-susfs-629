@@ -145,22 +145,13 @@ jobs:
           grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
 
-      - name: Fix built-in - setup_ksu_cred in init.c
+      - name: Fix built-in - retry-safe setup_ksu_cred in throne_tracker
         working-directory: kernel
         run: |
-          echo "=== Adding setup_ksu_cred to built-in path in init.c ==="
-          FILE="drivers/kernelsu/core/init.c"
-          if [ -f "$FILE" ]; then
-            if ! grep -q 'built-in: setup_ksu_cred' "$FILE" 2>/dev/null; then
-              python3 ../scripts/inject-deferred-ksu-cred.py .
-            else
-              echo "  Already patched, skipping"
-            fi
-            echo "=== Verification ==="
-            grep -A5 'built-in: setup_ksu_cred' "$FILE" || echo "NOT FOUND"
-          else
-            echo "  WARNING: $FILE not found"
-          fi
+          echo "=== Adding retry-safe setup_ksu_cred to do_track_throne_core ==="
+          python3 ../scripts/inject-deferred-ksu-cred.py .
+          echo "=== Verification ==="
+          grep -A10 'setup_ksu_cred_retry' drivers/kernelsu/manager/throne_tracker.c || echo "NOT FOUND"
 
       - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
         working-directory: kernel
