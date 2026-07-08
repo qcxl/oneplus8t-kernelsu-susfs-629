@@ -7,15 +7,15 @@ directly from its own process context.
 diff --git a/drivers/kernelsu/supercall/supercall.c b/drivers/kernelsu/supercall/supercall.c
 --- a/drivers/kernelsu/supercall/supercall.c
 +++ b/drivers/kernelsu/supercall/supercall.c
-@@ -14,6 +14,7 @@
- #include "supercall/internal.h"
+@@ -17,6 +17,7 @@
  #include "arch.h"
- #include "klog.h"
-+#include "ksu.h"
+ #include "klog.h" // IWYU pragma: keep
  #include "manager/manager_identity.h"
++#include "ksu.h"
  
  #include "sulog/event.h"
-@@ -239,3 +240,53 @@ void __exit ksu_supercalls_exit(void){
+ 
+@@ -241,3 +242,53 @@ void __exit ksu_supercalls_exit(void){
  	ksu_supercall_cleanup_state();
  }
 +
@@ -43,8 +43,10 @@ diff --git a/drivers/kernelsu/supercall/supercall.c b/drivers/kernelsu/supercall
 +        if (ksu_is_manager_appid_valid())
 +            flags |= KSU_GET_INFO_FLAG_MANAGER;
 +
-+        copy_to_user(version_ptr, &version, sizeof(version));
-+        copy_to_user(flags_ptr, &flags, sizeof(flags));
++        if (copy_to_user(version_ptr, &version, sizeof(version)))
++            return 1;
++        if (copy_to_user(flags_ptr, &flags, sizeof(flags)))
++            return 1;
 +        return 1;
 +    }
 +
@@ -61,3 +63,5 @@ diff --git a/drivers/kernelsu/supercall/supercall.h b/drivers/kernelsu/supercall
 +// Handle prctl(0xDEADBEEF, ...) for Manager App KSU fd
 +int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 +                     unsigned long arg4, unsigned long arg5);
++
+ void ksu_supercalls_init(void);
