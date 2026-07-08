@@ -109,12 +109,12 @@ jobs:
         run: |
           echo "=== Adding KSU_MANAGER_PACKAGE auto-crown logic ==="
           FILE="drivers/kernelsu/Kbuild"
-          # Add default package name if not already set
-          # Note: upstream legacy Kbuild already has 'ifdef KSU_MANAGER_PACKAGE' block
-          # but WITHOUT a default value. Check specifically for our default line.
+          # Add default package name BEFORE the existing ifdef block
+          # Make evaluates ifdef at parse time (top-to-bottom), so appending
+          # at EOF is too late - the earlier ifdef block would skip ccflags.
           if ! grep -q 'KSU_MANAGER_PACKAGE := com.rifsxd.ksunext' "$FILE" 2>/dev/null; then
-            printf '\nifndef KSU_MANAGER_PACKAGE\nKSU_MANAGER_PACKAGE := com.rifsxd.ksunext\nendif\n' >> "$FILE"
-            echo "  Added KSU_MANAGER_PACKAGE default=com.rifsxd.ksunext to Kbuild"
+            sed -i '0,/^ifdef KSU_MANAGER_PACKAGE$/s/^ifdef KSU_MANAGER_PACKAGE$/ifndef KSU_MANAGER_PACKAGE\nKSU_MANAGER_PACKAGE := com.rifsxd.ksunext\nendif\n\nifdef KSU_MANAGER_PACKAGE/' "$FILE"
+            echo "  Added KSU_MANAGER_PACKAGE default=com.rifsxd.ksunext before ifdef block"
           else
             echo "  KSU_MANAGER_PACKAGE already in Kbuild, skipping"
           fi
