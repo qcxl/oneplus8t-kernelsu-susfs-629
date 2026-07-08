@@ -145,6 +145,36 @@ jobs:
           grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
 
+      - name: Fix built-in kernel path - apply_kernelsu_rules + setup_ksu_cred
+        working-directory: kernel
+        run: |
+          echo "=== Moving apply_kernelsu_rules and setup_ksu_cred out of LKM-only block ==="
+          FILE="drivers/kernelsu/core/init.c"
+          if [ -f "$FILE" ]; then
+            # The built-in path (else branch) never calls apply_kernelsu_rules() or
+            # setup_ksu_cred(), so ksu_cred has no proper SELinux context.
+            # This causes -EACCES when throne_tracker tries to read packages.list.
+            # Fix: move both calls before the 'if (ksu_late_loaded)' check.
+            # Strategy: remove them from inside the if block, add before it.
+            if grep -q 'apply_kernelsu_rules' "$FILE"; then
+              # Remove apply_kernelsu_rules from inside the LKM block
+              sed -i '/if (ksu_late_loaded) {/,/^[[:space:]]*}[[:space:]]*$/{
+                /apply_kernelsu_rules/d
+                /cache_sid/d
+                /setup_ksu_cred/d
+              }' "$FILE"
+              # Re-add them before the 'if (ksu_late_loaded)' block
+              sed -i '/ksu_supercalls_init();/a\\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();' "$FILE"
+              echo "  Moved apply_kernelsu_rules/cache_sid/setup_ksu_cred before if (ksu_late_loaded)"
+            else
+              echo "  apply_kernelsu_rules not found in init.c - already moved or different structure"
+            fi
+            echo "=== Verification ==="
+            grep -n 'apply_kernelsu_rules\|setup_ksu_cred\|cache_sid' "$FILE"
+          else
+            echo "  WARNING: $FILE not found"
+          fi
+
       - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
         working-directory: kernel
         run: |
