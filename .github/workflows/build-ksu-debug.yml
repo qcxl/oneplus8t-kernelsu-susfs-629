@@ -566,6 +566,7 @@ jobs:
         run: cp out/.config /tmp/kernel-config.txt
 
       - name: Build kernel
+        shell: bash -e -o pipefail {0}
         working-directory: kernel
         run: |
           export PATH="/tmp/clang-r450784d/bin:/usr/lib/ccache:$PATH"
@@ -597,8 +598,6 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             2>&1 | tee build.log
-          # Preserve make's exit code (PIPESTATUS[0] is bash-only, not sh)
-          bash -c 'exit ${PIPESTATUS[0]}'
 
       - name: Verify kernel image
         working-directory: kernel
