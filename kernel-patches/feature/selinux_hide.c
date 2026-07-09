@@ -303,8 +303,6 @@ static void ksu_selinux_hide_disable(void)
 	pr_info("ksu_selinux_hide: disabling\n");
 	unhook_write_ops();
 	unhook_selinux_setprocattr();
-	/* Restore SELinux to enforcing mode */
-	setenforce(true);
 }
 
 /* ============= Feature handler ============= */
