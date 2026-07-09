@@ -31,7 +31,8 @@
 #include <linux/version.h>
 
 #include "selinux_hide.h"
-#include "../hook/patch_memory.h"
+/* ksu_patch_text: init_mm 页表遍历 + fixmap 写只读内存，支持 KASLR */
+extern void *ksu_patch_text(void *addr, void *dst);
 #include "policy/feature.h"
 #include "manager/manager_identity.h"
 #include "klog.h"
