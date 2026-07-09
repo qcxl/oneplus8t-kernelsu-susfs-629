@@ -437,38 +437,16 @@ jobs:
           ls -la drivers/kernelsu/infra/symbol_resolver.* 2>/dev/null
           grep -c "symbol_resolver" drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
-      - name: Inject selinux_hide (complete 4.19 port)
+      - name: Apply unified selinux_hide.c (filter mode + ksu_patch_text + manager exemption)
         working-directory: kernel
         run: |
-          echo "=== Injecting selinux_hide (complete 4.19 port) ==="
-          python3 ../scripts/inject-selinux-hide.py .
+          echo "=== Applying unified selinux_hide.c ==="
+          cp ../kernel-patches/unified-selinux_hide.c drivers/kernelsu/feature/selinux_hide.c
+          echo "  Copied unified selinux_hide.c"
           echo "=== Verification ==="
-          grep -c 'KSU_SELINUX_HIDE_V2_INJECTED' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
-          grep -c 'ksu_selinux_hide_init' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
-          ls -la drivers/kernelsu/feature/selinux_hide.c 2>/dev/null && echo "selinux_hide.c OK" || echo "selinux_hide.c MISSING"
-          grep -c 'feature/selinux_hide.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
-
-      - name: Fix SELinux permissive mode for manager app
-        working-directory: kernel
-        run: |
-          echo "=== Fixing SELinux status spoofing for manager app ==="
-          FILE="drivers/kernelsu/feature/selinux_hide.c"
-          if [ -f "$FILE" ]; then
-            # Add include for manager_identity.h (after existing ksu includes)
-            if ! grep -q 'manager/manager_identity.h' "$FILE" 2>/dev/null; then
-              sed -i '/#include "policy\/feature.h"/a #include "manager\/manager_identity.h"' "$FILE"
-              echo "  Added include: manager/manager_identity.h"
-            fi
-            # Modify the UID check to exempt manager from fake status
-            # Change: current_uid().val >= 10000 && ksu_selinux_hide_is_enabled
-            # To:     current_uid().val >= 10000 && ksu_selinux_hide_is_enabled && current_uid().val != ksu_get_manager_appid()
-            sed -i 's/current_uid().val >= 10000 &&/current_uid().val >= 10000 \&\& current_uid().val != ksu_get_manager_appid() \&\&/' "$FILE"
-            echo "  Added manager UID exemption to fake status page"
-            echo "=== Verification ==="
-            grep -c 'ksu_get_manager_appid' "$FILE" 2>/dev/null || echo "0"
-          else
-            echo "WARNING: $FILE not found"
-          fi
+          ls -la drivers/kernelsu/feature/selinux_hide.c
+          grep -c 'my_write_context' drivers/kernelsu/feature/selinux_hide.c
+          grep -c 'ksu_patch_text' drivers/kernelsu/feature/selinux_hide.c
 
       - name: Inject init.rc module RC support (from dev d3e454f)
         working-directory: kernel
@@ -582,7 +560,7 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
           # Cache buster: change this env var to force ccache miss on any workflow/config change
-          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/feature/selinux_hide.c:../../scripts/inject-selinux-hide.py:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../build-boot-img.py"
+          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/unified-selinux_hide.c:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../build-boot-img.py"
           # ^ ccache includes these file hashes in its key, so any change to workflow/config/inject
           #   automatically invalidates the compilation cache.
 
