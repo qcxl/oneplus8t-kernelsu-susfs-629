@@ -347,19 +347,8 @@ static void unhook_write_ops(void)
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 	}
-	/* SEL_ENFORCE 是永久的，不在 unhook 中移除。
-	 * 但如果有人直接调了此函数，做安全检查。 */
-	if (enforce_write_slot) {
-		if (*enforce_write_slot == my_write_enforce) {
-			WRITE_ONCE(*enforce_write_slot, orig_enforce_write);
-			smp_wmb();
-			pr_info("ksu_selinux_hide: unhooked write_op[SEL_ENFORCE]\n");
-		} else {
-			pr_info("ksu_selinux_hide: write_op[SEL_ENFORCE] replaced by another module, leaving it\n");
-		}
-		enforce_write_slot = NULL;
-		orig_enforce_write = NULL;
-	}
+	/* SEL_ENFORCE 钩子是永久的（init 时安装一次），不在 unhook 中移除。
+	 * 也不清空 enforce_write_slot 和 orig_enforce_write。 */
 	/* 不清空 selinux_write_op！write_op[] 是 __ro_after_init 只读内存，
 	 * 清空指针会导致下次 hook_write_ops() 尝试重新写入只读内存 → 崩溃。
 	 * WRITE_ONCE 只在 init 期间执行一次，之后只通过 orig_* 恢复子项。 */
