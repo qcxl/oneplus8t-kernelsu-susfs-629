@@ -262,16 +262,16 @@ static void unhook_selinux_setprocattr(void)
  * 4.19 无 CFI 需确保退出时不影响其他模块（如 SUSFS）的钩子。 */
 static void hook_enforce_write(void)
 {
+	write_op_fn *wop;
+
 	if (enforce_write_slot)
 		return;
-	if (!selinux_write_op) {
-		selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
-		if (!selinux_write_op) {
-			pr_err("ksu_selinux_hide: write_op symbol not found, enforce hook disabled\n");
-			return;
-		}
+	wop = (write_op_fn *)kallsyms_lookup_name("write_op");
+	if (!wop) {
+		pr_err("ksu_selinux_hide: write_op symbol not found, enforce hook disabled\n");
+		return;
 	}
-	enforce_write_slot = &selinux_write_op[SEL_ENFORCE];
+	enforce_write_slot = &wop[SEL_ENFORCE];
 	orig_enforce_write = *enforce_write_slot;
 	if (!orig_enforce_write) {
 		pr_warn("ksu_selinux_hide: write_op[SEL_ENFORCE] is NULL, skipping\n");
@@ -360,7 +360,9 @@ static void unhook_write_ops(void)
 		enforce_write_slot = NULL;
 		orig_enforce_write = NULL;
 	}
-	selinux_write_op = NULL;
+	/* 不清空 selinux_write_op！write_op[] 是 __ro_after_init 只读内存，
+	 * 清空指针会导致下次 hook_write_ops() 尝试重新写入只读内存 → 崩溃。
+	 * WRITE_ONCE 只在 init 期间执行一次，之后只通过 orig_* 恢复子项。 */
 }
 
 /* ============= enable/disable ============= */
