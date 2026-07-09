@@ -7,8 +7,9 @@
  *
  * 4.19 适配：
  *   - 过滤模式代替 backup_sepolicy (4.19 不支持 struct selinux_policy)
- *   - set_memory_rw/ro 临时可写后写入 write_op[] (WRITE_ONCE 直接写
- *     .rodata 在 CONFIG_STRICT_KERNEL_RWX=y 上触发 page fault)
+ *   - ksu_patch_text() 通过 init_mm 页表遍历 + fixmap 写入只读内存
+ *      (不依赖线性映射，支持 KASLR；替代直接 WRITE_ONCE 写 .rodata
+ *       或 set_memory_rw/ro 写 vmalloc 区——两者均会 page fault)
  *   - 去掉 write_op[SEL_ENFORCE] 钩子 (LineageOS 4.19 恒为 NULL)
  *   - init 时不自动启用 (toggle 才激活)
  *   - Manager UID 豁免 (GHA 工作流中原有的注入步骤, 现内置)
@@ -30,6 +31,7 @@
 #include <linux/version.h>
 
 #include "selinux_hide.h"
+#include "../hook/patch_memory.h"
 #include "policy/feature.h"
 #include "manager/manager_identity.h"
 #include "klog.h"
@@ -51,41 +53,6 @@
 
 typedef ssize_t (*write_op_fn)(struct file *file, char *buf, size_t size);
 typedef int (*setprocattr_fn)(const char *name, void *value, size_t size);
-
-/* ============= 只读内存写入支持 ============= */
-
-/*
- * On arm64 with CONFIG_STRICT_KERNEL_RWX=y, write_op[] is 'static const'
- * and resides in .rodata. WRITE_ONCE on .rodata triggers a page fault.
- * We use set_memory_rw/ro (resolved via kallsyms) to temporarily mark
- * the target page writable, then restore read-only.
- */
-typedef int (*set_mem_perm_fn)(unsigned long addr, int numpages);
-
-static set_mem_perm_fn set_memory_rw_fn;
-static set_mem_perm_fn set_memory_ro_fn;
-
-static int init_ro_write(void)
-{
-	if (set_memory_rw_fn && set_memory_ro_fn)
-		return 0;
-	set_memory_rw_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_rw");
-	set_memory_ro_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_ro");
-	if (!set_memory_rw_fn || !set_memory_ro_fn) {
-		pr_err("selinux_hide: set_memory_rw/ro not found in kallsyms\n");
-		return -ENOENT;
-	}
-	return 0;
-}
-
-static void ro_write_slot(write_op_fn *slot, write_op_fn new_val)
-{
-	unsigned long page = (unsigned long)slot & PAGE_MASK;
-	write_op_fn tmp = new_val;
-	set_memory_rw_fn(page, 1);
-	WRITE_ONCE(*slot, tmp);
-	set_memory_ro_fn(page, 1);
-}
 
 /* ============= 常量 ============= */
 
@@ -168,6 +135,8 @@ static ssize_t my_write_context(struct file *file, char *buf, size_t size)
 		if (buf_mentions_ksu(buf, size))
 			return -EINVAL;
 	}
+	if (unlikely(!orig_context_write))
+		return -EIO;
 	return orig_context_write(file, buf, size);
 }
 
@@ -185,6 +154,8 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
 					 0, 0xffffffff, 0, 0xffffffff, 0, 0);
 		}
 	}
+	if (unlikely(!orig_access_write))
+		return -EIO;
 	return orig_access_write(file, buf, size);
 }
 
@@ -201,6 +172,8 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 				return -EACCES;
 		}
 	}
+	if (unlikely(!orig_setprocattr))
+		return -EIO;
 	return orig_setprocattr(name, value, size);
 }
 
@@ -211,11 +184,6 @@ static void hook_write_ops(void)
 	if (selinux_write_op)
 		return;
 
-	if (init_ro_write()) {
-		pr_err("selinux_hide: ro_write init failed, skipping write_op hook\n");
-		return;
-	}
-
 	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
 	if (!selinux_write_op) {
 		pr_err("selinux_hide: write_op not found\n");
@@ -223,21 +191,17 @@ static void hook_write_ops(void)
 	}
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
-	orig_context_write = *context_write_slot;
+	orig_context_write = (write_op_fn)ksu_patch_text(context_write_slot, my_write_context);
 	if (!orig_context_write) {
-		pr_warn("selinux_hide: write_op[SEL_CONTEXT] is NULL, skipping\n");
+		pr_err("selinux_hide: ksu_patch_text failed for context_write\n");
 		context_write_slot = NULL;
-	} else {
-		ro_write_slot(context_write_slot, my_write_context);
 	}
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
-	orig_access_write = *access_write_slot;
+	orig_access_write = (write_op_fn)ksu_patch_text(access_write_slot, my_write_access);
 	if (!orig_access_write) {
-		pr_warn("selinux_hide: write_op[SEL_ACCESS] is NULL, skipping\n");
+		pr_err("selinux_hide: ksu_patch_text failed for access_write\n");
 		access_write_slot = NULL;
-	} else {
-		ro_write_slot(access_write_slot, my_write_access);
 	}
 }
 
@@ -278,13 +242,13 @@ static void unhook_write_ops(void)
 {
 	if (context_write_slot) {
 		if (*context_write_slot == my_write_context)
-			ro_write_slot(context_write_slot, orig_context_write);
+			ksu_patch_text(context_write_slot, orig_context_write);
 		context_write_slot = NULL;
 		orig_context_write = NULL;
 	}
 	if (access_write_slot) {
 		if (*access_write_slot == my_write_access)
-			ro_write_slot(access_write_slot, orig_access_write);
+			ksu_patch_text(access_write_slot, orig_access_write);
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 	}
