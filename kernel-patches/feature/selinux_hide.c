@@ -301,8 +301,14 @@ static int ksu_selinux_hide_enable(void)
 static void ksu_selinux_hide_disable(void)
 {
 	pr_info("ksu_selinux_hide: disabling\n");
+	/* Only unhook write_ops (stop faking SELinux context queries).
+	 * Keep setprocattr hook active: KSU domain processes need it.
+	 * 
+	 * IMPORTANT: Never call setenforce(true) here. Restoring enforcing
+	 * after running permissive crashes the system - SELinux starts denying
+	 * previously-allowed operations, killing critical services.
+	 * User must reboot to restore enforcing mode. */
 	unhook_write_ops();
-	unhook_selinux_setprocattr();
 }
 
 /* ============= Feature handler ============= */
