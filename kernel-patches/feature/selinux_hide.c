@@ -257,19 +257,20 @@ static void unhook_selinux_setprocattr(void)
 
 /* ============= write_op[] hook 安装/卸载 ============= */
 
-static void hook_write_ops(void)
+/* SEL_ENFORCE 钩子是永久的，init 时安装一次永不卸载。
+ * 与 hide 状态无关。GKI 上原版 KSU 通过 LSM hook chain 解决，
+ * 4.19 无 CFI 需确保退出时不影响其他模块（如 SUSFS）的钩子。 */
+static void hook_enforce_write(void)
 {
-	if (selinux_write_op)
+	if (enforce_write_slot)
 		return;
-
-	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
 	if (!selinux_write_op) {
-		pr_err("ksu_selinux_hide: write_op symbol not found, context/access hooks disabled\n");
-		return;
+		selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
+		if (!selinux_write_op) {
+			pr_err("ksu_selinux_hide: write_op symbol not found, enforce hook disabled\n");
+			return;
+		}
 	}
-
-	/* Hook SEL_ENFORCE (index 4) — always, not gated by hide state
-	 * This allows setenforce 0/1 to work from KSU manager context */
 	enforce_write_slot = &selinux_write_op[SEL_ENFORCE];
 	orig_enforce_write = *enforce_write_slot;
 	if (!orig_enforce_write) {
@@ -279,6 +280,18 @@ static void hook_write_ops(void)
 		smp_wmb();
 		WRITE_ONCE(*enforce_write_slot, my_write_enforce);
 		pr_info("ksu_selinux_hide: hooked write_op[SEL_ENFORCE]\n");
+	}
+}
+
+static void hook_write_ops(void)
+{
+	if (selinux_write_op)
+		return;
+
+	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
+	if (!selinux_write_op) {
+		pr_err("ksu_selinux_hide: write_op symbol not found, context/access hooks disabled\n");
+		return;
 	}
 
 	/* Hook SEL_CONTEXT (index 5) */
@@ -310,27 +323,42 @@ static void hook_write_ops(void)
 
 static void unhook_write_ops(void)
 {
-	/* 恢复时先写回原指针，再 smp_wmb */
-	if (context_write_slot && orig_context_write) {
-		WRITE_ONCE(*context_write_slot, orig_context_write);
-		smp_wmb();
+	/* 安全恢复：检查当前指针是否还是我们的。
+	 * 如果其他模块（SUSFS）后来替换了同一个 slot，我们不动。 */
+	if (context_write_slot) {
+		if (*context_write_slot == my_write_context) {
+			WRITE_ONCE(*context_write_slot, orig_context_write);
+			smp_wmb();
+			pr_info("ksu_selinux_hide: unhooked write_op[SEL_CONTEXT]\n");
+		} else {
+			pr_info("ksu_selinux_hide: write_op[SEL_CONTEXT] replaced by another module, leaving it\n");
+		}
 		context_write_slot = NULL;
 		orig_context_write = NULL;
-		pr_info("ksu_selinux_hide: unhooked write_op[SEL_CONTEXT]\n");
 	}
-	if (access_write_slot && orig_access_write) {
-		WRITE_ONCE(*access_write_slot, orig_access_write);
-		smp_wmb();
+	if (access_write_slot) {
+		if (*access_write_slot == my_write_access) {
+			WRITE_ONCE(*access_write_slot, orig_access_write);
+			smp_wmb();
+			pr_info("ksu_selinux_hide: unhooked write_op[SEL_ACCESS]\n");
+		} else {
+			pr_info("ksu_selinux_hide: write_op[SEL_ACCESS] replaced by another module, leaving it\n");
+		}
 		access_write_slot = NULL;
 		orig_access_write = NULL;
-		pr_info("ksu_selinux_hide: unhooked write_op[SEL_ACCESS]\n");
 	}
-	if (enforce_write_slot && orig_enforce_write) {
-		WRITE_ONCE(*enforce_write_slot, orig_enforce_write);
-		smp_wmb();
+	/* SEL_ENFORCE 是永久的，不在 unhook 中移除。
+	 * 但如果有人直接调了此函数，做安全检查。 */
+	if (enforce_write_slot) {
+		if (*enforce_write_slot == my_write_enforce) {
+			WRITE_ONCE(*enforce_write_slot, orig_enforce_write);
+			smp_wmb();
+			pr_info("ksu_selinux_hide: unhooked write_op[SEL_ENFORCE]\n");
+		} else {
+			pr_info("ksu_selinux_hide: write_op[SEL_ENFORCE] replaced by another module, leaving it\n");
+		}
 		enforce_write_slot = NULL;
 		orig_enforce_write = NULL;
-		pr_info("ksu_selinux_hide: unhooked write_op[SEL_ENFORCE]\n");
 	}
 	selinux_write_op = NULL;
 }
@@ -424,6 +452,9 @@ void ksu_selinux_hide_handle_post_fs_data(void)
 
 void __init ksu_selinux_hide_init(void)
 {
+	/* 永久安装 SEL_ENFORCE 钩子（与 hide 开关状态无关） */
+	hook_enforce_write();
+
 	int ret;
 
 	ret = ksu_register_feature_handler(&selinux_hide_handler);
