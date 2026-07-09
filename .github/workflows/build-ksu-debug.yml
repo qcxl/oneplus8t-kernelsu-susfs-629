@@ -360,6 +360,16 @@ jobs:
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 
+      - name: Inject hook/arm64/patch_memory (ksu_patch_text for legacy)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting hook/arm64/patch_memory (ksu_patch_text) ==="
+          mkdir -p drivers/kernelsu/hook/arm64
+          cp ../kernel-patches/hook/patch_memory.h drivers/kernelsu/hook/patch_memory.h
+          cp ../kernel-patches/hook/arm64/patch_memory.c drivers/kernelsu/hook/arm64/patch_memory.c
+          echo "  Copied patch_memory.h and arm64/patch_memory.c"
+          ls -la drivers/kernelsu/hook/patch_memory.h drivers/kernelsu/hook/arm64/patch_memory.c
+
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
         run: |
