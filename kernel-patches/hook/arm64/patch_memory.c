@@ -80,7 +80,7 @@ fail:
 	return 0;
 }
 
-#if KSU_NEW_DCACHE_FLUSH
+#if 0 /* 4.19: always use __flush_dcache_area */
 #define ksu_flush_dcache(start, sz)                                            \
 	({                                                                     \
 		unsigned long __start = (start);                               \
