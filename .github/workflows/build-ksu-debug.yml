@@ -381,6 +381,11 @@ jobs:
           # copy_to_kernel_nofault not in 4.19
           if [ -f "drivers/kernelsu/hook/arm64/patch_memory.c" ]; then
             sed -i 's|copy_to_kernel_nofault(|memcpy(|g' drivers/kernelsu/hook/arm64/patch_memory.c
+            # Ensure patch_memory.o is in Kbuild (legacy branch doesn't include it)
+            if ! grep -q "hook/arm64/patch_memory\.o" drivers/kernelsu/Kbuild 2>/dev/null; then
+              sed -i '/^kernelsu-objs += hook\/lsm_hooks\.o$/a kernelsu-objs += hook/arm64/patch_memory.o' drivers/kernelsu/Kbuild
+              echo "Added hook/arm64/patch_memory.o to Kbuild"
+            fi
           fi
           # MODULE_IMPORT_NS not in 4.19
           if [ -f "drivers/kernelsu/core/init.c" ]; then

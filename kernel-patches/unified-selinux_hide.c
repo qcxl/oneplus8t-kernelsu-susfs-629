@@ -32,7 +32,7 @@
 
 #include "selinux_hide.h"
 /* ksu_patch_text: init_mm 页表遍历 + fixmap 写只读内存，支持 KASLR */
-extern void *ksu_patch_text(void *addr, void *dst);
+extern int ksu_patch_text(void *dst, void *src, size_t len, int flags);
 #include "policy/feature.h"
 #include "manager/manager_identity.h"
 #include "klog.h"
@@ -182,6 +182,8 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 
 static void hook_write_ops(void)
 {
+	int ret;
+
 	if (selinux_write_op)
 		return;
 
@@ -192,16 +194,22 @@ static void hook_write_ops(void)
 	}
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
-	orig_context_write = (write_op_fn)ksu_patch_text(context_write_slot, my_write_context);
-	if (!orig_context_write) {
-		pr_err("selinux_hide: ksu_patch_text failed for context_write\n");
+	orig_context_write = *context_write_slot;
+	ret = ksu_patch_text(context_write_slot, &my_write_context,
+			     sizeof(write_op_fn), 0);
+	if (ret) {
+		pr_err("selinux_hide: ksu_patch_text failed for context_write: %d\n",
+		       ret);
 		context_write_slot = NULL;
 	}
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
-	orig_access_write = (write_op_fn)ksu_patch_text(access_write_slot, my_write_access);
-	if (!orig_access_write) {
-		pr_err("selinux_hide: ksu_patch_text failed for access_write\n");
+	orig_access_write = *access_write_slot;
+	ret = ksu_patch_text(access_write_slot, &my_write_access,
+			     sizeof(write_op_fn), 0);
+	if (ret) {
+		pr_err("selinux_hide: ksu_patch_text failed for access_write: %d\n",
+		       ret);
 		access_write_slot = NULL;
 	}
 }
@@ -243,13 +251,15 @@ static void unhook_write_ops(void)
 {
 	if (context_write_slot) {
 		if (*context_write_slot == my_write_context)
-			ksu_patch_text(context_write_slot, orig_context_write);
+			ksu_patch_text(context_write_slot, &orig_context_write,
+				       sizeof(write_op_fn), 0);
 		context_write_slot = NULL;
 		orig_context_write = NULL;
 	}
 	if (access_write_slot) {
 		if (*access_write_slot == my_write_access)
-			ksu_patch_text(access_write_slot, orig_access_write);
+			ksu_patch_text(access_write_slot, &orig_access_write,
+				       sizeof(write_op_fn), 0);
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 	}
