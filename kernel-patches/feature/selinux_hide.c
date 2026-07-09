@@ -361,8 +361,10 @@ static int ksu_selinux_hide_enable(void)
 	pr_info("ksu_selinux_hide: enabling\n");
 	hook_write_ops();
 	hook_selinux_setprocattr();
-	/* Also set SELinux to permissive so all operations work */
-	setenforce(false);
+	/* NOTE: Do NOT call setenforce(false) here! That makes SELinux permissive
+	 * from boot, which is a security downgrade (S-02). The Hide feature only
+	 * filters KSU-related SELinux queries - it should not change enforcing state.
+	 * The "SELinux 宽容模式" toggle has its own explicit setenforce path. */
 	return 0;
 }
 
