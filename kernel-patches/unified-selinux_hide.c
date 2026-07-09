@@ -3,11 +3,11 @@
  * feature/selinux_hide.c — 统一版 SELinux hide (4.19)
  *
  * 合并版本 A (dev: ksu_patch_text + ksu_lsm_hook + fake_status) 和
- * 版本 B (注入: 过滤模式 + WRITE_ONCE + 直接 security_hook_heads 操作) 的最佳部分。
+ * 版本 B (注入: 过滤模式 + 直接 security_hook_heads 操作) 的最佳部分。
  *
  * 4.19 适配：
  *   - 过滤模式代替 backup_sepolicy (4.19 不支持 struct selinux_policy)
- *   - set_memory_rw/ro 临时可写后 RO_WRITE 写 write_op[] (WRITE_ONCE 直接写
+ *   - set_memory_rw/ro 临时可写后写入 write_op[] (WRITE_ONCE 直接写
  *     .rodata 在 CONFIG_STRICT_KERNEL_RWX=y 上触发 page fault)
  *   - 去掉 write_op[SEL_ENFORCE] 钩子 (LineageOS 4.19 恒为 NULL)
  *   - init 时不自动启用 (toggle 才激活)
@@ -36,23 +36,21 @@
 #include "selinux/selinux.h"
 
 /*
- * Legacy kernel uapi/feature.h uses KSU_FEATURE_SELINUX_HIDE_STATUS (4).
- * Upstream dev uses KSU_FEATURE_SELINUX_HIDE (4). Create an alias so we
- * can use the upstream name while compiling on either version.
+ * Unified feature ID constants for cross-branch compatibility.
+ *   dev branch:   uapi/feature.h has KSU_FEATURE_SELINUX_HIDE = 4,
+ *                 KSU_FEATURE_SET_SELINUX_ENFORCE = 5 (in enum)
+ *   legacy branch: uapi/feature.h has KSU_FEATURE_SELINUX_HIDE_STATUS = 4 (in enum),
+ *                  no KSU_FEATURE_SET_SELINUX_ENFORCE
+ * We use preprocessor defines (not enum) so they work with #ifndef and don't
+ * conflict with either branch's enum definitions.
  */
-#ifdef KSU_FEATURE_SELINUX_HIDE_STATUS
-#ifndef KSU_FEATURE_SELINUX_HIDE
-#define KSU_FEATURE_SELINUX_HIDE KSU_FEATURE_SELINUX_HIDE_STATUS
-#endif
-#endif
+#define KSU_FEATURE_ID_SELINUX_HIDE    4
+#define KSU_FEATURE_ID_SELINUX_ENFORCE 5
 
-/*
- * KSU_FEATURE_SET_SELINUX_ENFORCE (5) may not be in legacy feature.h.
- * Define it here so this file compiles standalone.
- */
-#ifndef KSU_FEATURE_SET_SELINUX_ENFORCE
-#define KSU_FEATURE_SET_SELINUX_ENFORCE 5
-#endif
+/* ============= 类型定义 ============= */
+
+typedef ssize_t (*write_op_fn)(struct file *file, char *buf, size_t size);
+typedef int (*setprocattr_fn)(const char *name, void *value, size_t size);
 
 /* ============= 只读内存写入支持 ============= */
 
@@ -124,11 +122,6 @@ enum sel_inos {
 	SEL_VALIDATE_TRANS,
 	SEL_INO_NEXT,
 };
-
-/* ============= 类型定义 ============= */
-
-typedef ssize_t (*write_op_fn)(struct file *file, char *buf, size_t size);
-typedef int (*setprocattr_fn)(const char *name, void *value, size_t size);
 
 /* ============= 全局状态 ============= */
 
@@ -366,7 +359,7 @@ static int selinux_hide_feature_set(u64 value)
 }
 
 static const struct ksu_feature_handler selinux_hide_handler = {
-	.feature_id = KSU_FEATURE_SELINUX_HIDE,
+	.feature_id = KSU_FEATURE_ID_SELINUX_HIDE,
 	.name = "selinux_hide",
 	.get_handler = selinux_hide_feature_get,
 	.set_handler = selinux_hide_feature_set,
@@ -392,7 +385,7 @@ static int enforce_feature_set(u64 value)
 }
 
 static const struct ksu_feature_handler enforce_handler = {
-	.feature_id = KSU_FEATURE_SET_SELINUX_ENFORCE,
+	.feature_id = KSU_FEATURE_ID_SELINUX_ENFORCE,
 	.name = "set_selinux_enforce",
 	.get_handler = enforce_feature_get,
 	.set_handler = enforce_feature_set,
@@ -425,8 +418,8 @@ void __exit ksu_selinux_hide_exit(void)
 	ksu_selinux_hide_enabled = false;
 	mutex_unlock(&selinux_hide_mutex);
 
-	ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE);
-	ksu_unregister_feature_handler(KSU_FEATURE_SET_SELINUX_ENFORCE);
+	ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_HIDE);
+	ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_ENFORCE);
 	pr_info("selinux_hide: exited\n");
 }
 
