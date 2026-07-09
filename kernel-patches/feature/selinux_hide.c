@@ -39,6 +39,7 @@
 
 #include "selinux_hide.h"
 #include "policy/feature.h"
+#include "manager/manager_identity.h"
 #include "klog.h"
 #include "selinux/selinux.h"
 
@@ -92,8 +93,10 @@ typedef ssize_t (*write_op_fn)(struct file *file, char *buf, size_t size);
 static write_op_fn *selinux_write_op = NULL;
 static write_op_fn *context_write_slot = NULL;
 static write_op_fn *access_write_slot = NULL;
+static write_op_fn *enforce_write_slot = NULL;
 static write_op_fn orig_context_write = NULL;
 static write_op_fn orig_access_write = NULL;
+static write_op_fn orig_enforce_write = NULL;
 
 /* 在长度受限的缓冲区中查找子串（4.19 strnstr 签名） */
 static bool buf_contains(const char *buf, size_t size, const char *needle)
@@ -152,6 +155,32 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
 		}
 	}
 	return orig_access_write(file, buf, size);
+}
+
+/* ============= Route B3: my_write_enforce ============= */
+
+static ssize_t my_write_enforce(struct file *file, char *buf, size_t size)
+{
+	/* Security: only allow root (UID 0) or registered KSU manager
+	 * to change enforcing state. Regular apps MUST NOT bypass SELinux.
+	 * 
+	 * libsu root shell runs as UID 0 → allowed.
+	 * KSU Manager App (registered via GET_INFO) → allowed.
+	 * Any other process → falls through to original handler (subject to SELinux).
+	 */
+	if (size >= 1 && (buf[0] == '0' || buf[0] == '1')) {
+		if (current_uid().val != 0 && !ksu_is_manager_appid_valid()) {
+			/* Not authorized - use original handler */
+			return orig_enforce_write ? orig_enforce_write(file, buf, size) : size;
+		}
+		bool enforce = (buf[0] == '1');
+		pr_info("ksu_selinux_hide: setenforce via write_op: %s\n",
+			enforce ? "Enforcing" : "Permissive");
+		setenforce(enforce);
+		return size;
+	}
+	/* Fall through to original handler for invalid values */
+	return orig_enforce_write ? orig_enforce_write(file, buf, size) : size;
 }
 
 /* ============= Route A: my_setprocattr (LSM hook 链表替换) ============= */
@@ -239,6 +268,19 @@ static void hook_write_ops(void)
 		return;
 	}
 
+	/* Hook SEL_ENFORCE (index 4) — always, not gated by hide state
+	 * This allows setenforce 0/1 to work from KSU manager context */
+	enforce_write_slot = &selinux_write_op[SEL_ENFORCE];
+	orig_enforce_write = *enforce_write_slot;
+	if (!orig_enforce_write) {
+		pr_warn("ksu_selinux_hide: write_op[SEL_ENFORCE] is NULL, skipping\n");
+		enforce_write_slot = NULL;
+	} else {
+		smp_wmb();
+		WRITE_ONCE(*enforce_write_slot, my_write_enforce);
+		pr_info("ksu_selinux_hide: hooked write_op[SEL_ENFORCE]\n");
+	}
+
 	/* Hook SEL_CONTEXT (index 5) */
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
 	orig_context_write = *context_write_slot;
@@ -283,6 +325,13 @@ static void unhook_write_ops(void)
 		orig_access_write = NULL;
 		pr_info("ksu_selinux_hide: unhooked write_op[SEL_ACCESS]\n");
 	}
+	if (enforce_write_slot && orig_enforce_write) {
+		WRITE_ONCE(*enforce_write_slot, orig_enforce_write);
+		smp_wmb();
+		enforce_write_slot = NULL;
+		orig_enforce_write = NULL;
+		pr_info("ksu_selinux_hide: unhooked write_op[SEL_ENFORCE]\n");
+	}
 	selinux_write_op = NULL;
 }
 
@@ -301,13 +350,11 @@ static int ksu_selinux_hide_enable(void)
 static void ksu_selinux_hide_disable(void)
 {
 	pr_info("ksu_selinux_hide: disabling\n");
-	/* Only unhook write_ops (stop faking SELinux context queries).
+	/* Unhook write_ops (stop faking SELinux context/access queries).
 	 * Keep setprocattr hook active: KSU domain processes need it.
-	 * 
-	 * IMPORTANT: Never call setenforce(true) here. Restoring enforcing
-	 * after running permissive crashes the system - SELinux starts denying
-	 * previously-allowed operations, killing critical services.
-	 * User must reboot to restore enforcing mode. */
+	 *
+	 * NOTE: SEL_ENFORCE hook is also unhooked here. The setenforce
+	 * toggle will fall back to IOCTL path (or require reboot). */
 	unhook_write_ops();
 }
 
