@@ -369,12 +369,10 @@ static int ksu_selinux_hide_enable(void)
 static void ksu_selinux_hide_disable(void)
 {
 	pr_info("ksu_selinux_hide: disabling\n");
-	/* Unhook write_ops (stop faking SELinux context/access queries).
-	 * Keep setprocattr hook active: KSU domain processes need it.
-	 *
-	 * NOTE: SEL_ENFORCE hook is also unhooked here. The setenforce
-	 * toggle will fall back to IOCTL path (or require reboot). */
-	unhook_write_ops();
+	/* 不卸载钩子！write_op[] 和 security_hook_heads 都是 __ro_after_init
+	 * 只读内存，运行时写入会崩溃。钩子在 init 期间永久安装，
+	 * enable/disable 只靠修改 ksu_selinux_hide_enabled 标志位控制。
+	 * my_write_context/my_write_access/my_setprocattr 检查该标志。 */
 }
 
 /* ============= Feature handler ============= */
@@ -387,6 +385,7 @@ static int selinux_hide_feature_get(u64 *value)
 
 static int selinux_hide_feature_set(u64 value)
 {
+	pr_alert("ksu_selinux_hide: feature_set(%llu) ENTRY\n", value);
 	bool enable = !!value;
 	int ret = 0;
 
