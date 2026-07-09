@@ -2,16 +2,15 @@
 /*
  * feature/selinux_hide.c — 统一版 SELinux hide (4.19)
  *
- * 合并版本：
- *   - 版本 A (kernelsu-next dev):  ksu_patch_text + ksu_lsm_hook + 完整卸载
- *   - 版本 B (kernel-patches 注入): 过滤模式 (字符串匹配) + Manager 豁免
+ * 合并版本 A (dev: ksu_patch_text + ksu_lsm_hook + fake_status) 和
+ * 版本 B (注入: 过滤模式 + WRITE_ONCE + 直接 security_hook_heads 操作) 的最佳部分。
  *
  * 4.19 适配：
- *   - 过滤模式代替 backup_sepolicy (4.19 不支持)
- *   - ksu_patch_text 代替 WRITE_ONCE (安全修改 .rodata 中的 write_op[])
- *   - ksu_lsm_hook API 代替直接操作 security_hook_heads
+ *   - 过滤模式代替 backup_sepolicy (4.19 不支持 struct selinux_policy)
+ *   - WRITE_ONCE 写 write_op[] (4.19 不支持 ksu_patch_text — 仅 dev 分支有此 API)
  *   - 去掉 write_op[SEL_ENFORCE] 钩子 (LineageOS 4.19 恒为 NULL)
  *   - init 时不自动启用 (toggle 才激活)
+ *   - Manager UID 豁免 (GHA 工作流中原有的注入步骤, 现内置)
  */
 
 #include <linux/init.h>
@@ -27,15 +26,12 @@
 #include <linux/cred.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
-#include <linux/jump_label.h>
 
 #include "selinux_hide.h"
 #include "policy/feature.h"
 #include "manager/manager_identity.h"
 #include "klog.h"
 #include "selinux/selinux.h"
-#include "hook/patch_memory.h"
-#include "hook/lsm_hook.h"
 
 /* ============= 常量 ============= */
 
@@ -88,6 +84,8 @@ static write_op_fn *context_write_slot = NULL;
 static write_op_fn *access_write_slot = NULL;
 static write_op_fn orig_context_write = NULL;
 static write_op_fn orig_access_write = NULL;
+static setprocattr_fn orig_setprocattr = NULL;
+static struct security_hook_list *setprocattr_entry = NULL;
 
 /* ============= 辅助函数 ============= */
 
@@ -141,11 +139,7 @@ static ssize_t my_write_access(struct file *file, char *buf, size_t size)
 	return orig_access_write(file, buf, size);
 }
 
-/* ============= my_setprocattr (ksu_lsm_hook API) ============= */
-
-static int my_setprocattr(const char *name, void *value, size_t size);
-struct ksu_lsm_hook selinux_setprocattr_hook =
-	KSU_LSM_HOOK_INIT(setprocattr, "selinux_setprocattr", my_setprocattr, 0);
+/* ============= my_setprocattr (直接操作 security_hook_heads) ============= */
 
 static int my_setprocattr(const char *name, void *value, size_t size)
 {
@@ -158,15 +152,13 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 				return -EACCES;
 		}
 	}
-	return ((setprocattr_fn)selinux_setprocattr_hook.original)(name, value, size);
+	return orig_setprocattr(name, value, size);
 }
 
-/* ============= write_op[] hook 安装/卸载 (ksu_patch_text) ============= */
+/* ============= hook / unhook 安装 ============= */
 
 static void hook_write_ops(void)
 {
-	int ret;
-
 	if (selinux_write_op)
 		return;
 
@@ -182,14 +174,8 @@ static void hook_write_ops(void)
 		pr_warn("selinux_hide: write_op[SEL_CONTEXT] is NULL, skipping\n");
 		context_write_slot = NULL;
 	} else {
-		write_op_fn my_fn = my_write_context;
-		ret = ksu_patch_text(context_write_slot, &my_fn, sizeof(my_fn),
-				     KSU_PATCH_TEXT_FLUSH_DCACHE);
-		if (ret) {
-			pr_err("selinux_hide: patch_text context_write err: %d\n", ret);
-			context_write_slot = NULL;
-			orig_context_write = NULL;
-		}
+		smp_wmb();
+		WRITE_ONCE(*context_write_slot, my_write_context);
 	}
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
@@ -198,62 +184,81 @@ static void hook_write_ops(void)
 		pr_warn("selinux_hide: write_op[SEL_ACCESS] is NULL, skipping\n");
 		access_write_slot = NULL;
 	} else {
-		write_op_fn my_fn = my_write_access;
-		ret = ksu_patch_text(access_write_slot, &my_fn, sizeof(my_fn),
-				     KSU_PATCH_TEXT_FLUSH_DCACHE);
-		if (ret) {
-			pr_err("selinux_hide: patch_text access_write err: %d\n", ret);
-			access_write_slot = NULL;
-			orig_access_write = NULL;
+		smp_wmb();
+		WRITE_ONCE(*access_write_slot, my_write_access);
+	}
+}
+
+static void hook_selinux_setprocattr(void)
+{
+	struct security_hook_heads *heads;
+	setprocattr_fn target;
+
+	if (setprocattr_entry)
+		return;
+
+	heads = (struct security_hook_heads *)kallsyms_lookup_name("security_hook_heads");
+	if (!heads) {
+		pr_err("selinux_hide: security_hook_heads not found\n");
+		return;
+	}
+
+	target = (setprocattr_fn)kallsyms_lookup_name("selinux_setprocattr");
+	if (!target) {
+		pr_err("selinux_hide: selinux_setprocattr not found\n");
+		return;
+	}
+
+	struct security_hook_list *hp;
+	hlist_for_each_entry(hp, &heads->setprocattr, list) {
+		if ((setprocattr_fn)hp->hook.setprocattr == target) {
+			orig_setprocattr = target;
+			setprocattr_entry = hp;
+			WRITE_ONCE(hp->hook.setprocattr, my_setprocattr);
+			pr_info("selinux_hide: selinux_setprocattr hooked\n");
+			return;
 		}
 	}
+	pr_err("selinux_hide: setprocattr entry not found in hook list\n");
 }
 
 static void unhook_write_ops(void)
 {
-	int ret;
-
 	if (context_write_slot) {
 		if (*context_write_slot == my_write_context) {
-			ret = ksu_patch_text(context_write_slot, &orig_context_write,
-					     sizeof(orig_context_write),
-					     KSU_PATCH_TEXT_FLUSH_DCACHE);
-			if (ret)
-				pr_err("selinux_hide: unpatch context_write err: %d\n", ret);
+			WRITE_ONCE(*context_write_slot, orig_context_write);
+			smp_wmb();
 		}
 		context_write_slot = NULL;
 		orig_context_write = NULL;
 	}
 	if (access_write_slot) {
 		if (*access_write_slot == my_write_access) {
-			ret = ksu_patch_text(access_write_slot, &orig_access_write,
-					     sizeof(orig_access_write),
-					     KSU_PATCH_TEXT_FLUSH_DCACHE);
-			if (ret)
-				pr_err("selinux_hide: unpatch access_write err: %d\n", ret);
+			WRITE_ONCE(*access_write_slot, orig_access_write);
+			smp_wmb();
 		}
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 	}
 }
 
+static void unhook_selinux_setprocattr(void)
+{
+	if (!setprocattr_entry || !orig_setprocattr)
+		return;
+
+	WRITE_ONCE(setprocattr_entry->hook.setprocattr, (void *)orig_setprocattr);
+	setprocattr_entry = NULL;
+	orig_setprocattr = NULL;
+}
+
 /* ============= enable / disable / unhook ============= */
 
 static int ksu_selinux_hide_enable(void)
 {
-	int ret;
-
 	pr_info("selinux_hide: enabling\n");
-
 	hook_write_ops();
-
-	ret = ksu_lsm_hook(&selinux_setprocattr_hook);
-	if (ret) {
-		pr_err("selinux_hide: lsm_hook setprocattr err: %d\n", ret);
-		unhook_write_ops();
-		return ret;
-	}
-
+	hook_selinux_setprocattr();
 	return 0;
 }
 
@@ -261,7 +266,7 @@ static void ksu_selinux_hide_unhook(void)
 {
 	pr_info("selinux_hide: unhooking\n");
 	unhook_write_ops();
-	ksu_lsm_unhook(&selinux_setprocattr_hook);
+	unhook_selinux_setprocattr();
 }
 
 static void ksu_selinux_hide_disable(void)
@@ -339,7 +344,7 @@ void __exit ksu_selinux_hide_exit(void)
 
 void ksu_selinux_hide_drop_backup_if_unused(void)
 {
-	/* 过滤模式不依赖 backup_sepolicy，无需操作 */
+	/* 过滤模式不依赖 backup_sepolicy, 无需操作 */
 }
 
 void ksu_selinux_hide_handle_second_stage(void)

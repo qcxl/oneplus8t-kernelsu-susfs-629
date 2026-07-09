@@ -437,7 +437,7 @@ jobs:
           ls -la drivers/kernelsu/infra/symbol_resolver.* 2>/dev/null
           grep -c "symbol_resolver" drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
-      - name: Apply unified selinux_hide.c (filter mode + ksu_patch_text + manager exemption)
+      - name: Apply unified selinux_hide.c (filter mode + manager exemption)
         working-directory: kernel
         run: |
           echo "=== Applying unified selinux_hide.c ==="
@@ -446,7 +446,8 @@ jobs:
           echo "=== Verification ==="
           ls -la drivers/kernelsu/feature/selinux_hide.c
           grep -c 'my_write_context' drivers/kernelsu/feature/selinux_hide.c
-          grep -c 'ksu_patch_text' drivers/kernelsu/feature/selinux_hide.c
+          grep -c 'buf_mentions_ksu' drivers/kernelsu/feature/selinux_hide.c
+          echo "  selinux_hide: filter mode + manager exemption + WRITE_ONCE (legacy compat)"
 
       - name: Inject init.rc module RC support (from dev d3e454f)
         working-directory: kernel
