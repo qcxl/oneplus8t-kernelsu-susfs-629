@@ -7,10 +7,12 @@
  *
  * 4.19 适配：
  *   - 过滤模式代替 backup_sepolicy (4.19 不支持 struct selinux_policy)
- *   - WRITE_ONCE 写 write_op[] (4.19 不支持 ksu_patch_text — 仅 dev 分支有此 API)
+ *   - set_memory_rw/ro 临时可写后 RO_WRITE 写 write_op[] (WRITE_ONCE 直接写
+ *     .rodata 在 CONFIG_STRICT_KERNEL_RWX=y 上触发 page fault)
  *   - 去掉 write_op[SEL_ENFORCE] 钩子 (LineageOS 4.19 恒为 NULL)
  *   - init 时不自动启用 (toggle 才激活)
  *   - Manager UID 豁免 (GHA 工作流中原有的注入步骤, 现内置)
+ *   - 新增 KSU_FEATURE_SET_SELINUX_ENFORCE handler (修复 app 侧切换失败)
  */
 
 #include <linux/init.h>
@@ -32,6 +34,60 @@
 #include "manager/manager_identity.h"
 #include "klog.h"
 #include "selinux/selinux.h"
+
+/*
+ * Legacy kernel uapi/feature.h uses KSU_FEATURE_SELINUX_HIDE_STATUS (4).
+ * Upstream dev uses KSU_FEATURE_SELINUX_HIDE (4). Create an alias so we
+ * can use the upstream name while compiling on either version.
+ */
+#ifdef KSU_FEATURE_SELINUX_HIDE_STATUS
+#ifndef KSU_FEATURE_SELINUX_HIDE
+#define KSU_FEATURE_SELINUX_HIDE KSU_FEATURE_SELINUX_HIDE_STATUS
+#endif
+#endif
+
+/*
+ * KSU_FEATURE_SET_SELINUX_ENFORCE (5) may not be in legacy feature.h.
+ * Define it here so this file compiles standalone.
+ */
+#ifndef KSU_FEATURE_SET_SELINUX_ENFORCE
+#define KSU_FEATURE_SET_SELINUX_ENFORCE 5
+#endif
+
+/* ============= 只读内存写入支持 ============= */
+
+/*
+ * On arm64 with CONFIG_STRICT_KERNEL_RWX=y, write_op[] is 'static const'
+ * and resides in .rodata. WRITE_ONCE on .rodata triggers a page fault.
+ * We use set_memory_rw/ro (resolved via kallsyms) to temporarily mark
+ * the target page writable, then restore read-only.
+ */
+typedef int (*set_mem_perm_fn)(unsigned long addr, int numpages);
+
+static set_mem_perm_fn set_memory_rw_fn;
+static set_mem_perm_fn set_memory_ro_fn;
+
+static int init_ro_write(void)
+{
+	if (set_memory_rw_fn && set_memory_ro_fn)
+		return 0;
+	set_memory_rw_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_rw");
+	set_memory_ro_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_ro");
+	if (!set_memory_rw_fn || !set_memory_ro_fn) {
+		pr_err("selinux_hide: set_memory_rw/ro not found in kallsyms\n");
+		return -ENOENT;
+	}
+	return 0;
+}
+
+static void ro_write_slot(write_op_fn *slot, write_op_fn new_val)
+{
+	unsigned long page = (unsigned long)slot & PAGE_MASK;
+	write_op_fn tmp = new_val;
+	set_memory_rw_fn(page, 1);
+	WRITE_ONCE(*slot, tmp);
+	set_memory_ro_fn(page, 1);
+}
 
 /* ============= 常量 ============= */
 
@@ -162,6 +218,11 @@ static void hook_write_ops(void)
 	if (selinux_write_op)
 		return;
 
+	if (init_ro_write()) {
+		pr_err("selinux_hide: ro_write init failed, skipping write_op hook\n");
+		return;
+	}
+
 	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
 	if (!selinux_write_op) {
 		pr_err("selinux_hide: write_op not found\n");
@@ -174,8 +235,7 @@ static void hook_write_ops(void)
 		pr_warn("selinux_hide: write_op[SEL_CONTEXT] is NULL, skipping\n");
 		context_write_slot = NULL;
 	} else {
-		smp_wmb();
-		WRITE_ONCE(*context_write_slot, my_write_context);
+		ro_write_slot(context_write_slot, my_write_context);
 	}
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
@@ -184,8 +244,7 @@ static void hook_write_ops(void)
 		pr_warn("selinux_hide: write_op[SEL_ACCESS] is NULL, skipping\n");
 		access_write_slot = NULL;
 	} else {
-		smp_wmb();
-		WRITE_ONCE(*access_write_slot, my_write_access);
+		ro_write_slot(access_write_slot, my_write_access);
 	}
 }
 
@@ -225,18 +284,14 @@ static void hook_selinux_setprocattr(void)
 static void unhook_write_ops(void)
 {
 	if (context_write_slot) {
-		if (*context_write_slot == my_write_context) {
-			WRITE_ONCE(*context_write_slot, orig_context_write);
-			smp_wmb();
-		}
+		if (*context_write_slot == my_write_context)
+			ro_write_slot(context_write_slot, orig_context_write);
 		context_write_slot = NULL;
 		orig_context_write = NULL;
 	}
 	if (access_write_slot) {
-		if (*access_write_slot == my_write_access) {
-			WRITE_ONCE(*access_write_slot, orig_access_write);
-			smp_wmb();
-		}
+		if (*access_write_slot == my_write_access)
+			ro_write_slot(access_write_slot, orig_access_write);
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 	}
@@ -311,19 +366,51 @@ static int selinux_hide_feature_set(u64 value)
 }
 
 static const struct ksu_feature_handler selinux_hide_handler = {
-	.feature_id = KSU_FEATURE_SELINUX_HIDE_STATUS,
+	.feature_id = KSU_FEATURE_SELINUX_HIDE,
 	.name = "selinux_hide",
 	.get_handler = selinux_hide_feature_get,
 	.set_handler = selinux_hide_feature_set,
+};
+
+/* ============= set_enforce feature handler ============= */
+
+static int enforce_feature_get(u64 *value)
+{
+	*value = getenforce() ? 1 : 0;
+	return 0;
+}
+
+static int enforce_feature_set(u64 value)
+{
+	bool enforce = value != 0;
+
+	setenforce(enforce);
+	if (getenforce() == enforce)
+		return 0;
+
+	return -EOPNOTSUPP;
+}
+
+static const struct ksu_feature_handler enforce_handler = {
+	.feature_id = KSU_FEATURE_SET_SELINUX_ENFORCE,
+	.name = "set_selinux_enforce",
+	.get_handler = enforce_feature_get,
+	.set_handler = enforce_feature_set,
 };
 
 /* ============= 公开 API ============= */
 
 void __init ksu_selinux_hide_init(void)
 {
-	int ret = ksu_register_feature_handler(&selinux_hide_handler);
+	int ret;
+
+	ret = ksu_register_feature_handler(&selinux_hide_handler);
 	if (ret)
 		pr_err("selinux_hide: failed to register feature handler: %d\n", ret);
+
+	ret = ksu_register_feature_handler(&enforce_handler);
+	if (ret)
+		pr_err("selinux_hide: failed to register enforce handler: %d\n", ret);
 
 	pr_info("selinux_hide: initialized (toggle to activate)\n");
 }
@@ -338,7 +425,8 @@ void __exit ksu_selinux_hide_exit(void)
 	ksu_selinux_hide_enabled = false;
 	mutex_unlock(&selinux_hide_mutex);
 
-	ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE_STATUS);
+	ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE);
+	ksu_unregister_feature_handler(KSU_FEATURE_SET_SELINUX_ENFORCE);
 	pr_info("selinux_hide: exited\n");
 }
 
