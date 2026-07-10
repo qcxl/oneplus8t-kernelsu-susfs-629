@@ -85,6 +85,10 @@ for old, new in replacements:
         break
 
 if not applied:
+    # Case 4: legacy branch with empty stubs (whole file behind #if)
+    if "#if LINUX_VERSION_CODE" in content and "ksu_seccomp_clear_cache" not in content:
+        print("seccomp_cache.c has empty function stubs — already safe on 4.19")
+        sys.exit(0)
     print("ERROR: cannot match ksu_seccomp_clear_cache function body")
     print("File contents:")
     print(content)
