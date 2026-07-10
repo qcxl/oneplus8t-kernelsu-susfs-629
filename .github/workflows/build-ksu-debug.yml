@@ -443,6 +443,14 @@ jobs:
           ls -la drivers/kernelsu/infra/symbol_resolver.* 2>/dev/null
           grep -c "symbol_resolver" drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
+      - name: Fix seccomp_cache.c struct mismatch for < 6.1 kernels
+        working-directory: kernel
+        run: |
+          echo "=== Fixing seccomp_cache.c for pre-6.1 kernel safety ==="
+          python3 ../scripts/fix-seccomp-cache.py .
+          echo "=== Verification ==="
+          grep -c "LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)" drivers/kernelsu/infra/seccomp_cache.c 2>/dev/null || echo "0"
+
       - name: Apply unified selinux_hide.c (filter mode + manager exemption)
         working-directory: kernel
         run: |

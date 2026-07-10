@@ -574,3 +574,10 @@
 **教训**：非标准 init 路径的函数必须加幂等守卫
 **检查清单锚点**：「`ksu_selinux_hide_init` 重复注册守卫」
 **标签**：cross-project
+
+### E048：seccomp_cache.c 结构体不匹配导致堆溢出崩溃
+**现象**：打开 Hide SELinux 后杀 App 重开必崩，PC alignment exception，`lr: selinux_transaction_write+0x5c/0x94`
+**根因**：`seccomp_cache.c` 本地定义 `struct seccomp_filter` 含 `cache` 位图（>24 字节），但内核 4.19 实际 struct 仅 24 字节（`usage/log/prev/prog`）。`ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot)` 通过 `set_bit()` 访问 `filter->cache.allow_native` 越界写堆 → 破坏相邻内核对象 → 后续 `write_op[ino]()` 拿到垃圾函数指针 → PC 对齐异常
+**教训**：< 6.1 内核的 `struct seccomp_filter` 无 `cache` 字段，必须用版本守卫避免越界访问。统一做法：函数体用 `#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)` 包裹
+**检查清单锚点**：「`seccomp_cache.c` 版本守卫」
+**标签**：cross-project
