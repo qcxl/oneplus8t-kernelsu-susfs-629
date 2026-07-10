@@ -51,7 +51,7 @@
 
 /* ============= 类型定义 ============= */
 
-typedef ssize_t (*write_op_fn)(struct file *file, char *buf, size_t size);
+typedef ssize_t (*write_op_fn)(struct file *file, const char *buf, size_t size);
 typedef int (*setprocattr_fn)(const char *name, void *value, size_t size);
 typedef int (*set_mem_perm_fn)(unsigned long addr, int numpages);
 
@@ -227,13 +227,15 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 
 static void hook_write_ops(void)
 {
+	write_op_fn *op;
+
 	if (write_op_inited)
 		return;
 
 	pr_info("selinux_hide: hook_write_ops start\n");
 
-	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
-	if (!selinux_write_op) {
+	op = (write_op_fn *)kallsyms_lookup_name("write_op");
+	if (!op) {
 		pr_err("selinux_hide: write_op not found\n");
 		return;
 	}
@@ -243,6 +245,7 @@ static void hook_write_ops(void)
 		return;
 	}
 
+	selinux_write_op = op;
 	write_op_inited = true;
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
@@ -427,7 +430,7 @@ static const struct ksu_feature_handler enforce_handler = {
 
 /* ============= 初始化 / 退出 ============= */
 
-static int __init ksu_selinux_hide_init(void)
+int __init ksu_selinux_hide_init(void)
 {
 	int ret;
 
@@ -444,7 +447,7 @@ static int __init ksu_selinux_hide_init(void)
 	return 0;
 }
 
-static void __exit ksu_selinux_hide_exit(void)
+void __exit ksu_selinux_hide_exit(void)
 {
 	ksu_selinux_hide_unhook();
 	ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_HIDE);
