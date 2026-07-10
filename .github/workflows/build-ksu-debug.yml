@@ -360,15 +360,6 @@ jobs:
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 
-      - name: Inject hook/arm64/patch_memory (ksu_patch_text for legacy)
-        working-directory: kernel
-        run: |
-          echo "=== Injecting hook/arm64/patch_memory (ksu_patch_text) ==="
-          mkdir -p drivers/kernelsu/hook/arm64
-          cp ../kernel-patches/hook/patch_memory.h drivers/kernelsu/hook/patch_memory.h
-          cp ../kernel-patches/hook/arm64/patch_memory.c drivers/kernelsu/hook/arm64/patch_memory.c
-          echo "  Copied patch_memory.h and arm64/patch_memory.c"
-          ls -la drivers/kernelsu/hook/patch_memory.h drivers/kernelsu/hook/arm64/patch_memory.c
 
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
@@ -462,7 +453,7 @@ jobs:
           ls -la drivers/kernelsu/feature/selinux_hide.c
           grep -c 'my_write_context' drivers/kernelsu/feature/selinux_hide.c
           grep -c 'buf_mentions_ksu' drivers/kernelsu/feature/selinux_hide.c
-          echo "  selinux_hide: filter mode + manager exemption + WRITE_ONCE (legacy compat)"
+          echo "  selinux_hide: filter mode + manager exemption + set_memory_rw/ro + WRITE_ONCE"
 
       - name: Inject init.rc module RC support (from dev d3e454f)
         working-directory: kernel
