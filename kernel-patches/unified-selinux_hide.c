@@ -256,7 +256,6 @@ static void hook_write_ops(void)
 	}
 
 	selinux_write_op = op;
-	write_op_inited = true;
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
 	orig_context_write = *context_write_slot;
@@ -269,7 +268,8 @@ static void hook_write_ops(void)
 		goto skip_context;
 	}
 	WRITE_ONCE(*context_write_slot, my_write_context);
-	set_page_ro((unsigned long)context_write_slot);
+	if (set_page_ro((unsigned long)context_write_slot))
+		pr_err("selinux_hide: cannot restore context_write to read-only\n");
 skip_context:
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
@@ -283,14 +283,15 @@ skip_context:
 		goto skip_access;
 	}
 	WRITE_ONCE(*access_write_slot, my_write_access);
-	set_page_ro((unsigned long)access_write_slot);
+	if (set_page_ro((unsigned long)access_write_slot))
+		pr_err("selinux_hide: cannot restore access_write to read-only\n");
 skip_access:
 
 	if (!context_write_slot && !access_write_slot) {
 		pr_err("selinux_hide: hook_write_ops: no write_op slots could be hooked\n");
-		write_op_inited = false;
 		return;
 	}
+	write_op_inited = true;
 	pr_info("selinux_hide: hook_write_ops done\n");
 }
 
@@ -467,21 +468,27 @@ int __init ksu_selinux_hide_init(void)
 	int ret;
 
 	ret = ksu_register_feature_handler(&selinux_hide_handler);
-	if (ret)
+	if (ret) {
 		pr_err("selinux_hide: failed to register feature handler: %d\n", ret);
-	else
-		pr_info("selinux_hide: initialized (toggle to activate)\n");
+		return ret;
+	}
+	pr_info("selinux_hide: initialized (toggle to activate)\n");
 
 	ret = ksu_register_feature_handler(&enforce_handler);
-	if (ret)
+	if (ret) {
 		pr_err("selinux_hide: failed to register enforce handler: %d\n", ret);
+		ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_HIDE);
+		return ret;
+	}
 
 	return 0;
 }
 
 void __exit ksu_selinux_hide_exit(void)
 {
+	mutex_lock(&selinux_hide_mutex);
 	ksu_selinux_hide_unhook();
+	mutex_unlock(&selinux_hide_mutex);
 	ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_HIDE);
 	ksu_unregister_feature_handler(KSU_FEATURE_ID_SELINUX_ENFORCE);
 	pr_info("selinux_hide: exited\n");
