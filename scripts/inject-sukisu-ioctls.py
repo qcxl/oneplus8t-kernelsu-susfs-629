@@ -174,31 +174,29 @@ def patch_dispatch_c_mapping():
         print(f"OK: {target} already has KSU_IOCTL mapping entries")
         return True
 
-    # Find the sentinel (last entry before closing brace of the array)
-    # Pattern: .cmd = 0, .name = NULL, .handler = NULL
-    sentinel_patterns = [
-        re.compile(r'\s*\.cmd\s*=\s*0\s*,\s*$'),
+    # The sentinel is always the last entry: .cmd = 0, .name = NULL
+    # Match the complete sentinel block before the closing of the array
+    sentinel_markers = [
+        # Tab-indented (dev branch style)
+        '\t{\n\t\t.cmd = 0,\n\t\t.name = NULL,\n\t\t.handler = NULL,\n\t\t.perm_check = NULL\n\t} // Sentinel',
+        # Space-indented (common style)
+        '    {\n        .cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check = NULL\n    } // Sentinel',
+        # Tab, single line
+        '\t{ .cmd = 0, .name = NULL, .handler = NULL, .perm_check = NULL } // Sentinel',
+        # Space, single line
+        '    { .cmd = 0, .name = NULL, .handler = NULL, .perm_check = NULL } // Sentinel',
     ]
 
-    lines = content.split("\n")
-    sentinel_line = -1
-    for i in range(len(lines) - 1, -1, -1):
-        if '.cmd = 0' in lines[i] and (i + 1 < len(lines) and '.name = NULL' in lines[i + 1]):
-            # Found the sentinel start line
-            sentinel_line = i
-            break
+    for marker in sentinel_markers:
+        if marker in content:
+            content = content.replace(marker, DISPATCH_MAPPING_ENTRIES + marker, 1)
+            with open(target, "w") as f:
+                f.write(content)
+            print(f"PATCHED: {target} — added mapping entries before sentinel")
+            return True
 
-    if sentinel_line < 0:
-        print(f"ERROR: cannot find sentinel in {target}")
-        return False
-
-    # Insert mapping entries before the sentinel
-    new_lines = lines[:sentinel_line] + [DISPATCH_MAPPING_ENTRIES.strip()] + lines[sentinel_line:]
-    with open(target, "w") as f:
-        f.write("\n".join(new_lines))
-
-    print(f"PATCHED: {target} — added mapping entries before sentinel")
-    return True
+    print(f"ERROR: cannot find sentinel in {target}")
+    return False
 
 
 def patch_ksu_h():
