@@ -448,6 +448,9 @@ jobs:
         run: |
           echo "=== Applying unified selinux_hide.c ==="
           cp ../kernel-patches/unified-selinux_hide.c drivers/kernelsu/feature/selinux_hide.c
+          # fix header declaration to match int __init ksu_selinux_hide_init(void)
+          sed -i 's/void ksu_selinux_hide_init();/int __init ksu_selinux_hide_init(void);/' drivers/kernelsu/feature/selinux_hide.h 2>/dev/null || true
+          sed -i 's/void ksu_selinux_hide_exit();/void __exit ksu_selinux_hide_exit(void);/' drivers/kernelsu/feature/selinux_hide.h 2>/dev/null || true
           echo "  Copied unified selinux_hide.c"
           echo "=== Verification ==="
           ls -la drivers/kernelsu/feature/selinux_hide.c
