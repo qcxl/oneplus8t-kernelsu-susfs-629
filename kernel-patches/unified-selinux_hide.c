@@ -187,6 +187,8 @@ static void hook_write_ops(void)
 	if (selinux_write_op)
 		return;
 
+	pr_info("selinux_hide: hook_write_ops start\n");
+
 	selinux_write_op = (write_op_fn *)kallsyms_lookup_name("write_op");
 	if (!selinux_write_op) {
 		pr_err("selinux_hide: write_op not found\n");
@@ -195,6 +197,7 @@ static void hook_write_ops(void)
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
 	orig_context_write = *context_write_slot;
+	pr_info("selinux_hide: calling ksu_patch_text for context_write\n");
 	ret = ksu_patch_text(context_write_slot, &my_write_context,
 			     sizeof(write_op_fn), 0);
 	if (ret) {
@@ -205,6 +208,7 @@ static void hook_write_ops(void)
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
 	orig_access_write = *access_write_slot;
+	pr_info("selinux_hide: calling ksu_patch_text for access_write\n");
 	ret = ksu_patch_text(access_write_slot, &my_write_access,
 			     sizeof(write_op_fn), 0);
 	if (ret) {
@@ -212,6 +216,7 @@ static void hook_write_ops(void)
 		       ret);
 		access_write_slot = NULL;
 	}
+	pr_info("selinux_hide: hook_write_ops done\n");
 }
 
 static void hook_selinux_setprocattr(void)
@@ -221,6 +226,8 @@ static void hook_selinux_setprocattr(void)
 
 	if (setprocattr_entry)
 		return;
+
+	pr_info("selinux_hide: hook_selinux_setprocattr start\n");
 
 	heads = (struct security_hook_heads *)kallsyms_lookup_name("security_hook_heads");
 	if (!heads) {
@@ -239,12 +246,14 @@ static void hook_selinux_setprocattr(void)
 		if ((setprocattr_fn)hp->hook.setprocattr == target) {
 			orig_setprocattr = target;
 			setprocattr_entry = hp;
+			pr_info("selinux_hide: replacing setprocattr with my_setprocattr\n");
 			WRITE_ONCE(hp->hook.setprocattr, my_setprocattr);
 			pr_info("selinux_hide: selinux_setprocattr hooked\n");
 			return;
 		}
 	}
 	pr_err("selinux_hide: setprocattr entry not found in hook list\n");
+	pr_info("selinux_hide: hook_selinux_setprocattr done\n");
 }
 
 static void unhook_write_ops(void)
@@ -281,7 +290,9 @@ static int ksu_selinux_hide_enable(void)
 {
 	pr_info("selinux_hide: enabling\n");
 	hook_write_ops();
+	pr_info("selinux_hide: hook_write_ops returned, calling hook_selinux_setprocattr\n");
 	hook_selinux_setprocattr();
+	pr_info("selinux_hide: enable complete\n");
 	return 0;
 }
 

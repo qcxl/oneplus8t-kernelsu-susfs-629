@@ -13,6 +13,14 @@
 #include "asm/cacheflush.h"
 #include "asm-generic/fixmap.h"
 
+/* 4.19 compatibility: pmd_leaf/pud_leaf were added in kernel 5.7 */
+#ifndef pmd_leaf
+#define pmd_leaf(pmd) pmd_sect(pmd)
+#endif
+#ifndef pud_leaf
+#define pud_leaf(pud) pud_sect(pud)
+#endif
+
 unsigned long phys_from_virt(unsigned long addr, int *err)
 {
 	struct mm_struct *mm = &init_mm;
