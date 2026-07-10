@@ -73,10 +73,28 @@ DISPATCH_MAPPING_ENTRIES = """    {
 """
 
 
+def sp_find_supercall_h():
+    """supercall.h is at KSU repo root uapi/, NOT inside drivers/kernelsu/uapi/.
+    Check multiple paths like fix-ksu-uapi-v2.py does."""
+    candidates = [
+        os.path.join(KSU_DIR, "../uapi/supercall.h"),      # via symlink: KSU-root/uapi/supercall.h
+        os.path.join(KSU_DIR, "include/uapi/supercall.h"),  # via symlink: .../include/uapi/
+        os.path.join(KERNEL_DIR, "../uapi/supercall.h"),    # direct from kernel dir up
+        "KernelSU-Next/uapi/supercall.h",                    # direct path (legacy CI)
+    ]
+    abs_candidates = [os.path.normpath(os.path.join(KERNEL_DIR, c)) if not os.path.isabs(c) else c for c in candidates]
+    # Also check KSU_DIR itself for a direct uapi/ subdir
+    abs_candidates.append(os.path.normpath(os.path.join(KSU_DIR, "uapi/supercall.h")))
+
+    for p in abs_candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
 def patch_supercall_h():
-    target = os.path.join(KSU_DIR, "uapi/supercall.h")
-    if not os.path.exists(target):
-        print(f"SKIP: {target} not found")
+    target = sp_find_supercall_h()
+    if not target:
+        print(f"SKIP: supercall.h not found (checked: drivers/kernelsu/../uapi/, drivers/kernelsu/uapi/)")
         return False
 
     with open(target, "r") as f:
@@ -103,7 +121,8 @@ def patch_supercall_h():
     with open(target, "w") as f:
         f.write("\n".join(new_lines))
 
-    print(f"PATCHED: {target} — added structs + IOCTL defs before #endif")
+    rel = os.path.relpath(target, KERNEL_DIR)
+    print(f"PATCHED: {rel} — added structs + IOCTL defs before #endif")
     return True
 
 
