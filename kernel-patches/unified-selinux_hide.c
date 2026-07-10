@@ -141,16 +141,26 @@ static int init_set_mem_perm_fns(void)
 	return 0;
 }
 
-static void set_page_rw(unsigned long addr)
+static int set_page_rw(unsigned long addr)
 {
-	if (set_memory_rw_fn)
-		set_memory_rw_fn(addr & PAGE_MASK, 1);
+	int ret;
+	if (!set_memory_rw_fn)
+		return -ENXIO;
+	ret = set_memory_rw_fn(addr & PAGE_MASK, 1);
+	if (ret)
+		pr_err("selinux_hide: set_memory_rw(0x%lx) failed: %d\n", addr, ret);
+	return ret;
 }
 
-static void set_page_ro(unsigned long addr)
+static int set_page_ro(unsigned long addr)
 {
-	if (set_memory_ro_fn)
-		set_memory_ro_fn(addr & PAGE_MASK, 1);
+	int ret;
+	if (!set_memory_ro_fn)
+		return -ENXIO;
+	ret = set_memory_ro_fn(addr & PAGE_MASK, 1);
+	if (ret)
+		pr_err("selinux_hide: set_memory_ro(0x%lx) failed: %d\n", addr, ret);
+	return ret;
 }
 
 /* ============= 过滤辅助函数 ============= */
@@ -252,18 +262,35 @@ static void hook_write_ops(void)
 	orig_context_write = *context_write_slot;
 
 	pr_info("selinux_hide: set_page_rw + WRITE_ONCE for context_write\n");
-	set_page_rw((unsigned long)context_write_slot);
+	if (set_page_rw((unsigned long)context_write_slot)) {
+		pr_err("selinux_hide: cannot make context_write writable, bailing\n");
+		context_write_slot = NULL;
+		orig_context_write = NULL;
+		goto skip_context;
+	}
 	WRITE_ONCE(*context_write_slot, my_write_context);
 	set_page_ro((unsigned long)context_write_slot);
+skip_context:
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
 	orig_access_write = *access_write_slot;
 
 	pr_info("selinux_hide: set_page_rw + WRITE_ONCE for access_write\n");
-	set_page_rw((unsigned long)access_write_slot);
+	if (set_page_rw((unsigned long)access_write_slot)) {
+		pr_err("selinux_hide: cannot make access_write writable, bailing\n");
+		access_write_slot = NULL;
+		orig_access_write = NULL;
+		goto skip_access;
+	}
 	WRITE_ONCE(*access_write_slot, my_write_access);
 	set_page_ro((unsigned long)access_write_slot);
+skip_access:
 
+	if (!context_write_slot && !access_write_slot) {
+		pr_err("selinux_hide: hook_write_ops: no write_op slots could be hooked\n");
+		write_op_inited = false;
+		return;
+	}
 	pr_info("selinux_hide: hook_write_ops done\n");
 }
 
@@ -308,9 +335,10 @@ static void unhook_write_ops(void)
 {
 	if (context_write_slot) {
 		if (*context_write_slot == my_write_context) {
-			set_page_rw((unsigned long)context_write_slot);
-			WRITE_ONCE(*context_write_slot, orig_context_write);
-			set_page_ro((unsigned long)context_write_slot);
+			if (!set_page_rw((unsigned long)context_write_slot)) {
+				WRITE_ONCE(*context_write_slot, orig_context_write);
+				set_page_ro((unsigned long)context_write_slot);
+			}
 		}
 		context_write_slot = NULL;
 		orig_context_write = NULL;
@@ -318,9 +346,10 @@ static void unhook_write_ops(void)
 
 	if (access_write_slot) {
 		if (*access_write_slot == my_write_access) {
-			set_page_rw((unsigned long)access_write_slot);
-			WRITE_ONCE(*access_write_slot, orig_access_write);
-			set_page_ro((unsigned long)access_write_slot);
+			if (!set_page_rw((unsigned long)access_write_slot)) {
+				WRITE_ONCE(*access_write_slot, orig_access_write);
+				set_page_ro((unsigned long)access_write_slot);
+			}
 		}
 		access_write_slot = NULL;
 		orig_access_write = NULL;
