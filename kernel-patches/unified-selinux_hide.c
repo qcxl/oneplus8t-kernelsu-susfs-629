@@ -30,6 +30,8 @@
 #include <linux/cred.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
+#include <asm/fixmap.h>
+#include <asm/pgtable.h>
 
 #include "selinux_hide.h"
 #include "policy/feature.h"
@@ -53,7 +55,6 @@
 
 typedef ssize_t (*write_op_fn)(struct file *file, const char *buf, size_t size);
 typedef int (*setprocattr_fn)(const char *name, void *value, size_t size);
-typedef int (*set_mem_perm_fn)(unsigned long addr, int numpages);
 
 /* ============= 常量 ============= */
 
@@ -110,57 +111,98 @@ static write_op_fn *access_write_slot;
 static struct security_hook_list *setprocattr_entry;
 static setprocattr_fn orig_setprocattr;
 
-/* set_memory_rw/ro 函数指针 (通过 kallsyms 查找) */
-static set_mem_perm_fn set_memory_rw_fn;
-static set_mem_perm_fn set_memory_ro_fn;
-
 /* ============= 工具函数 ============= */
 
 /*
- * set_page_rw / set_page_ro
- * 通过内核导出的 set_memory_rw/set_memory_ro 修改 .rodata 页表权限。
- * ARM64 4.19 上 set_memory_rw 使用 apply_to_page_range(&init_mm, ...)
- * 遍历页表，适用于任意内核虚拟地址 (含 vmalloc 区)。
+ * 通过 fixmap (FIX_TEXT_POKE0) 临时映射目标物理页为可写后写入，
+ * 绕过 set_memory_rw 在 4.19+KASLR 上对 kernel image 地址返回 -22 的问题。
+ *
+ * 原理：
+ *   1. phys_from_virt() 遍历 init_mm 页表，将目标虚拟地址转为物理地址
+ *   2. set_fixmap_offset() 将物理页映射到 fixmap 虚拟地址空间 (可写映射)
+ *   3. 写入目标数据到 fixmap 地址
+ *   4. clear_fixmap() 释放临时映射
+ *
+ * 写入对象是 .rodata / .data..ro_after_init，非 .text 指令流，
+ * 所以不需 stop_machine 也无需 dcache flush
+ * (Cortex-A77 PIPT D-cache 写直达内存，原始映射即时可见)。
  */
-static int init_set_mem_perm_fns(void)
+static inline bool pmd_is_leaf(pmd_t pmd)
 {
-	if (!set_memory_rw_fn) {
-		set_memory_rw_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_rw");
-		if (!set_memory_rw_fn) {
-			pr_err("selinux_hide: set_memory_rw not found\n");
-			return -ENOENT;
-		}
+#if defined(pmd_leaf)
+	return pmd_leaf(pmd);
+#elif defined(pmd_sect)
+	return pmd_sect(pmd);
+#else
+	return pmd_val(pmd) && !(pmd_val(pmd) & PMD_TABLE_BIT);
+#endif
+}
+
+static inline bool pud_is_leaf(pud_t pud)
+{
+#if defined(pud_leaf)
+	return pud_leaf(pud);
+#elif defined(pud_sect)
+	return pud_sect(pud);
+#else
+	return pud_val(pud) && !(pud_val(pud) & PUD_TABLE_BIT);
+#endif
+}
+
+static unsigned long phys_from_virt(unsigned long addr)
+{
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	pgd = pgd_offset(&init_mm, addr);
+	if (pgd_none(*pgd) || pgd_bad(*pgd))
+		return 0;
+
+	p4d = p4d_offset(pgd, addr);
+	if (p4d_none(*p4d) || p4d_bad(*p4d))
+		return 0;
+
+	pud = pud_offset(p4d, addr);
+	if (pud_is_leaf(*pud))
+		return (pud_val(*pud) & PUD_MASK) + (addr & ~PUD_MASK);
+	if (pud_none(*pud) || pud_bad(*pud))
+		return 0;
+
+	pmd = pmd_offset(pud, addr);
+	if (pmd_is_leaf(*pmd))
+		return (pmd_val(*pmd) & PMD_MASK) + (addr & ~PMD_MASK);
+	if (pmd_none(*pmd) || pmd_bad(*pmd))
+		return 0;
+
+	pte = pte_offset_kernel(pmd, addr);
+	if (pte_none(*pte))
+		return 0;
+
+	return (pte_val(*pte) & PTE_MASK) + (addr & ~PAGE_MASK);
+}
+
+static int ro_write(void *dst, const void *src, size_t size)
+{
+	unsigned long phys;
+	void *mapped;
+
+	phys = phys_from_virt((unsigned long)dst);
+	if (!phys) {
+		pr_err("selinux_hide: phys_from_virt(0x%lx) failed\n",
+		       (unsigned long)dst);
+		return -EFAULT;
 	}
-	if (!set_memory_ro_fn) {
-		set_memory_ro_fn = (set_mem_perm_fn)kallsyms_lookup_name("set_memory_ro");
-		if (!set_memory_ro_fn) {
-			pr_err("selinux_hide: set_memory_ro not found\n");
-			return -ENOENT;
-		}
-	}
+
+	mapped = set_fixmap_offset(FIX_TEXT_POKE0, phys);
+	if (!mapped)
+		return -ENOMEM;
+
+	memcpy(mapped, src, size);
+	clear_fixmap(FIX_TEXT_POKE0);
 	return 0;
-}
-
-static int set_page_rw(unsigned long addr)
-{
-	int ret;
-	if (!set_memory_rw_fn)
-		return -ENXIO;
-	ret = set_memory_rw_fn(addr & PAGE_MASK, 1);
-	if (ret)
-		pr_err("selinux_hide: set_memory_rw(0x%lx) failed: %d\n", addr, ret);
-	return ret;
-}
-
-static int set_page_ro(unsigned long addr)
-{
-	int ret;
-	if (!set_memory_ro_fn)
-		return -ENXIO;
-	ret = set_memory_ro_fn(addr & PAGE_MASK, 1);
-	if (ret)
-		pr_err("selinux_hide: set_memory_ro(0x%lx) failed: %d\n", addr, ret);
-	return ret;
 }
 
 /* ============= 过滤辅助函数 ============= */
@@ -255,31 +297,25 @@ static void hook_write_ops(void)
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
 	orig_context_write = *context_write_slot;
 
-	pr_info("selinux_hide: set_page_rw + WRITE_ONCE for context_write\n");
-	if (set_page_rw((unsigned long)context_write_slot)) {
-		pr_err("selinux_hide: cannot make context_write writable, bailing\n");
+	pr_info("selinux_hide: ro_write (fixmap) for context_write\n");
+	if (ro_write(context_write_slot, &my_write_context, sizeof(write_op_fn))) {
+		pr_err("selinux_hide: cannot write context_write, bailing\n");
 		context_write_slot = NULL;
 		orig_context_write = NULL;
 		goto skip_context;
 	}
-	WRITE_ONCE(*context_write_slot, my_write_context);
-	if (set_page_ro((unsigned long)context_write_slot))
-		pr_err("selinux_hide: cannot restore context_write to read-only\n");
 skip_context:
 
 	access_write_slot = &selinux_write_op[SEL_ACCESS];
 	orig_access_write = *access_write_slot;
 
-	pr_info("selinux_hide: set_page_rw + WRITE_ONCE for access_write\n");
-	if (set_page_rw((unsigned long)access_write_slot)) {
-		pr_err("selinux_hide: cannot make access_write writable, bailing\n");
+	pr_info("selinux_hide: ro_write (fixmap) for access_write\n");
+	if (ro_write(access_write_slot, &my_write_access, sizeof(write_op_fn))) {
+		pr_err("selinux_hide: cannot write access_write, bailing\n");
 		access_write_slot = NULL;
 		orig_access_write = NULL;
 		goto skip_access;
 	}
-	WRITE_ONCE(*access_write_slot, my_write_access);
-	if (set_page_ro((unsigned long)access_write_slot))
-		pr_err("selinux_hide: cannot restore access_write to read-only\n");
 skip_access:
 
 	if (!context_write_slot && !access_write_slot) {
@@ -318,16 +354,13 @@ static void hook_selinux_setprocattr(void)
 			orig_setprocattr = target;
 			setprocattr_entry = hp;
 			pr_info("selinux_hide: replacing setprocattr with my_setprocattr\n");
-			/* hp->hook.setprocattr may be in __lsm_ro_after_init */
-			if (set_page_rw((unsigned long)&hp->hook.setprocattr)) {
-				pr_err("selinux_hide: cannot make setprocattr writable\n");
+			if (ro_write(&hp->hook.setprocattr, &my_setprocattr,
+				     sizeof(setprocattr_fn))) {
+				pr_err("selinux_hide: cannot write setprocattr\n");
 				setprocattr_entry = NULL;
 				orig_setprocattr = NULL;
 				return;
 			}
-			WRITE_ONCE(hp->hook.setprocattr, my_setprocattr);
-			if (set_page_ro((unsigned long)&hp->hook.setprocattr))
-				pr_err("selinux_hide: cannot restore setprocattr to read-only\n");
 			pr_info("selinux_hide: selinux_setprocattr hooked\n");
 			return;
 		}
@@ -340,10 +373,8 @@ static void unhook_write_ops(void)
 {
 	if (context_write_slot) {
 		if (*context_write_slot == my_write_context) {
-			if (!set_page_rw((unsigned long)context_write_slot)) {
-				WRITE_ONCE(*context_write_slot, orig_context_write);
-				set_page_ro((unsigned long)context_write_slot);
-			}
+			ro_write(context_write_slot, &orig_context_write,
+				 sizeof(orig_context_write));
 		}
 		context_write_slot = NULL;
 		orig_context_write = NULL;
@@ -351,10 +382,8 @@ static void unhook_write_ops(void)
 
 	if (access_write_slot) {
 		if (*access_write_slot == my_write_access) {
-			if (!set_page_rw((unsigned long)access_write_slot)) {
-				WRITE_ONCE(*access_write_slot, orig_access_write);
-				set_page_ro((unsigned long)access_write_slot);
-			}
+			ro_write(access_write_slot, &orig_access_write,
+				 sizeof(orig_access_write));
 		}
 		access_write_slot = NULL;
 		orig_access_write = NULL;
@@ -368,10 +397,8 @@ static void unhook_selinux_setprocattr(void)
 	if (!setprocattr_entry || !orig_setprocattr)
 		return;
 
-	if (!set_page_rw((unsigned long)&setprocattr_entry->hook.setprocattr)) {
-		WRITE_ONCE(setprocattr_entry->hook.setprocattr, (void *)orig_setprocattr);
-		set_page_ro((unsigned long)&setprocattr_entry->hook.setprocattr);
-	}
+	ro_write(&setprocattr_entry->hook.setprocattr, &orig_setprocattr,
+		 sizeof(orig_setprocattr));
 	setprocattr_entry = NULL;
 	orig_setprocattr = NULL;
 }
@@ -381,11 +408,6 @@ static void unhook_selinux_setprocattr(void)
 static int ksu_selinux_hide_enable(void)
 {
 	pr_info("selinux_hide: enabling\n");
-
-	if (init_set_mem_perm_fns()) {
-		pr_err("selinux_hide: set_memory_rw/ro not available, hooks disabled\n");
-		return -ENXIO;
-	}
 
 	hook_write_ops();
 	pr_info("selinux_hide: hook_write_ops returned, calling hook_selinux_setprocattr\n");
