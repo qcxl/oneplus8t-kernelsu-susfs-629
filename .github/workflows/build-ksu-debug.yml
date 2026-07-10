@@ -451,6 +451,15 @@ jobs:
           echo "=== Verification ==="
           grep -c "LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)" drivers/kernelsu/infra/seccomp_cache.c 2>/dev/null || echo "0"
 
+      - name: Inject SukiSU-Ultra IOCTL handlers (#100 GET_FULL_VERSION, #101 HOOK_TYPE)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting SukiSU-Ultra IOCTL handlers ==="
+          python3 ../scripts/inject-sukisu-ioctls.py .
+          echo "=== Verification ==="
+          grep -c 'KSU_IOCTL_GET_FULL_VERSION' drivers/kernelsu/uapi/supercall.h 2>/dev/null || echo "0"
+          grep -c 'do_get_full_version' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+
       - name: Apply unified selinux_hide.c (filter mode + manager exemption)
         working-directory: kernel
         run: |
