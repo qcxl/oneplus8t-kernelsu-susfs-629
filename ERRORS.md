@@ -561,3 +561,16 @@
 **教训**：生产构建应将 `pr_info`/`pr_warn` 转为 `pr_debug`；`klog.h` 移除 `"KernelSU: "` 前缀
 **检查清单锚点**：「`klog.h` 移除 `KernelSU:` 前缀」+「`pr_info`/`pr_warn`→`pr_debug`」
 **标签**：cross-project
+
+### E046：`PTE_MASK` 在 arm64 4.19 未定义
+**现象**：CI 编译错误：`../drivers/kernelsu/feature/selinux_hide.c:184:26: error: use of undeclared identifier 'PTE_MASK'; did you mean 'PER_MASK'?`
+**根因**：`PTE_MASK` 是 x86 体系结构宏，arm64 上不存在。fixmap ro_write 实现中 `phys_from_virt()` 函数在提取 PTE 物理地址时误用了它
+**教训**：arm64 4.19 提取 PTE 中的物理地址应使用 `PHYS_MASK & PAGE_MASK`
+**检查清单锚点**：「`PHYS_MASK & PAGE_MASK` 替代 `PTE_MASK`」
+
+### E047：`core/init.c` 对 `ksu_selinux_hide_init` 三重调用导致重复注册
+**现象**：dmesg 中 3 次 `"selinux_hide: initialized"` 日志，无实际危害但冗余
+**根因**：`core/init.c` 有 3 处调用 `ksu_selinux_hide_init()`（不同初始化路径），Linux 内核 `module_init` 只执行首次，但此模块非标准 LKM，`init.c` 中的手动调用在 3 个路径上各触发一次
+**教训**：非标准 init 路径的函数必须加幂等守卫
+**检查清单锚点**：「`ksu_selinux_hide_init` 重复注册守卫」
+**标签**：cross-project

@@ -7,10 +7,9 @@
  *
  * 4.19 适配：
  *   - 过滤模式代替 backup_sepolicy (4.19 不支持 struct selinux_policy)
- *   - set_memory_rw/ro 直接改页表权限后 WRITE_ONCE 写 .rodata
- *     (ARM64 4.19 的 set_memory_rw 通过 apply_to_page_range(&init_mm, ...)
- *      修改任意内核虚拟地址的页表权限。CONFIG_STRICT_KERNEL_RWX 确保
- *      .rodata 为 4KB 页映射而非 section 映射，所以安全有效)
+ *   - ksu_patch_text 在 4.19+KASLR 上不可靠，改用 fixmap ro_write：
+ *     phys_from_virt(init_mm 页表遍历) → set_fixmap_offset(FIX_TEXT_POKE0)
+ *     → memcpy → clear_fixmap。不依赖线性映射，不受 KASLR 影响。
  *   - 去掉 write_op[SEL_ENFORCE] 钩子 (LineageOS 4.19 恒为 NULL)
  *   - init 时不自动启用 (toggle 才激活)
  *   - Manager UID 豁免 (GHA 工作流中原有的注入步骤, 现内置)
@@ -181,7 +180,7 @@ static unsigned long phys_from_virt(unsigned long addr)
 	if (pte_none(*pte))
 		return 0;
 
-	return (pte_val(*pte) & PTE_MASK) + (addr & ~PAGE_MASK);
+	return (pte_val(*pte) & PHYS_MASK & PAGE_MASK) + (addr & ~PAGE_MASK);
 }
 
 static int ro_write(void *dst, const void *src, size_t size)
@@ -498,9 +497,16 @@ static const struct ksu_feature_handler enforce_handler = {
 
 /* ============= 初始化 / 退出 ============= */
 
+static bool ksu_selinux_hide_registered;
+
 int __init ksu_selinux_hide_init(void)
 {
 	int ret;
+
+	if (ksu_selinux_hide_registered) {
+		pr_info("selinux_hide: already initialized, skipping\n");
+		return 0;
+	}
 
 	ret = ksu_register_feature_handler(&selinux_hide_handler);
 	if (ret) {
@@ -516,11 +522,13 @@ int __init ksu_selinux_hide_init(void)
 		return ret;
 	}
 
+	ksu_selinux_hide_registered = true;
 	return 0;
 }
 
 void __exit ksu_selinux_hide_exit(void)
 {
+	ksu_selinux_hide_registered = false;
 	mutex_lock(&selinux_hide_mutex);
 	ksu_selinux_hide_unhook();
 	mutex_unlock(&selinux_hide_mutex);
