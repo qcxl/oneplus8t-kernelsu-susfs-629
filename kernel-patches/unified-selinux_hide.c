@@ -250,11 +250,6 @@ static void hook_write_ops(void)
 		return;
 	}
 
-	if (init_set_mem_perm_fns()) {
-		pr_err("selinux_hide: set_memory_rw/ro not available\n");
-		return;
-	}
-
 	selinux_write_op = op;
 
 	context_write_slot = &selinux_write_op[SEL_CONTEXT];
@@ -323,7 +318,16 @@ static void hook_selinux_setprocattr(void)
 			orig_setprocattr = target;
 			setprocattr_entry = hp;
 			pr_info("selinux_hide: replacing setprocattr with my_setprocattr\n");
+			/* hp->hook.setprocattr may be in __lsm_ro_after_init */
+			if (set_page_rw((unsigned long)&hp->hook.setprocattr)) {
+				pr_err("selinux_hide: cannot make setprocattr writable\n");
+				setprocattr_entry = NULL;
+				orig_setprocattr = NULL;
+				return;
+			}
 			WRITE_ONCE(hp->hook.setprocattr, my_setprocattr);
+			if (set_page_ro((unsigned long)&hp->hook.setprocattr))
+				pr_err("selinux_hide: cannot restore setprocattr to read-only\n");
 			pr_info("selinux_hide: selinux_setprocattr hooked\n");
 			return;
 		}
@@ -364,7 +368,10 @@ static void unhook_selinux_setprocattr(void)
 	if (!setprocattr_entry || !orig_setprocattr)
 		return;
 
-	WRITE_ONCE(setprocattr_entry->hook.setprocattr, (void *)orig_setprocattr);
+	if (!set_page_rw((unsigned long)&setprocattr_entry->hook.setprocattr)) {
+		WRITE_ONCE(setprocattr_entry->hook.setprocattr, (void *)orig_setprocattr);
+		set_page_ro((unsigned long)&setprocattr_entry->hook.setprocattr);
+	}
 	setprocattr_entry = NULL;
 	orig_setprocattr = NULL;
 }
@@ -374,6 +381,12 @@ static void unhook_selinux_setprocattr(void)
 static int ksu_selinux_hide_enable(void)
 {
 	pr_info("selinux_hide: enabling\n");
+
+	if (init_set_mem_perm_fns()) {
+		pr_err("selinux_hide: set_memory_rw/ro not available, hooks disabled\n");
+		return -ENXIO;
+	}
+
 	hook_write_ops();
 	pr_info("selinux_hide: hook_write_ops returned, calling hook_selinux_setprocattr\n");
 	hook_selinux_setprocattr();
