@@ -195,6 +195,28 @@ def patch_dispatch_c_mapping():
             print(f"PATCHED: {target} — added mapping entries before sentinel")
             return True
 
+    # Flexible fallback: find the last '.cmd = 0, .name = NULL' pattern
+    import re
+
+    # Get last occurrence of .cmd = 0 with .name = NULL nearby
+    last_cmd = content.rfind('.cmd = 0')
+    last_name = content.rfind('.name = NULL')
+    if last_cmd > 0 and last_name > last_cmd:
+        # Find the opening { before .cmd = 0
+        # Walk backwards from .cmd to find '{'
+        open_brace = content.rfind('{', 0, last_cmd)
+        if open_brace > 0:
+            # Find the closing of this sentinel block: '} // Sentinel'
+            sentinel_end = content.find('} // Sentinel', last_cmd)
+            if sentinel_end > 0:
+                sentinel_block = content[open_brace:sentinel_end + len('} // Sentinel')]
+                print(f"DEBUG: found sentinel via flexible match: {repr(sentinel_block[:80])}...")
+                content = content.replace(sentinel_block, DISPATCH_MAPPING_ENTRIES.strip() + '\n' + sentinel_block, 1)
+                with open(target, "w") as f:
+                    f.write(content)
+                print(f"PATCHED: {target} — added mapping entries (flexible match)")
+                return True
+
     print(f"ERROR: cannot find sentinel in {target}")
     return False
 
