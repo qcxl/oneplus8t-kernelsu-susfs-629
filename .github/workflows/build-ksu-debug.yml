@@ -451,6 +451,9 @@ jobs:
           # fix header declaration to match int __init ksu_selinux_hide_init(void)
           sed -i 's/void ksu_selinux_hide_init();/int __init ksu_selinux_hide_init(void);/' drivers/kernelsu/feature/selinux_hide.h 2>/dev/null || true
           sed -i 's/void ksu_selinux_hide_exit();/void __exit ksu_selinux_hide_exit(void);/' drivers/kernelsu/feature/selinux_hide.h 2>/dev/null || true
+          # also fix hook_manager.h (included by init.c, has separate declaration)
+          sed -i 's/void ksu_selinux_hide_init(void);/int __init ksu_selinux_hide_init(void);/' drivers/kernelsu/hook/hook_manager.h 2>/dev/null || true
+          sed -i 's/void ksu_selinux_hide_exit(void);/void __exit ksu_selinux_hide_exit(void);/' drivers/kernelsu/hook/hook_manager.h 2>/dev/null || true
           echo "  Copied unified selinux_hide.c"
           echo "=== Verification ==="
           ls -la drivers/kernelsu/feature/selinux_hide.c
