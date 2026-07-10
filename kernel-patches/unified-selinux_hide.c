@@ -418,6 +418,9 @@ static int enforce_feature_set(u64 value)
 {
 	bool enforce = value != 0;
 	setenforce(enforce);
+	/* verify: if enforce didn't take effect, warn but don't fail */
+	if (enforce != (bool)getenforce())
+		pr_warn_ratelimited("selinux_hide: setenforce(%d) may not have taken effect (CONFIG_SECURITY_SELINUX_DEVELOP?)\n", enforce);
 	return 0;
 }
 
