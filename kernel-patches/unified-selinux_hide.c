@@ -279,6 +279,7 @@ static int my_setprocattr(const char *name, void *value, size_t size)
 static void hook_write_ops(void)
 {
 	write_op_fn *op;
+	write_op_fn tmp;
 
 	if (write_op_inited)
 		return;
@@ -297,7 +298,8 @@ static void hook_write_ops(void)
 	orig_context_write = *context_write_slot;
 
 	pr_info("selinux_hide: ro_write (fixmap) for context_write\n");
-	if (ro_write(context_write_slot, &my_write_context, sizeof(write_op_fn))) {
+	tmp = my_write_context;
+	if (ro_write(context_write_slot, &tmp, sizeof(tmp))) {
 		pr_err("selinux_hide: cannot write context_write, bailing\n");
 		context_write_slot = NULL;
 		orig_context_write = NULL;
@@ -309,7 +311,8 @@ skip_context:
 	orig_access_write = *access_write_slot;
 
 	pr_info("selinux_hide: ro_write (fixmap) for access_write\n");
-	if (ro_write(access_write_slot, &my_write_access, sizeof(write_op_fn))) {
+	tmp = my_write_access;
+	if (ro_write(access_write_slot, &tmp, sizeof(tmp))) {
 		pr_err("selinux_hide: cannot write access_write, bailing\n");
 		access_write_slot = NULL;
 		orig_access_write = NULL;
@@ -348,13 +351,15 @@ static void hook_selinux_setprocattr(void)
 	}
 
 	struct security_hook_list *hp;
+	setprocattr_fn tmp;
 	hlist_for_each_entry(hp, &heads->setprocattr, list) {
 		if ((setprocattr_fn)hp->hook.setprocattr == target) {
 			orig_setprocattr = target;
 			setprocattr_entry = hp;
 			pr_info("selinux_hide: replacing setprocattr with my_setprocattr\n");
-			if (ro_write(&hp->hook.setprocattr, &my_setprocattr,
-				     sizeof(setprocattr_fn))) {
+			tmp = my_setprocattr;
+			if (ro_write(&hp->hook.setprocattr, &tmp,
+				     sizeof(tmp))) {
 				pr_err("selinux_hide: cannot write setprocattr\n");
 				setprocattr_entry = NULL;
 				orig_setprocattr = NULL;

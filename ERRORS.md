@@ -575,6 +575,12 @@
 **检查清单锚点**：「`ksu_selinux_hide_init` 重复注册守卫」
 **标签**：cross-project
 
+### E048：`ro_write` 传参错误导致 write_op[] 写入函数指令而非函数指针
+**现象**：Hide SELinux (feature 4) ON → 杀App重开 → 必崩。崩溃点 `selinux_transaction_write+0x5c` 通过 `write_op[ino]()` 间接调用时跳转到用户态地址 `0xbf5a9bd7bfd`。
+**根因**：`ro_write(dst, &my_write_context, 8)` 中 `&my_write_context` 是函数入口地址。`memcpy(dst, &my_write_context, 8)` 从函数入口拷贝 8 字节 = 函数首条指令机器码（如 `0x910003fda9bf7bfd`），不是函数指针值。结果 `write_op[]` slot 存储的是垃圾指令地址。
+**教训**：`ro_write` 写入函数指针时必须通过临时变量中转：`tmp = my_func; ro_write(dst, &tmp, sizeof(tmp))`。不能直接用 `&func_name` 作为 src。
+**检查清单锚点**：「`ro_write` 传参用临时变量中转」
+
 ### E048：seccomp_cache.c 结构体不匹配导致堆溢出崩溃
 **现象**：打开 Hide SELinux 后杀 App 重开必崩，PC alignment exception，`lr: selinux_transaction_write+0x5c/0x94`
 **根因**：`seccomp_cache.c` 本地定义 `struct seccomp_filter` 含 `cache` 位图（>24 字节），但内核 4.19 实际 struct 仅 24 字节（`usage/log/prev/prog`）。`ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot)` 通过 `set_bit()` 访问 `filter->cache.allow_native` 越界写堆 → 破坏相邻内核对象 → 后续 `write_op[ino]()` 拿到垃圾函数指针 → PC 对齐异常
