@@ -112,7 +112,20 @@ jobs:
           echo "=== Verification ==="
           grep -c 'KERNEL_SU_UAPI_VERSION' drivers/kernelsu/uapi/supercall.h 2>/dev/null || echo "0"
           grep -c 'uapi_version = KERNEL_SU_UAPI_VERSION' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
-          grep -c 'GET_INFO_LEGACY' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+           grep -c 'GET_INFO_LEGACY' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+
+      - name: Override KSU_VERSION_FULL for SukiSU-Ultra compat
+        working-directory: kernel
+        run: |
+          echo "=== Overriding KSU_VERSION_FULL (SukiSU App requires >= v4.0.0) ==="
+          KSU_H="drivers/kernelsu/include/ksu.h"
+          if [ -f "$KSU_H" ]; then
+            sed -i 's|#define KSU_VERSION_FULL KSU_VERSION_TAG "+dev"|#define KSU_VERSION_FULL "v4.1.3-33188"|' "$KSU_H"
+            echo "Patched $KSU_H: $(grep 'KSU_VERSION_FULL' "$KSU_H")"
+          else
+            echo "ERROR: ksu.h not found at $KSU_H!"
+            exit 1
+          fi
 
       - name: Auto-crown manager by package name (KSU_MANAGER_PACKAGE)
         working-directory: kernel
