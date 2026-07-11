@@ -598,7 +598,7 @@ jobs:
           make O=out ARCH=arm64 $CFG olddefconfig
 
           echo "=== Config ready ==="
-          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_RAMOOPS=|CONFIG_PSTORE_RAM=" out/.config
+          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_RAMOOPS=|CONFIG_PSTORE_RAM=|CONFIG_KPM=" out/.config
           echo "SUSFS options:"
           grep "CONFIG_KSU_SUSFS_" out/.config | sort
 
