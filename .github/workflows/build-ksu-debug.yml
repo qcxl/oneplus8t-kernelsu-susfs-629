@@ -741,7 +741,14 @@ jobs:
         env:
           GIT_TERMINAL_PROMPT: 0
         run: |
-          git clone --depth 1 https://github.com/qcxl/oneplus8t-sukisu-ultra.git /tmp/sukisu-ultra
+          # Repo is private — needs PAT in secrets.GH_PAT with `repo` scope
+          if [ -n "${{ secrets.GH_PAT }}" ]; then
+            git clone --depth 1 https://x-access-token:${{ secrets.GH_PAT }}@github.com/qcxl/oneplus8t-sukisu-ultra.git /tmp/sukisu-ultra
+          else
+            echo "ERROR: secrets.GH_PAT not set — cannot clone private repo qcxl/oneplus8t-sukisu-ultra"
+            echo "Create a PAT at https://github.com/settings/tokens and add as GH_PAT secret"
+            exit 1
+          fi
           echo "SUKISU_SRC=/tmp/sukisu-ultra" >> $GITHUB_ENV
 
       - name: Install Rust toolchain

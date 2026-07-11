@@ -148,6 +148,21 @@ def modify_dispatch_c():
     if "do_enable_kpm" in content:
         print("  dispatch.c: KPM handlers already exist, skipping")
         return
+    # Add include for kpm.h (declares do_kpm).  dispatch.c is at drivers/kernelsu/supercall/,
+    # kpm.h is at drivers/kernelsu/kpm/kpm.h, so we need "../kpm/kpm.h".
+    if '#include "../kpm/kpm.h"' not in content:
+        # Find the last #include line to insert after it
+        lines = content.split('\n')
+        last_include_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith('#include'):
+                last_include_idx = i
+        if last_include_idx >= 0:
+            lines.insert(last_include_idx + 1, '#include "../kpm/kpm.h"')
+            content = '\n'.join(lines)
+            print("  dispatch.c: added #include \"../kpm/kpm.h\"")
+        else:
+            print("  WARNING: no #include found in dispatch.c, could not add kpm.h header")
     # Add handler function after do_get_hook_type
     handler_func = (
         "\nstatic int do_enable_kpm(void __user *arg)\n"
