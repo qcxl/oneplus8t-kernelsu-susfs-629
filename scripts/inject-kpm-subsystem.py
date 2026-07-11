@@ -144,7 +144,7 @@ def modify_dispatch_c():
     marker = "static int do_get_hook_mode"
     if marker in content:
         content = content.replace(marker, handler_func + "\n" + marker)
-    # Add IOCTL mapping entries before sentinel
+    # Add IOCTL mapping entries before sentinel (use flexible matching like inject-sukisu-ioctls.py)
     ioctl_entries = (
         "    {\n"
         "        .cmd = KSU_IOCTL_ENABLE_KPM,\n"
@@ -161,12 +161,28 @@ def modify_dispatch_c():
         "    },\n"
         "#endif\n"
     )
-    sentinel_marker = "{0, NULL, NULL, NULL} // Sentinel"
-    alt_sentinel = ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check = NULL"
-    if sentinel_marker in content:
-        content = content.replace(sentinel_marker, ioctl_entries + "    " + sentinel_marker)
-    elif alt_sentinel in content:
-        content = content.replace(alt_sentinel, ioctl_entries.rstrip() + "\n    " + alt_sentinel)
+    sentinel_markers = [
+        ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check = NULL",
+        ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check",
+        ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,",
+        ".cmd = 0,\n        .name = NULL,",
+        ".cmd = 0,",
+    ]
+    injected = False
+    for marker in sentinel_markers:
+        last_cmd = content.rfind(marker)
+        if last_cmd >= 0:
+            open_brace = content.rfind('{', 0, last_cmd)
+            if open_brace >= 0:
+                sentinel_end = content.find('} // Sentinel', last_cmd)
+                if sentinel_end > 0:
+                    sentinel_block = content[open_brace:sentinel_end + len('} // Sentinel')]
+                    content = content.replace(sentinel_block, ioctl_entries.rstrip() + "\n" + sentinel_block, 1)
+                    injected = True
+                    print("  dispatch.c: added KPM IOCTL mapping entries (flexible match)")
+                    break
+    if not injected:
+        print("  WARNING: sentinel not found, KPM mapping entries NOT added")
     with open(dc, "w") as f:
         f.write(content)
     print("  dispatch.c: added KPM IOCTL handlers")
