@@ -520,7 +520,7 @@ jobs:
           python3 ../scripts/inject-kpm-subsystem.py .
           echo "=== Verification ==="
           ls -la drivers/kernelsu/kpm/*.c 2>/dev/null || echo "0 kpm .c files"
-          grep -c 'KSU_IOCTL_ENABLE_KPM' drivers/kernelsu/uapi/supercall.h 2>/dev/null || echo "0"
+          grep -c 'KSU_IOCTL_ENABLE_KPM' $(find .. -name supercall.h -path "*/uapi/*" 2>/dev/null | head -1) 2>/dev/null || echo "0"
           grep -c 'do_enable_kpm' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
 
       - name: Inject sulog subsystem (event_queue + sulog from dev)
