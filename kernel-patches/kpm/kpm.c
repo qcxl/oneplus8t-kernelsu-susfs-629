@@ -42,13 +42,13 @@
 #define KPM_ARGS_LEN 1024
 
 /*
- * access_ok compat: kernel <5.0 (ARM64) expects 1 arg (addr),
- * kernel >=5.0 expects 2 args (addr, size).
- * kpimg replaces this entire function at runtime, so stub-level
- * access_ok correctness is cosmetic.
+ * access_ok compat: kernel <5.0 uses (type, addr, size),
+ * kernel >=5.0 uses (addr, size).  type is always VERIFY_READ
+ * on arm64 (ignored by __range_ok).  kpimg replaces the entire
+ * stub at runtime, so correctness here is cosmetic.
  */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
-#define kpm_access_ok(addr, size) access_ok(addr)
+#define kpm_access_ok(addr, size) access_ok(VERIFY_READ, addr, size)
 #else
 #define kpm_access_ok(addr, size) access_ok(addr, size)
 #endif
