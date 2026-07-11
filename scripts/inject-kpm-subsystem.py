@@ -94,17 +94,30 @@ def modify_supercall_h():
         "static const __u32 SUKISU_KPM_CONTROL = 6;\n"
         "static const __u32 SUKISU_KPM_VERSION = 7;\n"
     )
-    marker = "static const __u32 KSU_IOCTL_HOOK_TYPE"
-    if marker in content:
-        content = content.replace(marker, insertion + marker)
-    else:
-        # fallback: add before #endif
-        content = content.rstrip()
-        if content.endswith("#endif"):
-            content = content[:-len("#endif")] + insertion + "\n#endif"
-    with open(sh, "w") as f:
-        f.write(content)
-    print("  supercall.h: added KPM IOCTL definitions")
+
+    def _apply_patch(path):
+        with open(path) as f:
+            c = f.read()
+        if "KSU_IOCTL_ENABLE_KPM" in c:
+            return  # already patched
+        marker = "static const __u32 KSU_IOCTL_HOOK_TYPE"
+        if marker in c:
+            c = c.replace(marker, insertion + marker)
+        else:
+            c = c.rstrip()
+            if c.endswith("#endif"):
+                c = c[:-len("#endif")] + insertion + "\n#endif"
+        with open(path, "w") as f:
+            f.write(c)
+        print(f"  supercall.h: patched {path}")
+
+    _apply_patch(sh)
+
+    # Also patch drivers/kernelsu/uapi/supercall.h if different (compiler uses this path)
+    alt_path = os.path.join(KSU_DIR, "uapi/supercall.h")
+    if os.path.exists(alt_path) and os.path.abspath(alt_path) != os.path.abspath(sh):
+        _apply_patch(alt_path)
+        print(f"  supercall.h: also patched {alt_path}")
 
 def modify_dispatch_c():
     """Add KPM IOCTL handlers to dispatch.c"""
