@@ -616,7 +616,7 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
           # Cache buster: change this env var to force ccache miss on any workflow/config change
-          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/unified-selinux_hide.c:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../scripts/inject-kpm-subsystem.py:../../build-boot-img.py"
+          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/unified-selinux_hide.c:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../scripts/inject-kpm-subsystem.py:../../kernel-patches/kpm/kpm.c:../../kernel-patches/kpm/kpm.h:../../kernel-patches/kpm/compact.c:../../kernel-patches/kpm/compact.h:../../kernel-patches/kpm/super_access.c:../../kernel-patches/kpm/super_access.h:../../build-boot-img.py"
           # ^ ccache includes these file hashes in its key, so any change to workflow/config/inject
           #   automatically invalidates the compilation cache.
 
@@ -738,6 +738,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone SukiSU-Ultra source (contains ksud Rust code + APK)
+        env:
+          GIT_TERMINAL_PROMPT: 0
         run: |
           git clone --depth 1 https://github.com/qcxl/oneplus8t-sukisu-ultra.git /tmp/sukisu-ultra
           echo "SUKISU_SRC=/tmp/sukisu-ultra" >> $GITHUB_ENV
