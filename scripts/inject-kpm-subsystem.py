@@ -56,11 +56,9 @@ def modify_kbuild():
     marker = "kernelsu-objs += infra/file_wrapper.o"
     if marker in content:
         insertion = (
-            "\nifeq ($(CONFIG_KPM),y)\n"
-            "kernelsu-objs += kpm/compact.o\n"
+            "\nkernelsu-objs += kpm/compact.o\n"
             "kernelsu-objs += kpm/kpm.o\n"
             "kernelsu-objs += kpm/super_access.o\n"
-            "endif\n"
         )
         content = content.replace(marker, insertion + marker)
         with open(kbuild, "w") as f:
@@ -172,14 +170,12 @@ def modify_dispatch_c():
         "        .handler = do_enable_kpm,\n"
         "        .perm_check = manager_or_root\n"
         "    },\n"
-        "#ifdef CONFIG_KPM\n"
         "    {\n"
         "        .cmd = KSU_IOCTL_KPM,\n"
         "        .name = \"KPM_OPERATION\",\n"
         "        .handler = do_kpm,\n"
         "        .perm_check = manager_or_root\n"
         "    },\n"
-        "#endif\n"
     )
     sentinel_markers = [
         ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check = NULL",
