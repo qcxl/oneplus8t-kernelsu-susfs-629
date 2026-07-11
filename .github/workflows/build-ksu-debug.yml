@@ -732,3 +732,79 @@ jobs:
           path: kebab-kernel-ksu-debug.zip
           retention-days: 30
 
+  build-userspace:
+    name: Build ksud (KPM userspace tool) + SukiSU APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Clone SukiSU-Ultra source (contains ksud Rust code + APK)
+        run: |
+          git clone --depth 1 https://github.com/qcxl/oneplus8t-sukisu-ultra.git /tmp/sukisu-ultra
+          echo "SUKISU_SRC=/tmp/sukisu-ultra" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustup target add aarch64-linux-android
+
+      - name: Install Android NDK r26d
+        run: |
+          curl -fSL -o /tmp/ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-r26d-linux.zip"
+          unzip -q /tmp/ndk.zip -d /tmp/
+          echo "ANDROID_NDK_HOME=/tmp/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Build ksud for aarch64-linux-android
+        run: |
+          cd /tmp/sukisu-ultra/userspace/ksud
+          source ../../scripts/setup-rust-build.sh aarch64-linux-android 26
+          cargo build --target aarch64-linux-android --release 2>&1
+          echo "ksud binary size: $(ls -lh target/aarch64-linux-android/release/ksud | awk '{print $5}')"
+
+      - name: Upload ksud binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ksud-aarch64
+          path: /tmp/sukisu-ultra/userspace/ksud/target/aarch64-linux-android/release/ksud
+          retention-days: 30
+
+      - name: Setup JDK 21 for APK build
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install required Android SDK platforms
+        continue-on-error: true
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-35" "platforms;android-34" "build-tools;35.0.0" \
+            "ndk;29.0.14206865" 2>&1 || true
+          echo "SDK platforms installed:"
+          ls $ANDROID_HOME/platforms/ 2>/dev/null || echo "  (none)"
+
+      - name: Build SukiSU APK (debug, unsigned)
+        continue-on-error: true
+        working-directory: /tmp/sukisu-ultra/manager
+        run: |
+          # Copy ksud into APK's jniLibs
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp /tmp/sukisu-ultra/userspace/ksud/target/aarch64-linux-android/release/ksud \
+            app/src/main/jniLibs/arm64-v8a/libksud.so
+          # Attempt debug build (unsigned, for testing)
+          echo "Attempting APK build (compileSdk=37 requires Android V preview)..."
+          ./gradlew :app:assembleDebug 2>&1 || \
+            echo "APK build incomplete — compileSdk 37 may not be available on CI"
+
+      - name: Upload SukiSU APK (best-effort)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SukiSU-APK-debug
+          path: /tmp/sukisu-ultra/manager/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
