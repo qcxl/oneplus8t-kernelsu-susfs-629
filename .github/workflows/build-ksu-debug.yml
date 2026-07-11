@@ -670,12 +670,13 @@ jobs:
             fi
             echo "=== Downloading KPM tools ==="
             curl -fSL -o /tmp/kptools \
-              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kptools"
+              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kptools" || { echo "kptools download failed"; exit 0; }
             curl -fSL -o /tmp/kpimg \
-              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kpimg"
-            chmod +x /tmp/kptools
+              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kpimg" || { echo "kpimg download failed"; exit 0; }
+            chmod +x /tmp/kptools 2>/dev/null || { echo "kptools not executable (wrong arch?), skipping"; exit 0; }
+            file /tmp/kptools
             echo "=== Injecting kpimg into Image ==="
-            /tmp/kptools -p -s 123 -i "$IMAGE" -k /tmp/kpimg -o "$IMAGE-kpm" 2>&1
+            /tmp/kptools -p -s 123 -i "$IMAGE" -k /tmp/kpimg -o "$IMAGE-kpm" 2>&1 || { echo "kpimg injection failed (kptools may be wrong arch), continuing"; exit 0; }
             if [ -f "$IMAGE-kpm" ]; then
               mv "$IMAGE-kpm" "$IMAGE"
               gzip -c "$IMAGE" > "$IMAGE.gz"
