@@ -587,3 +587,24 @@
 **教训**：< 6.1 内核的 `struct seccomp_filter` 无 `cache` 字段，必须用版本守卫避免越界访问。统一做法：函数体用 `#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)` 包裹
 **检查清单锚点**：「`seccomp_cache.c` 版本守卫」
 **标签**：cross-project
+
+### E049：KPM 文件注入 KSUN 后 include 路径不匹配（policy/manager/infra 相对路径）
+
+**现象**：编译报 `fatal error: 'policy/allowlist.h' file not found`，`drivers/kernelsu/kpm/compact.c` 找不到 include 文件。KPM IOCTL 代码未编译。
+
+**根因**：SukiSU-Ultra 的 `kernel/kpm/compact.c` 使用 `#include "policy/allowlist.h"`，在其原生目录结构中 `kernel/` 是顶层，`kernel/policy/` 与其兄弟。但在 KSUN 树中，文件通过 `inject-kpm-subsystem.py` 注入到 `drivers/kernelsu/kpm/`，而 `policy/allowlist.h` 在 `drivers/kernelsu/policy/`。GCC 的 `#include "..."` 先搜索源文件所在目录（`kpm/`），找不到才搜 `-I` 路径。即使 KSUN Kbuild 有 `-I$(src)`，`#include "policy/..."` 也无法从 `kpm/` 解析到 `../policy/`。
+
+**教训**：
+1. 从 SukiSU-Ultra 复制 KPM 文件时，`compact.c` 和 `kpm.h` 的本地 `#include "xxx/"` 路径不能直接使用
+2. 需要修正为 `../` 前缀才能从 `drivers/kernelsu/kpm/` 回到 `drivers/kernelsu/` 包含兄弟目录
+3. `inject-kpm-subsystem.py` 的 `inject_kpm_files()` 必须在复制时做路径修正
+4. 三个需要修正的文件：
+   - `kpm.h`：`"uapi/supercall.h"` → `"../uapi/supercall.h"`
+   - `compact.c`：`"infra/symbol_resolver.h"` → `"../infra/symbol_resolver.h"`
+   - `compact.c`：`"policy/allowlist.h"` → `"../policy/allowlist.h"`
+   - `compact.c`：`"manager/manager_identity.h"` → `"../manager/manager_identity.h"`
+5. 此问题同样适用于从 SukiSU-Ultra 复制任何子目录文件到 KSUN 的 `drivers/kernelsu/` 下
+
+**检查清单锚点**：KPM include 路径在 inject 脚本中修正
+
+**标签**：cross-project

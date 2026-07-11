@@ -616,7 +616,7 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-fno-pic"
           # Cache buster: change this env var to force ccache miss on any workflow/config change
-          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/unified-selinux_hide.c:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../build-boot-img.py"
+          export CCACHE_EXTRAFILES="../../.github/workflows/build-ksu-debug.yml:../../kernel-patches/ksu.config:../../kernel-patches/debug.config:../../kernel-patches/unified-selinux_hide.c:../../scripts/inject-susfs-dispatch.py:../../scripts/inject-susfs-sus-map.py:../../scripts/inject-v2-features-batch1.py:../../scripts/inject-v2-features-batch2.py:../../scripts/inject-initrc.py:../../scripts/inject-allow-shell.py:../../scripts/inject-susfs-sdcard-monitor.py:../../scripts/inject-kpm-subsystem.py:../../build-boot-img.py"
           # ^ ccache includes these file hashes in its key, so any change to workflow/config/inject
           #   automatically invalidates the compilation cache.
 

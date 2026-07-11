@@ -9,7 +9,7 @@ KPM_SRC = os.path.join(os.path.dirname(__file__), "..", "kernel-patches", "kpm")
 KSU_DIR = os.path.join(KERNEL_DIR, "drivers", "kernelsu")
 
 def inject_kpm_files():
-    """Copy kpm/ source files into drivers/kernelsu/kpm/"""
+    """Copy kpm/ source files into drivers/kernelsu/kpm/ and fix include paths for KSUN tree layout"""
     kpm_dst = os.path.join(KSU_DIR, "kpm")
     os.makedirs(kpm_dst, exist_ok=True)
     for f in ["kpm.c", "kpm.h", "compact.c", "compact.h", "super_access.c", "super_access.h"]:
@@ -18,9 +18,29 @@ def inject_kpm_files():
         if os.path.exists(src):
             with open(src) as fin:
                 content = fin.read()
+            # Fix include paths: SukiSU-Ultra tree uses sibling dirs (policy/, manager/, infra/...)
+            # while KSUN tree nests these under drivers/kernelsu/, so kpm/ needs ../ prefix.
+            if f == "kpm.h":
+                content = content.replace(
+                    '#include "uapi/supercall.h"',
+                    '#include "../uapi/supercall.h"'
+                )
+            elif f == "compact.c":
+                content = content.replace(
+                    '#include "infra/symbol_resolver.h"',
+                    '#include "../infra/symbol_resolver.h"'
+                )
+                content = content.replace(
+                    '#include "policy/allowlist.h"',
+                    '#include "../policy/allowlist.h"'
+                )
+                content = content.replace(
+                    '#include "manager/manager_identity.h"',
+                    '#include "../manager/manager_identity.h"'
+                )
             with open(dst, "w") as fout:
                 fout.write(content)
-            print(f"  Copied {f}")
+            print(f"  Copied {f}" + (" (includes fixed)" if f in ("kpm.h", "compact.c") else ""))
         else:
             print(f"  WARNING: {f} not found in {KPM_SRC}")
 
