@@ -55,9 +55,9 @@ def modify_supercall_h():
     # Match the search pattern used by inject-sukisu-ioctls.py.
     sh = None
     for candidate in [
-        os.path.join(KSU_DIR, "../uapi/supercall.h"),      # via symlink: KSU-root/uapi/supercall.h
+        os.path.join(KSU_DIR, "../uapi/supercall.h"),      # KSU-root/uapi/supercall.h (via symlink)
+        os.path.join(KERNEL_DIR, "../uapi/supercall.h"),    # build-repo-root/uapi/supercall.h
         os.path.join(KSU_DIR, "include/uapi/supercall.h"),  # via symlink: .../include/uapi/
-        os.path.join(KERNEL_DIR, "../uapi/supercall.h"),    # direct from kernel dir up
         "KernelSU-Next/uapi/supercall.h",                    # direct path (legacy CI)
     ]:
         path = os.path.normpath(os.path.join(KERNEL_DIR, candidate)) if not os.path.isabs(candidate) else candidate
@@ -139,6 +139,14 @@ def modify_dispatch_c():
         "        .handler = do_enable_kpm,\n"
         "        .perm_check = manager_or_root\n"
         "    },\n"
+        "#ifdef CONFIG_KPM\n"
+        "    {\n"
+        "        .cmd = KSU_IOCTL_KPM,\n"
+        "        .name = \"KPM_OPERATION\",\n"
+        "        .handler = do_kpm,\n"
+        "        .perm_check = manager_or_root\n"
+        "    },\n"
+        "#endif\n"
     )
     sentinel_marker = "{0, NULL, NULL, NULL} // Sentinel"
     alt_sentinel = ".cmd = 0,\n        .name = NULL,\n        .handler = NULL,\n        .perm_check = NULL"
