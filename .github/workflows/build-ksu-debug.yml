@@ -660,7 +660,7 @@ jobs:
               nm out/vmlinux | grep -c "susfs_init" > /dev/null && echo "SUSFS: susfs_init found" || echo "ERROR: susfs_init NOT in vmlinux!"
             fi
 
-      - name: Build kptools from source and inject kpimg into kernel Image
+      - name: Download pre-built kpimg + kptools and inject into kernel Image
         working-directory: kernel
         run: |
             IMAGE=out/arch/arm64/boot/Image
@@ -668,18 +668,14 @@ jobs:
               echo "No uncompressed Image, skipping kpimg injection"
               exit 0
             fi
-            echo "=== Building kptools from source ==="
-            git clone --depth 1 https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch.git /tmp/kpatch-src 2>&1 || { echo "kptools clone failed"; exit 0; }
-            cd /tmp/kpatch-src/tools
-            make CC=gcc -j$(nproc) 2>&1 || { echo "kptools build failed"; exit 0; }
-            KPMTOOLS=/tmp/kpatch-src/tools/kptools
-            file "$KPMTOOLS"
-            echo "=== Downloading kpimg ==="
-            curl -fSL -o /tmp/kpimg \
-              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kpimg" || { echo "kpimg download failed"; exit 0; }
-            chmod +x "$KPMTOOLS"
+            echo "=== Downloading pre-built kptools-linux and kpimg from GitHub release ==="
+            RELEASE_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download"
+            curl -fSL -o /tmp/kptools "$RELEASE_URL/kptools-linux" || { echo "kptools download failed"; exit 0; }
+            curl -fSL -o /tmp/kpimg "$RELEASE_URL/kpimg" || { echo "kpimg download failed"; exit 0; }
+            chmod +x /tmp/kptools
+            file /tmp/kptools /tmp/kpimg
             echo "=== Injecting kpimg into Image ==="
-            "$KPMTOOLS" -p -s 123 -i "$IMAGE" -k /tmp/kpimg -o "$IMAGE-kpm" 2>&1 || { echo "kpimg injection failed"; exit 0; }
+            /tmp/kptools -p -s 123 -i "$IMAGE" -k /tmp/kpimg -o "$IMAGE-kpm" 2>&1 || { echo "kpimg injection failed"; exit 0; }
             if [ -f "$IMAGE-kpm" ]; then
               mv "$IMAGE-kpm" "$IMAGE"
               gzip -c "$IMAGE" > "$IMAGE.gz"
