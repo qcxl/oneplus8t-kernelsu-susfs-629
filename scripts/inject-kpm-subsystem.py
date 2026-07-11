@@ -51,24 +51,18 @@ def modify_kbuild():
 
 def modify_supercall_h():
     """Add IOCTL #102 (ENABLE_KPM) and #200 (KPM) to supercall.h"""
-    # Try multiple locations: KSU_DIR/uapi, KERNEL_DIR/uapi, cwd/uapi
-    candidates = [
-        os.path.join(KSU_DIR, "uapi", "supercall.h"),
-        os.path.join(KERNEL_DIR, "uapi", "supercall.h"),
-        os.path.join(os.getcwd(), "uapi", "supercall.h"),
-    ]
-    # Also check if KSU_DIR has a uapi/ at the repo root (via ../../uapi/)
-    repo_root = os.path.normpath(os.path.join(KSU_DIR, ".."))
-    candidates.append(os.path.join(repo_root, "uapi", "supercall.h"))
-    # Try one level further up (KSU_DIR is drivers/kernelsu, repo root is ../..)
-    repo_root2 = os.path.normpath(os.path.join(KSU_DIR, "..", ".."))
-    if repo_root2 != repo_root:
-        candidates.append(os.path.join(repo_root2, "uapi", "supercall.h"))
-
+    # supercall.h is at KSU repo root uapi/, NOT inside drivers/kernelsu/uapi/.
+    # Match the search pattern used by inject-sukisu-ioctls.py.
     sh = None
-    for c in candidates:
-        if os.path.exists(c):
-            sh = c
+    for candidate in [
+        os.path.join(KSU_DIR, "../uapi/supercall.h"),      # via symlink: KSU-root/uapi/supercall.h
+        os.path.join(KSU_DIR, "include/uapi/supercall.h"),  # via symlink: .../include/uapi/
+        os.path.join(KERNEL_DIR, "../uapi/supercall.h"),    # direct from kernel dir up
+        "KernelSU-Next/uapi/supercall.h",                    # direct path (legacy CI)
+    ]:
+        path = os.path.normpath(os.path.join(KERNEL_DIR, candidate)) if not os.path.isabs(candidate) else candidate
+        if os.path.exists(path):
+            sh = path
             print(f"  Found supercall.h at: {sh}")
             break
     if not sh:
