@@ -510,6 +510,19 @@ jobs:
           echo "=== Verification ==="
           grep -c 'allow_shell' drivers/kernelsu/core/init.c 2>/dev/null || echo "0"
 
+      - name: Inject KPM subsystem (kpm/ + IOCTL #102/#200)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting KPM subsystem ==="
+          mkdir -p drivers/kernelsu/kpm
+          cp ../kernel-patches/kpm/* drivers/kernelsu/kpm/
+          echo "  Copied kpm/ files"
+          python3 ../scripts/inject-kpm-subsystem.py .
+          echo "=== Verification ==="
+          ls -la drivers/kernelsu/kpm/*.c 2>/dev/null || echo "0 kpm .c files"
+          grep -c 'KSU_IOCTL_ENABLE_KPM' drivers/kernelsu/uapi/supercall.h 2>/dev/null || echo "0"
+          grep -c 'do_enable_kpm' drivers/kernelsu/supercall/dispatch.c 2>/dev/null || echo "0"
+
       - name: Inject sulog subsystem (event_queue + sulog from dev)
         working-directory: kernel
         run: |
@@ -645,6 +658,31 @@ jobs:
             if [ -f out/vmlinux ]; then
               nm out/vmlinux | grep -c "ksu_handle" > /dev/null && echo "KSU symbols: $(nm out/vmlinux | grep -c "ksu_handle") found" || echo "WARNING: no ksu_handle symbols"
               nm out/vmlinux | grep -c "susfs_init" > /dev/null && echo "SUSFS: susfs_init found" || echo "ERROR: susfs_init NOT in vmlinux!"
+            fi
+
+      - name: Download KPM tools and inject kpimg into kernel Image
+        working-directory: kernel
+        run: |
+            IMAGE=out/arch/arm64/boot/Image
+            if [ ! -f "$IMAGE" ]; then
+              echo "No uncompressed Image, skipping kpimg injection"
+              exit 0
+            fi
+            echo "=== Downloading KPM tools ==="
+            curl -fSL -o /tmp/kptools \
+              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kptools"
+            curl -fSL -o /tmp/kpimg \
+              "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/kpimg"
+            chmod +x /tmp/kptools
+            echo "=== Injecting kpimg into Image ==="
+            /tmp/kptools -p -s 123 -i "$IMAGE" -k /tmp/kpimg -o "$IMAGE-kpm" 2>&1
+            if [ -f "$IMAGE-kpm" ]; then
+              mv "$IMAGE-kpm" "$IMAGE"
+              gzip -c "$IMAGE" > "$IMAGE.gz"
+              echo "KPM injection successful"
+              ls -lh "$IMAGE" "$IMAGE.gz"
+            else
+              echo "WARNING: kpimg injection may have failed, continuing with original Image"
             fi
 
       - name: Prepare artifact
