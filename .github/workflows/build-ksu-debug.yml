@@ -95,14 +95,16 @@ jobs:
           echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
           echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
 
-      - name: Inject KSU prctl handler (for Manager APK fd)
+      - name: Fix SELinux domain initialization for builtin mode
         working-directory: kernel
         run: |
-          echo "=== Injecting ksu_handle_prctl handler ==="
-          python3 ../scripts/inject-ksu-prctl.py .
+          echo "=== Injecting SELinux domain init fix ==="
+          python3 ../scripts/inject-selinux-domain-init.py .
           echo "=== Verification ==="
-          grep -c 'ksu_handle_prctl' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
-          grep -c 'ksu_handle_prctl' drivers/kernelsu/supercall/supercall.h 2>/dev/null || echo "0"
+          echo "-- ksud_integration.c exec line:"
+          grep -n "post-fs-data" drivers/kernelsu/runtime/ksud_integration.c
+          echo "-- boot_event.c apply calls:"
+          grep -n "apply_kernelsu_rules\|cache_sid\|setup_ksu_cred" drivers/kernelsu/runtime/boot_event.c
 
       - name: Fix UAPI version mismatch (legacy → v2 compat)
         working-directory: kernel
