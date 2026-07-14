@@ -642,6 +642,13 @@ jobs:
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             2>&1 | tee build.log
 
+      - name: Dump build log on failure
+        if: failure()
+        working-directory: kernel
+        run: |
+            echo "=== BUILD FAILED ==="
+            tail -200 build.log 2>/dev/null || echo "(build.log not found)"
+
       - name: Verify kernel image
         working-directory: kernel
         run: |
