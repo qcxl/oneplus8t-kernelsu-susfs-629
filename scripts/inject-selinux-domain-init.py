@@ -227,21 +227,14 @@ def fix_kernelsu_init(kernel_root):
         )
 
     # Find the final return 0; in kernelsu_init() and insert before it.
-    # kernelsu_init() ends with:
-    #   #endif
-    #     return 0;
-    #   }
-    # ...
-    # void __exit kernelsu_exit
-    marker = re.compile(
-        r'(\treturn 0;\n}\n\nvoid __exit kernelsu_exit)',
-        re.MULTILINE
-    )
-    if not marker.search(content):
+    # Using str.replace() to avoid Python re.sub's backslash interpretation
+    # (re.sub converts \\n in replacement to actual newline chars).
+    old_tail = '\treturn 0;\n}\n\nvoid __exit kernelsu_exit'
+    if old_tail not in content:
         print(f"  ERROR: cannot find kernelsu_init() end marker in {path}")
         return False
 
-    calls = (
+    new_tail = (
         '\t/* Initialize KSU SELinux domain (SELinux is fully initialized at this point) */\n'
         '\tprintk(KERN_INFO "ksu_debug: calling apply_kernelsu_rules\\n");\n'
         '\tapply_kernelsu_rules();\n'
@@ -256,7 +249,7 @@ def fix_kernelsu_init(kernel_root):
         '\n'
         'void __exit kernelsu_exit'
     )
-    content = marker.sub(calls, content, count=1)
+    content = content.replace(old_tail, new_tail, 1)
 
     with open(path, 'w') as f:
         f.write(content)
