@@ -160,22 +160,25 @@ def fix_boot_event(kernel_root):
     else:
         print(f"  WARNING: selinux.c not found, clear_exec_sid fix skipped")
 
-    # 4. Also inject late_initcall into core/init.c (boot_event.c late_initcall
-    #    won't fire because the kernel composite object build doesn't properly
-    #    handle initcall sections from non-primary constituent objects).
+    # 4. Replace direct late_initcall with delayed workqueue (safe approach).
+    #    Direct late_initcall runs during boot before init loads the full
+    #    SELinux policy from file. The modifications are overwritten when
+    #    init does selinux_load_policy(). Delayed workqueue runs 15s after
+    #    boot, by which time the full policy is loaded and modifications
+    #    will persist.
     init_path = find_file(kernel_root, [
         "drivers/kernelsu/core/init.c",
         "KernelSU/kernel/core/init.c",
     ])
     if not init_path:
-        print(f"  WARNING: core/init.c not found, late_initcall skipped")
+        print(f"  WARNING: core/init.c not found, delayed init skipped")
         return True
 
     with open(init_path) as f:
         init_content = f.read()
 
-    if 'ksu_selinux_late_init' in init_content:
-        print(f"  {init_path}: late_initcall already present")
+    if 'ksu_delayed_selinux_init' in init_content:
+        print(f"  {init_path}: delayed init already present")
         return True
 
     # Ensure selinux/selinux.h is included
@@ -185,13 +188,31 @@ def fix_boot_event(kernel_root):
             '#include "klog.h"\n#include "selinux/selinux.h"'
         )
 
-    # Add late_initcall before MODULE_LICENSE at end
-    late_func = '\n\nstatic int __init ksu_selinux_late_init(void)\n{\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();\n\treturn 0;\n}\nlate_initcall(ksu_selinux_late_init);\n'
-    init_content = init_content.rstrip() + late_func
+    # Add delayed workqueue + late_initcall at end of file.
+    # The function is called via workqueue ~15s after boot (well after
+    # initial policy load) so the full policy is guaranteed to be loaded.
+    delayed_func = '''
+
+#include <linux/workqueue.h>
+static void ksu_delayed_selinux_init(struct work_struct *work)
+{
+	apply_kernelsu_rules();
+	cache_sid();
+	setup_ksu_cred();
+}
+static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
+static int __init ksu_selinux_delayed_init(void)
+{
+	schedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);
+	return 0;
+}
+late_initcall(ksu_selinux_delayed_init);
+'''
+    init_content = init_content.rstrip() + delayed_func
 
     with open(init_path, 'w') as f:
         f.write(init_content)
-    print(f"  {init_path}: added late_initcall fallback")
+    print(f"  {init_path}: added delayed workqueue (15s) for ksu domain init")
     return True
 
 

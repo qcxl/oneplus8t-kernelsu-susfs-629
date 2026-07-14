@@ -128,35 +128,93 @@ struct kprobe ksu_sel_write_load_kp = {
     with open(init_path) as f:
         init_content = f.read()
 
-    if 'ksu_sel_write_load_register' in init_content:
+    # Check if kprobe exter declarations already present
+    if 'extern struct kprobe ksu_sel_write_load_kp' in init_content:
         print(f"  {init_path}: SEL_LOAD kprobe already present")
         return True
 
-    kprobe_init = '''
+    # Also verify delayed work function exists
+    has_delayed_func = 'ksu_delayed_selinux_init' in init_content
 
-/* ===== SEL_LOAD kprobe registration (definitions in boot_event.c) ===== */
+    # Instead of a separate late_initcall (which fires too early, before
+    # the full policy is loaded), register the kprobe inside the delayed
+    # workqueue function from inject-selinux-domain-init.py.
+    # The delayed work fires ~15s after boot, well after the full policy
+    # is loaded.
+
+    # Find the delayed work function and add kprobe registration inside it
+    ksu_func_marker = 'ksu_delayed_selinux_init(struct work_struct *work)'
+    ksu_func_end = '\tsetup_ksu_cred();'
+
+    if ksu_func_marker in init_content and ksu_func_end in init_content:
+        # Find the end of the function and add kprobe reg before the closing brace
+        lines = init_content.split('\n')
+        for i, line in enumerate(lines):
+            if ksu_func_end in line:
+                # Insert kprobe registration after setup_ksu_cred, before return
+                kprobe_reg_code = [
+                    '\t/* Register SEL_LOAD kprobe (catches policy reloads) */',
+                    '\tregister_kprobe(&ksu_sel_write_load_kp);',
+                ]
+                for j, code in enumerate(kprobe_reg_code):
+                    lines.insert(i + 1 + j, code)
+                init_content = '\n'.join(lines)
+                break
+
+        # Add extern declarations at the beginning of the file
+        # (after the last #include)
+        last_include = -1
+        lines = init_content.split('\n')
+        for i, line in enumerate(lines):
+            if line.startswith('#include'):
+                last_include = i
+        if last_include >= 0:
+            extern_block = [
+                '',
+                '/* SEL_LOAD kprobe extern (definitions in boot_event.c) */',
+                '#ifdef CONFIG_KPROBES',
+                '#include <linux/kprobes.h>',
+                'extern int ksu_sel_write_load_pre(struct kprobe *, struct pt_regs *);',
+                'extern struct kprobe ksu_sel_write_load_kp;',
+                '#endif',
+                '',
+            ]
+            for j, line in enumerate(extern_block):
+                lines.insert(last_include + 1 + j, line)
+            init_content = '\n'.join(lines)
+
+        with open(init_path, 'w') as f:
+            f.write(init_content)
+        print(f"  {init_path}: added SEL_LOAD kprobe to delayed workqueue")
+    else:
+        # Fallback: add standalone delayed work + kprobe reg
+        fallback_code = '''
+
+/* ===== SEL_LOAD kprobe registration (delayed, after full policy loaded) ===== */
 #ifdef CONFIG_KPROBES
 #include <linux/kprobes.h>
+#include <linux/workqueue.h>
 extern int ksu_sel_write_load_pre(struct kprobe *, struct pt_regs *);
 extern struct kprobe ksu_sel_write_load_kp;
 
-static int __init ksu_sel_write_load_init(void)
+static void ksu_delayed_kprobe_reg(struct work_struct *work)
 {
-	int ret = register_kprobe(&ksu_sel_write_load_kp);
-	if (ret)
-		pr_warn("ksu: sel_write_load kprobe failed: %d\\n", ret);
-	else
-		pr_info("ksu: sel_write_load kprobe registered\\n");
+	register_kprobe(&ksu_sel_write_load_kp);
+}
+static DECLARE_DELAYED_WORK(ksu_delayed_kprobe_work, ksu_delayed_kprobe_reg);
+static int __init ksu_kprobe_delayed_init(void)
+{
+	schedule_delayed_work(&ksu_delayed_kprobe_work, 15 * HZ);
 	return 0;
 }
-late_initcall(ksu_sel_write_load_init);
+late_initcall(ksu_kprobe_delayed_init);
 #endif
 '''
+        init_content = init_content.rstrip() + fallback_code
+        with open(init_path, 'w') as f:
+            f.write(init_content)
+        print(f"  {init_path}: added fallback delayed SEL_LOAD kprobe registration")
 
-    init_content = init_content.rstrip() + kprobe_init
-    with open(init_path, 'w') as f:
-        f.write(init_content)
-    print(f"  {init_path}: added SEL_LOAD kprobe registration late_initcall")
     return True
 
 
