@@ -132,17 +132,42 @@ def fix_boot_event(kernel_root):
 
     content, count = marker.subn(block, content, count=1)
 
-    # 3. Add late_initcall fallback (in case init.rc injection doesn't work)
-    # This ensures apply_kernelsu_rules() runs even if post-fs-data never fires
-    late_initcall_func = '\n\nstatic int __init ksu_selinux_late_init(void)\n{\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();\n\treturn 0;\n}\nlate_initcall(ksu_selinux_late_init);\n'
-
-    # Add at end of file before EOF
-    content = content.rstrip() + late_initcall_func
-
     with open(path, 'w') as f:
         f.write(content)
     print(f"  {path}: added apply_kernelsu_rules + cache_sid + setup_ksu_cred")
-    print(f"  {path}: added late_initcall fallback")
+
+    # 3. Also inject late_initcall into core/init.c (boot_event.c late_initcall
+    #    won't fire because the kernel composite object build doesn't properly
+    #    handle initcall sections from non-primary constituent objects).
+    init_path = find_file(kernel_root, [
+        "drivers/kernelsu/core/init.c",
+        "KernelSU/kernel/core/init.c",
+    ])
+    if not init_path:
+        print(f"  WARNING: core/init.c not found, late_initcall skipped")
+        return True
+
+    with open(init_path) as f:
+        init_content = f.read()
+
+    if 'ksu_selinux_late_init' in init_content:
+        print(f"  {init_path}: late_initcall already present")
+        return True
+
+    # Ensure selinux/selinux.h is included
+    if '#include "selinux/selinux.h"' not in init_content:
+        init_content = init_content.replace(
+            '#include "klog.h"',
+            '#include "klog.h"\n#include "selinux/selinux.h"'
+        )
+
+    # Add late_initcall before MODULE_LICENSE at end
+    late_func = '\n\nstatic int __init ksu_selinux_late_init(void)\n{\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();\n\treturn 0;\n}\nlate_initcall(ksu_selinux_late_init);\n'
+    init_content = init_content.rstrip() + late_func
+
+    with open(init_path, 'w') as f:
+        f.write(init_content)
+    print(f"  {init_path}: added late_initcall fallback")
     return True
 
 

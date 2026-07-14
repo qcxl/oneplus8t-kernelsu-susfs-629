@@ -106,11 +106,77 @@ late_initcall(ksu_sel_write_load_init);
 #endif /* CONFIG_KPROBES */
 '''
 
-    content = content.rstrip() + kprobe_code
+    content = content.rstrip()
+
+    # Only add the work declaration + workfn to boot_event.c
+    # (the DECLARE_WORK must live in a compiled .o)
+    # The kprobe registration late_initcall goes to core/init.c
+    boot_code_only = '''
+
+/* ===== SEL_LOAD kprobe — re-apply KSU rules after policy reload ===== */
+#ifdef CONFIG_KPROBES
+#include <linux/workqueue.h>
+
+static void ksu_sel_write_load_workfn(struct work_struct *work);
+static DECLARE_WORK(ksu_sel_write_load_work, ksu_sel_write_load_workfn);
+
+static void ksu_sel_write_load_workfn(struct work_struct *work)
+{
+	apply_kernelsu_rules();
+	cache_sid();
+	setup_ksu_cred();
+}
+#endif /* CONFIG_KPROBES */
+'''
+    content += boot_code_only
 
     with open(path, 'w') as f:
         f.write(content)
-    print(f"  {path}: added SEL_LOAD kprobe hook")
+    print(f"  {path}: added SEL_LOAD workqueue")
+
+    # kprobe registration + late_initcall goes to core/init.c
+    init_path = find_file(kernel_root, [
+        "drivers/kernelsu/core/init.c",
+        "KernelSU/kernel/core/init.c",
+    ])
+    if not init_path:
+        print(f"  WARNING: core/init.c not found, kprobe registration skipped")
+        return True
+
+    with open(init_path) as f:
+        init_content = f.read()
+
+    if 'ksu_sel_write_load_kp' in init_content:
+        print(f"  {init_path}: SEL_LOAD kprobe already present")
+        return True
+
+    # Add extern declaration and kprobe init to core/init.c
+    kprobe_init = '''
+
+/* ===== SEL_LOAD kprobe (declared in boot_event.c) ===== */
+#ifdef CONFIG_KPROBES
+#include <linux/kprobes.h>
+extern struct kprobe ksu_sel_write_load_kp;
+extern struct work_struct ksu_sel_write_load_work;
+extern void ksu_sel_write_load_workfn(struct work_struct *work);
+
+static int __init ksu_sel_write_load_init(void)
+{
+	int ret = register_kprobe(&ksu_sel_write_load_kp);
+	if (ret)
+		pr_warn("ksu: sel_write_load kprobe failed: %d\\n", ret);
+	else
+		pr_info("ksu: sel_write_load kprobe registered\\n");
+	return 0;
+}
+late_initcall(ksu_sel_write_load_init);
+#endif
+'''
+
+    init_content = init_content.rstrip() + kprobe_init
+    with open(init_path, 'w') as f:
+        f.write(init_content)
+    print(f"  {init_path}: added SEL_LOAD kprobe registration late_initcall")
     return True
 
 
