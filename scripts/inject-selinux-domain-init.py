@@ -103,10 +103,13 @@ def fix_boot_event(kernel_root):
     else:
         print(f"  {path}: include already present")
 
+    # Check if already applied
+    if 'apply_kernelsu_rules()' in content:
+        print(f"  Already applied, skipping")
+        return True
+
     # 2. Add calls before ksu_load_allow_list
     # Match both tab-indented and space-indented
-    # Line: \tksu_load_allow_list();
-    # Or:    ksu_load_allow_list();
     marker = re.compile(
         r'^([ \t]*)ksu_load_allow_list\(\);',
         re.MULTILINE
@@ -115,11 +118,6 @@ def fix_boot_event(kernel_root):
     if not marker.search(content):
         print(f"  ERROR: cannot find ksu_load_allow_list() in {path}")
         return False
-
-    # Check if already applied
-    if 'apply_kernelsu_rules()' in content:
-        print(f"  Already applied, skipping")
-        return True
 
     # Capture the indentation from the existing marker
     indent = marker.search(content).group(1)
@@ -133,9 +131,18 @@ def fix_boot_event(kernel_root):
     )
 
     content, count = marker.subn(block, content, count=1)
+
+    # 3. Add late_initcall fallback (in case init.rc injection doesn't work)
+    # This ensures apply_kernelsu_rules() runs even if post-fs-data never fires
+    late_initcall_func = '\n\nstatic int __init ksu_selinux_late_init(void)\n{\n\tapply_kernelsu_rules();\n\tcache_sid();\n\tsetup_ksu_cred();\n\treturn 0;\n}\nlate_initcall(ksu_selinux_late_init);\n'
+
+    # Add at end of file before EOF
+    content = content.rstrip() + late_initcall_func
+
     with open(path, 'w') as f:
         f.write(content)
     print(f"  {path}: added apply_kernelsu_rules + cache_sid + setup_ksu_cred")
+    print(f"  {path}: added late_initcall fallback")
     return True
 
 
