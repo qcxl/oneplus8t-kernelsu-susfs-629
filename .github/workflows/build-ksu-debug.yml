@@ -4,9 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'scripts/inject-*.py'
-      - 'scripts/apply-ksu-hooks.py'
-      - '!scripts/__pycache__/**'
+      - 'scripts/**'
       - 'build-boot-img.py'
       - 'kernel-patches/**'
       - '.github/workflows/build-ksu-debug.yml'
