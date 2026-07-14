@@ -136,7 +136,31 @@ def fix_boot_event(kernel_root):
         f.write(content)
     print(f"  {path}: added apply_kernelsu_rules + cache_sid + setup_ksu_cred")
 
-    # 3. Also inject late_initcall into core/init.c (boot_event.c late_initcall
+    # 3. Fix setup_selinux to clear exec_sid (prevents domain transition on exec)
+    selinux_path = find_file(kernel_root, [
+        "drivers/kernelsu/selinux/selinux.c",
+        "KernelSU/kernel/selinux/selinux.c",
+    ])
+    if selinux_path:
+        with open(selinux_path) as f:
+            selinux_content = f.read()
+
+        if 'transive_to_domain(domain, cred, true)' in selinux_content:
+            print(f"  {selinux_path}: clear_exec_sid already fixed")
+        else:
+            old = 'transive_to_domain(domain, cred, false)'
+            new = 'transive_to_domain(domain, cred, true)'
+            if old in selinux_content:
+                selinux_content = selinux_content.replace(old, new, 1)
+                with open(selinux_path, 'w') as f:
+                    f.write(selinux_content)
+                print(f"  {selinux_path}: set clear_exec_sid=true (prevents domain exec transition)")
+            else:
+                print(f"  WARNING: pattern not found in {selinux_path}")
+    else:
+        print(f"  WARNING: selinux.c not found, clear_exec_sid fix skipped")
+
+    # 4. Also inject late_initcall into core/init.c (boot_event.c late_initcall
     #    won't fire because the kernel composite object build doesn't properly
     #    handle initcall sections from non-primary constituent objects).
     init_path = find_file(kernel_root, [
