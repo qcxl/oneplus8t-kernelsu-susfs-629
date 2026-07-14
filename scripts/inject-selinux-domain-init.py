@@ -160,12 +160,10 @@ def fix_boot_event(kernel_root):
     else:
         print(f"  WARNING: selinux.c not found, clear_exec_sid fix skipped")
 
-    # 4. Replace direct late_initcall with delayed workqueue (safe approach).
-    #    Direct late_initcall runs during boot before init loads the full
-    #    SELinux policy from file. The modifications are overwritten when
-    #    init does selinux_load_policy(). Delayed workqueue runs 15s after
-    #    boot, by which time the full policy is loaded and modifications
-    #    will persist.
+    # 4. Add delayed workqueue directly inside kernelsu_init() (NOT via
+    #    late_initcall, which doesn't fire for composite objects).
+    #    The work fires ~15s after boot, well after init loads the full
+    #    SELinux policy.
     init_path = find_file(kernel_root, [
         "drivers/kernelsu/core/init.c",
         "KernelSU/kernel/core/init.c",
@@ -177,7 +175,7 @@ def fix_boot_event(kernel_root):
     with open(init_path) as f:
         init_content = f.read()
 
-    if 'ksu_delayed_selinux_init' in init_content:
+    if 'ksu_delayed_selinux_work' in init_content:
         print(f"  {init_path}: delayed init already present")
         return True
 
@@ -188,12 +186,20 @@ def fix_boot_event(kernel_root):
             '#include "klog.h"\n#include "selinux/selinux.h"'
         )
 
-    # Add delayed workqueue + late_initcall at end of file.
-    # The function is called via workqueue ~15s after boot (well after
-    # initial policy load) so the full policy is guaranteed to be loaded.
-    delayed_func = '''
+    # 4a. Add #include <linux/workqueue.h> if not present
+    if '#include <linux/workqueue.h>' not in init_content:
+        init_content = init_content.replace(
+            '#include <linux/export.h>',
+            '#include <linux/export.h>\n#include <linux/workqueue.h>'
+        )
 
-#include <linux/workqueue.h>
+    # 4b. Add DELAYED_WORK declaration and work function BEFORE
+    #     MODULE_LICENSE at end of file. NOT using late_initcall -
+    #     instead the schedule call is injected into kernelsu_init().
+    work_decl = '''
+
+/* 15-second delayed workqueue: apply KSU SELinux rules AFTER the
+ * full SELinux policy has been loaded by init userspace. */
 static void ksu_delayed_selinux_init(struct work_struct *work)
 {
 	apply_kernelsu_rules();
@@ -201,18 +207,54 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 	setup_ksu_cred();
 }
 static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
-static int __init ksu_selinux_delayed_init(void)
-{
-	schedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);
-	return 0;
-}
-late_initcall(ksu_selinux_delayed_init);
 '''
-    init_content = init_content.rstrip() + delayed_func
+    init_content = re.sub(r'^(MODULE_LICENSE\()', work_decl + r'\1', init_content, count=1, flags=re.MULTILINE)
 
-    with open(init_path, 'w') as f:
-        f.write(init_content)
-    print(f"  {init_path}: added delayed workqueue (15s) for ksu domain init")
+    # 4c. Add schedule_delayed_work() call inside kernelsu_init(),
+    #     before the final 'return 0;' at the end of the function.
+    #     kernelsu_init() is confirmed to fire (dmesg), so this ensures
+    #     the work is always scheduled.
+    #     Match 'return 0;' at the end of the init function (not module_exit).
+    #     kernelsu_init() ends with:
+    #       #endif
+    #         return 0;
+    #       }
+    #     The final return 0; before the closing } of kernelsu_init.
+    schedule_call = '\tschedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);\n'
+
+    # Find the last 'return 0;' before the first '}' that closes kernelsu_init
+    lines = init_content.split('\n')
+    modified = False
+    for i in range(len(lines) - 1, -1, -1):
+        stripped = lines[i].strip()
+        # Look for 'return 0;' inside the init function (after module_exit begins,
+        # we're too far. Module exit starts with void __exit kernelsu_exit)
+        if stripped == 'return 0;':
+            # Check if this is in kernelsu_init by looking at surrounding context
+            # (not in kernelsu_exit which starts later)
+            surround = '\n'.join(lines[max(0,i-3):i+3])
+            if 'kernelsu_exit' not in surround:
+                lines.insert(i, schedule_call)
+                modified = True
+                break
+
+    if modified:
+        init_content = '\n'.join(lines)
+        with open(init_path, 'w') as f:
+            f.write(init_content)
+        print(f"  {init_path}: added delayed workqueue scheduling in kernelsu_init()")
+    else:
+        # Fallback: add at end of file close to return
+        init_content = init_content.replace(
+            '\treturn 0;\n}\n\nvoid __exit kernelsu_exit',
+            '\tschedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);\n'
+            '\treturn 0;\n}\n\nvoid __exit kernelsu_exit',
+            1
+        )
+        with open(init_path, 'w') as f:
+            f.write(init_content)
+        print(f"  {init_path}: added delayed workqueue scheduling (fallback)")
+
     return True
 
 
