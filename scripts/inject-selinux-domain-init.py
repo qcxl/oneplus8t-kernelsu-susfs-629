@@ -104,7 +104,7 @@ def fix_boot_event(kernel_root):
 
     indent = m.group(1)
     block = (
-        f'{indent}/* Initialize KSU SELinux domain */\n'
+        f'{indent}/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
         f'{indent}apply_kernelsu_rules();\n'
         f'{indent}cache_sid();\n'
         f'{indent}setup_ksu_cred();\n'
@@ -176,6 +176,7 @@ def fix_rules(kernel_root):
     new = (
         '    ksu_permissive(db, KERNEL_SU_DOMAIN);\n'
         '    /* ksu exec' + "'" + 's shell (sh, busybox): STAY in ksu domain. */\n'
+        '    /* Build: __DATE__ __TIME__ */\n'
         '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
         '    printk(KERN_INFO "ksu_debug: adding type_transition ksu->shell_exec->ksu\\n");\n'
         '    {\n'
@@ -235,7 +236,7 @@ def fix_kernelsu_init(kernel_root):
         return False
 
     new_tail = (
-        '\t/* Initialize KSU SELinux domain (SELinux is fully initialized at this point) */\n'
+        '\t/* Initialize KSU SELinux domain (SELinux fully initialized). Build: __DATE__ __TIME__ */\n'
         '\tprintk(KERN_INFO "ksu_debug: calling apply_kernelsu_rules\\n");\n'
         '\tapply_kernelsu_rules();\n'
         '\tprintk(KERN_INFO "ksu_debug: calling cache_sid\\n");\n'
