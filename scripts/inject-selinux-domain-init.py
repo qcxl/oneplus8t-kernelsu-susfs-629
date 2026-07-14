@@ -31,39 +31,6 @@ def find_file(kernel_root, candidates):
     return None
 
 
-def fix_ksud_integration(kernel_root):
-    """Remove u:r:ksu:s0 from post-fs-data exec in KERNEL_SU_RC."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/runtime/ksud_integration.c",
-        "KernelSU/kernel/runtime/ksud_integration.c",
-    ])
-    if not path:
-        print(f"  ERROR: ksud_integration.c not found")
-        return False
-
-    with open(path) as f:
-        content = f.read()
-
-    pattern = re.compile(
-        r'^([ \t]*)"([ \t]*)exec u:r:"\s*KERNEL_SU_DOMAIN\s*":s0 root -- "\s*KSUD_PATH\s*" post-fs-data\\n"',
-        re.MULTILINE
-    )
-    replacement = r'\1"\2exec root -- " KSUD_PATH " post-fs-data\\n"'
-    new_content, count = pattern.subn(replacement, content, count=1)
-
-    if count == 0:
-        if re.search(r'exec root --.*KSUD_PATH.*post-fs-data', content):
-            print(f"  Already fixed, skipping")
-            return True
-        print(f"  ERROR: cannot find post-fs-data exec pattern in {path}")
-        return False
-
-    with open(path, 'w') as f:
-        f.write(new_content)
-    print(f"  {path}: post-fs-data exec context removed")
-    return True
-
-
 def fix_boot_event(kernel_root):
     """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred to on_post_fs_data()."""
     path = find_file(kernel_root, [
@@ -370,7 +337,6 @@ def main():
 
     print(f"[SELinux domain init inject] target={root}")
     ok = True
-    ok &= fix_ksud_integration(root)
     ok &= fix_boot_event(root)
     ok &= fix_selinux_clear_exec_sid(root)
     ok &= fix_app_profile(root)
