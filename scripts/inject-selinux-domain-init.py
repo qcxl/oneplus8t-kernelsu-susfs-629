@@ -148,6 +148,50 @@ def fix_selinux_clear_exec_sid(kernel_root):
     return True
 
 
+def fix_rules(kernel_root):
+    """Add type_transition rule: ksu exec's shell_exec → stays in ksu, not shell.
+    Without this, the stock type_transition domain shell_exec:process shell;
+    fires when ksu exec's /system/bin/sh, transitioning the process to
+    shell domain, losing all permissions."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/selinux/rules.c",
+        "KernelSU/kernel/selinux/rules.c",
+    ])
+    if not path:
+        print(f"  ERROR: rules.c not found")
+        return False
+
+    with open(path) as f:
+        content = f.read()
+
+    # Check if already applied
+    if 'ksu_type_transition.*KERNEL_SU_DOMAIN.*shell_exec' in content or \
+       'type_transition.*ksu.*shell_exec.*process.*ksu' in content:
+        print(f"  {path}: already fixed")
+        return True
+
+    # Insert after ksu_permissive(db, KERNEL_SU_DOMAIN);
+    # Note: apply_kernelsu_rules_fn() uses 4-space indentation (not tabs)
+    old = '    ksu_permissive(db, KERNEL_SU_DOMAIN);'
+    new = (
+        '    ksu_permissive(db, KERNEL_SU_DOMAIN);\n'
+        '    /* ksu exec' + "'" + 's shell (sh, busybox): STAY in ksu domain. */\n'
+        '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
+        '    ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL);\n'
+        '    ksu_allow(db, KERNEL_SU_DOMAIN, "shell_exec", "file", "execute");'
+    )
+
+    if old not in content:
+        print(f"  ERROR: cannot find ksu_permissive marker in {path}")
+        return False
+
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: added type_transition ksu→shell_exec→ksu")
+    return True
+
+
 def fix_kernelsu_init(kernel_root):
     """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred directly in
     kernelsu_init(), before the final 'return 0;'. This runs at
@@ -224,6 +268,7 @@ def main():
     ok &= fix_ksud_integration(root)
     ok &= fix_boot_event(root)
     ok &= fix_selinux_clear_exec_sid(root)
+    ok &= fix_rules(root)
     ok &= fix_kernelsu_init(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
