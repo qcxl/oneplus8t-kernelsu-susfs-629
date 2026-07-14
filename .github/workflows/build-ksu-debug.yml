@@ -95,6 +95,15 @@ jobs:
           echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
           echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
 
+      - name: Inject KSU prctl handler (for Manager APK fd)
+        working-directory: kernel
+        run: |
+          echo "=== Injecting ksu_handle_prctl handler ==="
+          python3 ../scripts/inject-ksu-prctl.py .
+          echo "=== Verification ==="
+          grep -c 'ksu_handle_prctl' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
+          grep -c 'ksu_handle_prctl' drivers/kernelsu/supercall/supercall.h 2>/dev/null || echo "0"
+
       - name: Fix SELinux domain initialization for builtin mode
         working-directory: kernel
         run: |
