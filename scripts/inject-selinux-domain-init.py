@@ -20,7 +20,7 @@ Files modified:
 Returns 0 on success, 1 on failure.
 """
 
-import sys, os
+import sys, os, re
 
 
 def find_file(kernel_root, candidates):
@@ -29,6 +29,7 @@ def find_file(kernel_root, candidates):
         if os.path.exists(p):
             return p
     return None
+
 
 def fix_ksud_integration(kernel_root):
     path = find_file(kernel_root, [
@@ -42,20 +43,31 @@ def fix_ksud_integration(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    old = '    "    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\\n"'
-    new = '    "    exec root -- " KSUD_PATH " post-fs-data\\n"'
+    # Match both tab-indented (official rifsxd repo) and space-indented (qcxl fork)
+    # Line format: \t"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\n"
+    # OR:            "    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\n"
+    pattern = re.compile(
+        r'^([ \t]*)"([ \t]*)exec u:r:"\s*KERNEL_SU_DOMAIN\s*":s0 root -- "\s*KSUD_PATH\s*" post-fs-data\\n"',
+        re.MULTILINE
+    )
+    replacement = r'\1"\2exec root -- " KSUD_PATH " post-fs-data\\n"'
 
-    if old not in content:
-        print(f"  WARNING: pattern not found in {path}, checking if already fixed...")
-        if new in content:
+    new_content, count = pattern.subn(replacement, content, count=1)
+
+    if count == 0:
+        # Check if already fixed
+        if re.search(r'exec root --.*KSUD_PATH.*post-fs-data', content):
             print(f"  Already fixed, skipping")
             return True
-        print(f"  ERROR: cannot find pattern to fix")
+        print(f"  ERROR: cannot find post-fs-data exec pattern in {path}")
+        # Debug: show the actual line
+        for line in content.split('\n'):
+            if 'post-fs-data' in line:
+                print(f"  Actual line: {repr(line)}")
         return False
 
-    content = content.replace(old, new, 1)
     with open(path, 'w') as f:
-        f.write(content)
+        f.write(new_content)
     print(f"  {path}: post-fs-data exec context removed")
     return True
 
@@ -72,10 +84,9 @@ def fix_boot_event(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    # 1. Add include
+    # 1. Add include if not present (official repo already has it)
     include_line = '#include "selinux/selinux.h"'
     if include_line not in content:
-        # Insert after the first include line
         lines = content.split('\n')
         first_include = -1
         for i, line in enumerate(lines):
@@ -93,18 +104,16 @@ def fix_boot_event(kernel_root):
         print(f"  {path}: include already present")
 
     # 2. Add calls before ksu_load_allow_list
-    marker = '\tksu_load_allow_list();'
-    block = (
-        '\t/* Initialize KSU SELinux domain */\n'
-        '\tapply_kernelsu_rules();\n'
-        '\tcache_sid();\n'
-        '\tsetup_ksu_cred();\n'
-        '\n'
-        '\tksu_load_allow_list();'
+    # Match both tab-indented and space-indented
+    # Line: \tksu_load_allow_list();
+    # Or:    ksu_load_allow_list();
+    marker = re.compile(
+        r'^([ \t]*)ksu_load_allow_list\(\);',
+        re.MULTILINE
     )
 
-    if marker not in content:
-        print(f"  ERROR: cannot find ksu_load_allow_list() marker in {path}")
+    if not marker.search(content):
+        print(f"  ERROR: cannot find ksu_load_allow_list() in {path}")
         return False
 
     # Check if already applied
@@ -112,7 +121,18 @@ def fix_boot_event(kernel_root):
         print(f"  Already applied, skipping")
         return True
 
-    content = content.replace(marker, block, 1)
+    # Capture the indentation from the existing marker
+    indent = marker.search(content).group(1)
+    block = (
+        f'{indent}/* Initialize KSU SELinux domain */\n'
+        f'{indent}apply_kernelsu_rules();\n'
+        f'{indent}cache_sid();\n'
+        f'{indent}setup_ksu_cred();\n'
+        f'\n'
+        f'{indent}ksu_load_allow_list();'
+    )
+
+    content, count = marker.subn(block, content, count=1)
     with open(path, 'w') as f:
         f.write(content)
     print(f"  {path}: added apply_kernelsu_rules + cache_sid + setup_ksu_cred")
