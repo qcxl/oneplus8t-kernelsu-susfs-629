@@ -177,8 +177,15 @@ def fix_rules(kernel_root):
         '    ksu_permissive(db, KERNEL_SU_DOMAIN);\n'
         '    /* ksu exec' + "'" + 's shell (sh, busybox): STAY in ksu domain. */\n'
         '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
-        '    ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL);\n'
-        '    ksu_allow(db, KERNEL_SU_DOMAIN, "shell_exec", "file", "execute");'
+        '    printk(KERN_INFO "ksu_debug: adding type_transition ksu->shell_exec->ksu\\n");\n'
+        '    {\n'
+        '        bool _r = ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL);\n'
+        '        printk(KERN_INFO "ksu_debug: type_transition result=%d\\n", _r);\n'
+        '    }\n'
+        '    {\n'
+        '        bool _r = ksu_allow(db, KERNEL_SU_DOMAIN, "shell_exec", "file", "execute");\n'
+        '        printk(KERN_INFO "ksu_debug: ksu_allow shell_exec execute result=%d\\n", _r);\n'
+        '    }'
     )
 
     if old not in content:
@@ -236,9 +243,13 @@ def fix_kernelsu_init(kernel_root):
 
     calls = (
         '\t/* Initialize KSU SELinux domain (SELinux is fully initialized at this point) */\n'
+        '\tprintk(KERN_INFO "ksu_debug: calling apply_kernelsu_rules\\n");\n'
         '\tapply_kernelsu_rules();\n'
+        '\tprintk(KERN_INFO "ksu_debug: calling cache_sid\\n");\n'
         '\tcache_sid();\n'
+        '\tprintk(KERN_INFO "ksu_debug: calling setup_ksu_cred\\n");\n'
         '\tsetup_ksu_cred();\n'
+        '\tprintk(KERN_INFO "ksu_debug: domain init complete\\n");\n'
         '\n'
         '\treturn 0;\n'
         '}\n'
