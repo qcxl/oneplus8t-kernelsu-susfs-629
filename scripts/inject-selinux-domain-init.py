@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-inject-selinux-domain-init.py - Fix SELinux ksu domain init for builtin mode.
+inject-selinux-domain-init.py — Fix KSU SELinux domain init for builtin mode.
 
-On builtin mode (non-LKM), the init second_stage execve hook doesn't fire on
-some kernels (e.g. LineageOS 4.19), so apply_kernelsu_rules() is never called.
-This means u:r:ksu:s0 never gets created in the SELinux policy, and all file
-operations fail under Enforcing mode.
+Root cause:
+  On builtin mode, kernelsu_init() runs at device_initcall level (after
+  selinux_init at subsys_initcall). SELinux final policy is loaded. But
+  apply_kernelsu_rules() is never called, so u:r:ksu:s0 never exists.
+  escape_with_root_profile() → setup_selinux("u:r:ksu:s0") fails.
+  All file operations fail under SELinux Enforcing.
 
 Fix:
-  1. Remove u:r:ksu:s0 requirement from post-fs-data exec in KERNEL_SU_RC
-     (chicken-and-egg: the context doesn't exist yet when init runs this exec)
-  2. Add apply_kernelsu_rules() + cache_sid() + setup_ksu_cred() to
-     on_post_fs_data() in boot_event.c so they run reliably at boot.
-
-Files modified:
-  drivers/kernelsu/runtime/ksud_integration.c
-  drivers/kernelsu/runtime/boot_event.c
-
-Returns 0 on success, 1 on failure.
+  1. Add apply_kernelsu_rules() + cache_sid() + setup_ksu_cred() directly
+     in kernelsu_init() (core/init.c), before the final return 0.
+     SELinux is fully initialized by this point. No policy reload occurs.
+  2. Clear exec_sid in setup_selinux() (selinux/selinux.c) so the ksu
+     domain persists across exec boundaries.
+  3. Remove u:r:ksu:s0 from post-fs-data exec in KERNEL_SU_RC
+     (chicken-and-egg: context doesn't exist at boot).
+  4. Add calls to on_post_fs_data() (boot_event.c) as a safety net.
 """
 
 import sys, os, re
@@ -32,6 +32,7 @@ def find_file(kernel_root, candidates):
 
 
 def fix_ksud_integration(kernel_root):
+    """Remove u:r:ksu:s0 from post-fs-data exec in KERNEL_SU_RC."""
     path = find_file(kernel_root, [
         "drivers/kernelsu/runtime/ksud_integration.c",
         "KernelSU/kernel/runtime/ksud_integration.c",
@@ -43,27 +44,18 @@ def fix_ksud_integration(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    # Match both tab-indented (official rifsxd repo) and space-indented (qcxl fork)
-    # Line format: \t"    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\n"
-    # OR:            "    exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data\n"
     pattern = re.compile(
         r'^([ \t]*)"([ \t]*)exec u:r:"\s*KERNEL_SU_DOMAIN\s*":s0 root -- "\s*KSUD_PATH\s*" post-fs-data\\n"',
         re.MULTILINE
     )
     replacement = r'\1"\2exec root -- " KSUD_PATH " post-fs-data\\n"'
-
     new_content, count = pattern.subn(replacement, content, count=1)
 
     if count == 0:
-        # Check if already fixed
         if re.search(r'exec root --.*KSUD_PATH.*post-fs-data', content):
             print(f"  Already fixed, skipping")
             return True
         print(f"  ERROR: cannot find post-fs-data exec pattern in {path}")
-        # Debug: show the actual line
-        for line in content.split('\n'):
-            if 'post-fs-data' in line:
-                print(f"  Actual line: {repr(line)}")
         return False
 
     with open(path, 'w') as f:
@@ -73,6 +65,7 @@ def fix_ksud_integration(kernel_root):
 
 
 def fix_boot_event(kernel_root):
+    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred to on_post_fs_data()."""
     path = find_file(kernel_root, [
         "drivers/kernelsu/runtime/boot_event.c",
         "KernelSU/kernel/runtime/boot_event.c",
@@ -84,7 +77,7 @@ def fix_boot_event(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    # 1. Add include if not present (official repo already has it)
+    # Add include if not present
     include_line = '#include "selinux/selinux.h"'
     if include_line not in content:
         lines = content.split('\n')
@@ -97,30 +90,19 @@ def fix_boot_event(kernel_root):
             lines.insert(first_include + 1, include_line)
             content = '\n'.join(lines)
             print(f"  {path}: added #include selinux/selinux.h")
-        else:
-            content = include_line + '\n' + content
-            print(f"  {path}: added #include selinux/selinux.h (no prior include)")
-    else:
-        print(f"  {path}: include already present")
 
-    # Check if already applied
     if 'apply_kernelsu_rules()' in content:
-        print(f"  Already applied, skipping")
+        print(f"  {path}: already applied, skipping")
         return True
 
-    # 2. Add calls before ksu_load_allow_list
-    # Match both tab-indented and space-indented
-    marker = re.compile(
-        r'^([ \t]*)ksu_load_allow_list\(\);',
-        re.MULTILINE
-    )
-
-    if not marker.search(content):
+    # Insert before ksu_load_allow_list()
+    marker = re.compile(r'^([ \t]*)ksu_load_allow_list\(\);', re.MULTILINE)
+    m = marker.search(content)
+    if not m:
         print(f"  ERROR: cannot find ksu_load_allow_list() in {path}")
         return False
 
-    # Capture the indentation from the existing marker
-    indent = marker.search(content).group(1)
+    indent = m.group(1)
     block = (
         f'{indent}/* Initialize KSU SELinux domain */\n'
         f'{indent}apply_kernelsu_rules();\n'
@@ -129,146 +111,101 @@ def fix_boot_event(kernel_root):
         f'\n'
         f'{indent}ksu_load_allow_list();'
     )
-
     content, count = marker.subn(block, content, count=1)
-
     with open(path, 'w') as f:
         f.write(content)
-    print(f"  {path}: added apply_kernelsu_rules + cache_sid + setup_ksu_cred")
+    print(f"  {path}: added calls to on_post_fs_data()")
+    return True
 
-    # 3. Fix setup_selinux to clear exec_sid (prevents domain transition on exec)
-    selinux_path = find_file(kernel_root, [
+
+def fix_selinux_clear_exec_sid(kernel_root):
+    """Change setup_selinux to clear exec_sid (prevents domain transition on exec)."""
+    path = find_file(kernel_root, [
         "drivers/kernelsu/selinux/selinux.c",
         "KernelSU/kernel/selinux/selinux.c",
     ])
-    if selinux_path:
-        with open(selinux_path) as f:
-            selinux_content = f.read()
+    if not path:
+        print(f"  WARNING: selinux.c not found, clear_exec_sid skipped")
+        return True
 
-        if 'transive_to_domain(domain, cred, true)' in selinux_content:
-            print(f"  {selinux_path}: clear_exec_sid already fixed")
-        else:
-            old = 'transive_to_domain(domain, cred, false)'
-            new = 'transive_to_domain(domain, cred, true)'
-            if old in selinux_content:
-                selinux_content = selinux_content.replace(old, new, 1)
-                with open(selinux_path, 'w') as f:
-                    f.write(selinux_content)
-                print(f"  {selinux_path}: set clear_exec_sid=true (prevents domain exec transition)")
-            else:
-                print(f"  WARNING: pattern not found in {selinux_path}")
-    else:
-        print(f"  WARNING: selinux.c not found, clear_exec_sid fix skipped")
+    with open(path) as f:
+        content = f.read()
 
-    # 4. Add delayed workqueue directly inside kernelsu_init() (NOT via
-    #    late_initcall, which doesn't fire for composite objects).
-    #    The work fires ~15s after boot, well after init loads the full
-    #    SELinux policy.
-    init_path = find_file(kernel_root, [
+    if 'transive_to_domain(domain, cred, true)' in content:
+        print(f"  {path}: already fixed")
+        return True
+
+    old = 'transive_to_domain(domain, cred, false)'
+    new = 'transive_to_domain(domain, cred, true)'
+    if old not in content:
+        print(f"  WARNING: pattern not found in {path}")
+        return True
+
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: clear_exec_sid=true")
+    return True
+
+
+def fix_kernelsu_init(kernel_root):
+    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred directly in
+    kernelsu_init(), before the final 'return 0;'. This runs at
+    device_initcall level, after SELinux is fully initialized."""
+    path = find_file(kernel_root, [
         "drivers/kernelsu/core/init.c",
         "KernelSU/kernel/core/init.c",
     ])
-    if not init_path:
-        print(f"  WARNING: core/init.c not found, delayed init skipped")
+    if not path:
+        print(f"  ERROR: core/init.c not found")
+        return False
+
+    with open(path) as f:
+        content = f.read()
+
+    # Check if our injection already exists (the comment is unique to our code)
+    if 'KSU SELinux domain (SELinux is fully initialized at this point)' in content:
+        print(f"  {path}: already injected, skipping")
         return True
 
-    with open(init_path) as f:
-        init_content = f.read()
-
-    if 'ksu_delayed_selinux_work' in init_content:
-        print(f"  {init_path}: delayed init already present")
-        return True
-
-    # Ensure selinux/selinux.h is included
-    if '#include "selinux/selinux.h"' not in init_content:
-        init_content = init_content.replace(
+    # Add #include "selinux/selinux.h" if not present
+    if '#include "selinux/selinux.h"' not in content:
+        content = content.replace(
             '#include "klog.h"',
             '#include "klog.h"\n#include "selinux/selinux.h"'
         )
 
-    # 4a. Add #include <linux/workqueue.h> if not present
-    if '#include <linux/workqueue.h>' not in init_content:
-        init_content = init_content.replace(
-            '#include <linux/export.h>',
-            '#include <linux/export.h>\n#include <linux/workqueue.h>'
-        )
+    # Find the final return 0; in kernelsu_init() and insert before it.
+    # kernelsu_init() ends with:
+    #   #endif
+    #     return 0;
+    #   }
+    # ...
+    # void __exit kernelsu_exit
+    marker = re.compile(
+        r'(\treturn 0;\n}\n\nvoid __exit kernelsu_exit)',
+        re.MULTILINE
+    )
+    if not marker.search(content):
+        print(f"  ERROR: cannot find kernelsu_init() end marker in {path}")
+        return False
 
-    # 4b. Add work function and DECLARE_DELAYED_WORK right after includes,
-    #     BEFORE any function definitions (C requires declaration before use).
-    #     The work function is static (file-scoped), DECLARE_DELAYED_WORK
-    #     is also static.
-    work_decl = '''
+    calls = (
+        '\t/* Initialize KSU SELinux domain (SELinux is fully initialized at this point) */\n'
+        '\tapply_kernelsu_rules();\n'
+        '\tcache_sid();\n'
+        '\tsetup_ksu_cred();\n'
+        '\n'
+        '\treturn 0;\n'
+        '}\n'
+        '\n'
+        'void __exit kernelsu_exit'
+    )
+    content = marker.sub(calls, content, count=1)
 
-/* 15-second delayed workqueue: apply KSU SELinux domain AFTER the
- * full SELinux policy has been loaded by init userspace.
- * Scheduled from kernelsu_init() at boot. */
-static void ksu_delayed_selinux_init(struct work_struct *work)
-{
-	apply_kernelsu_rules();
-	cache_sid();
-	setup_ksu_cred();
-}
-static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
-'''
-    # Insert after the last #include line
-    lines = init_content.split('\n')
-    last_include = -1
-    for i, line in enumerate(lines):
-        if line.strip().startswith('#include'):
-            last_include = i
-    if last_include >= 0:
-        lines.insert(last_include + 1, work_decl)
-        init_content = '\n'.join(lines)
-        print(f"  {init_path}: added work function + DECLARE_DELAYED_WORK")
-    else:
-        print(f"  WARNING: could not find includes, appending at end")
-        init_content = init_content.rstrip() + work_decl
-
-    # 4c. Add schedule_delayed_work() call inside kernelsu_init(),
-    #     before the final 'return 0;' at the end of the function.
-    #     kernelsu_init() is confirmed to fire (dmesg), so this ensures
-    #     the work is always scheduled.
-    #     Match 'return 0;' at the end of the init function (not module_exit).
-    #     kernelsu_init() ends with:
-    #       #endif
-    #         return 0;
-    #       }
-    #     The final return 0; before the closing } of kernelsu_init.
-    schedule_call = '\tschedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);\n'
-
-    # Find the last 'return 0;' before the first '}' that closes kernelsu_init
-    lines = init_content.split('\n')
-    modified = False
-    for i in range(len(lines) - 1, -1, -1):
-        stripped = lines[i].strip()
-        # Look for 'return 0;' inside the init function (after module_exit begins,
-        # we're too far. Module exit starts with void __exit kernelsu_exit)
-        if stripped == 'return 0;':
-            # Check if this is in kernelsu_init by looking at surrounding context
-            # (not in kernelsu_exit which starts later)
-            surround = '\n'.join(lines[max(0,i-3):i+3])
-            if 'kernelsu_exit' not in surround:
-                lines.insert(i, schedule_call)
-                modified = True
-                break
-
-    if modified:
-        init_content = '\n'.join(lines)
-        with open(init_path, 'w') as f:
-            f.write(init_content)
-        print(f"  {init_path}: added delayed workqueue scheduling in kernelsu_init()")
-    else:
-        # Fallback: add at end of file close to return
-        init_content = init_content.replace(
-            '\treturn 0;\n}\n\nvoid __exit kernelsu_exit',
-            '\tschedule_delayed_work(&ksu_delayed_selinux_work, 15 * HZ);\n'
-            '\treturn 0;\n}\n\nvoid __exit kernelsu_exit',
-            1
-        )
-        with open(init_path, 'w') as f:
-            f.write(init_content)
-        print(f"  {init_path}: added delayed workqueue scheduling (fallback)")
-
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: added calls to kernelsu_init()")
     return True
 
 
@@ -286,6 +223,8 @@ def main():
     ok = True
     ok &= fix_ksud_integration(root)
     ok &= fix_boot_event(root)
+    ok &= fix_selinux_clear_exec_sid(root)
+    ok &= fix_kernelsu_init(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 

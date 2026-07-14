@@ -115,14 +115,6 @@ jobs:
           echo "-- boot_event.c apply calls:"
           grep -n "apply_kernelsu_rules\|cache_sid\|setup_ksu_cred" drivers/kernelsu/runtime/boot_event.c
 
-      - name: Inject SEL_LOAD kprobe (third layer — catches policy reloads)
-        working-directory: kernel
-        run: |
-          echo "=== Injecting SEL_LOAD kprobe hook ==="
-          python3 ../scripts/inject-selinux-seload.py .
-          echo "=== Verification ==="
-          grep -c 'sel_write_load_kp' drivers/kernelsu/runtime/boot_event.c || echo "0"
-
       - name: Fix UAPI version mismatch (legacy → v2 compat)
         working-directory: kernel
         run: |
