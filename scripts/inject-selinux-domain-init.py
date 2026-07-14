@@ -249,12 +249,40 @@ def fix_kernelsu_init(kernel_root):
         print(f"  {path}: already injected, skipping")
         return True
 
-    # Add #include "selinux/selinux.h" if not present
+    # Add includes if not present
     if '#include "selinux/selinux.h"' not in content:
         content = content.replace(
             '#include "klog.h"',
             '#include "klog.h"\n#include "selinux/selinux.h"'
         )
+    if '#include <linux/workqueue.h>' not in content:
+        content = content.replace(
+            '#include <linux/export.h>',
+            '#include <linux/export.h>\n#include <linux/workqueue.h>'
+        )
+
+    # Add DECLARE_DELAYED_WORK + work function BEFORE kernelsu_init
+    # (must be declared before the function that uses it)
+    work_decl = '''
+
+/* Delayed SELinux domain init: policy not ready at device_initcall.
+ * Scheduled from kernelsu_init(), runs ~30s after boot. */
+static void ksu_delayed_selinux_init(struct work_struct *work)
+{
+	printk(KERN_INFO "ksu_debug: delayed init executing\\n");
+	apply_kernelsu_rules();
+	cache_sid();
+	setup_ksu_cred();
+	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
+}
+static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
+'''
+    # Insert before kernelsu_init definition
+    content = content.replace(
+        'int __init kernelsu_init(void)',
+        work_decl + '\nint __init kernelsu_init(void)',
+        1
+    )
 
     # Find the final return 0; in kernelsu_init() and insert before it.
     # Using str.replace() to avoid Python re.sub's backslash interpretation
@@ -265,14 +293,10 @@ def fix_kernelsu_init(kernel_root):
         return False
 
     new_tail = (
-        '\t/* Initialize KSU SELinux domain (SELinux fully initialized). Build: __DATE__ __TIME__ */\n'
-        '\tprintk(KERN_INFO "ksu_debug: calling apply_kernelsu_rules\\n");\n'
-        '\tapply_kernelsu_rules();\n'
-        '\tprintk(KERN_INFO "ksu_debug: calling cache_sid\\n");\n'
-        '\tcache_sid();\n'
-        '\tprintk(KERN_INFO "ksu_debug: calling setup_ksu_cred\\n");\n'
-        '\tsetup_ksu_cred();\n'
-        '\tprintk(KERN_INFO "ksu_debug: domain init complete\\n");\n'
+        '\t/* Defer SELinux domain init: policydb not ready at device_initcall. */\n'
+        '\t/* Schedule delayed work to run ~30s after boot (policy fully loaded). */\n'
+        '\tprintk(KERN_INFO "ksu_debug: scheduling delayed ksu domain init\\n");\n'
+        '\tschedule_delayed_work(&ksu_delayed_selinux_work, 30 * HZ);\n'
         '\n'
         '\treturn 0;\n'
         '}\n'
