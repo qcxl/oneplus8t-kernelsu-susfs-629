@@ -156,7 +156,15 @@ struct kprobe ksu_sel_write_load_kp = {
                     '\t/* Register SEL_LOAD kprobe (catches policy reloads) */',
                     '\tregister_kprobe(&ksu_sel_write_load_kp);',
                 ]
-                for j, code in enumerate(kprobe_reg_code):
+                kprobe_reg_code_guarded = [
+                    '\t/* Register SEL_LOAD kprobe (catches policy reloads) */',
+                    '#ifdef CONFIG_KPROBES',
+                    '\tregister_kprobe(&ksu_sel_write_load_kp);',
+                    '#else',
+                    '\tpr_debug("ksu: kprobes not enabled, SEL_LOAD hook skipped\\n");',
+                    '#endif',
+                ]
+                for j, code in enumerate(kprobe_reg_code_guarded):
                     lines.insert(i + 1 + j, code)
                 init_content = '\n'.join(lines)
                 break
@@ -172,11 +180,10 @@ struct kprobe ksu_sel_write_load_kp = {
             extern_block = [
                 '',
                 '/* SEL_LOAD kprobe extern (definitions in boot_event.c) */',
-                '#ifdef CONFIG_KPROBES',
+                '/* Guards omitted: CONFIG_KPROBES=y always set for KSU */',
                 '#include <linux/kprobes.h>',
                 'extern int ksu_sel_write_load_pre(struct kprobe *, struct pt_regs *);',
                 'extern struct kprobe ksu_sel_write_load_kp;',
-                '#endif',
                 '',
             ]
             for j, line in enumerate(extern_block):
