@@ -179,6 +179,7 @@ def fix_rules(kernel_root):
         '    /* Build: __DATE__ __TIME__ */\n'
         '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
         '    printk(KERN_INFO "ksu_debug: adding type_transition ksu->shell_exec->ksu\\n");\n'
+        '    /* GFP_ATOMIC: alloc may happen in atomic context (write_lock/stop_machine) */\n'
         '    {\n'
         '        bool _r = ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL);\n'
         '        printk(KERN_INFO "ksu_debug: type_transition result=%d\\n", _r);\n'
@@ -194,9 +195,33 @@ def fix_rules(kernel_root):
         return False
 
     content = content.replace(old, new, 1)
+
+    # Also replace the apply_kernelsu_rules() #else branch to skip
+    # write_lock/stop_machine (GFP_KERNEL fails in atomic context).
+    # Replace from '#else' to the closing '#endif' of the function.
+    import re as _re
+    # Replace the entire 4.19 path body from '#else' to closing '#endif'
+    # with a boot-safe version. Capture #else and #endif as boundaries.
+    else_pat = _re.compile(
+        r'(#else)(\n\n\tcpumask_t old_mask;.*?)(\n#endif\n})',
+        _re.DOTALL
+    )
+    else_repl = (
+        r'\1'
+        r'\n'
+        r'    /* Boot-safe: no write_lock/stop_machine (GFP_KERNEL fails in atomic context). */\n'
+        r'    /* At boot, only CPU 0 runs init, so no SELinux policy contention. */\n'
+        r'    db = get_policydb();\n'
+        r'    apply_kernelsu_rules_fn((void *)db);\n'
+        r'    smp_mb();\n'
+        r'    reset_avc_cache();\n'
+        r'\3'
+    )
+    content = else_pat.sub(else_repl, content, count=1)
+
     with open(path, 'w') as f:
         f.write(content)
-    print(f"  {path}: added type_transition ksu→shell_exec→ksu")
+    print(f"  {path}: replaced apply_kernelsu_rules() with boot-safe path")
     return True
 
 
