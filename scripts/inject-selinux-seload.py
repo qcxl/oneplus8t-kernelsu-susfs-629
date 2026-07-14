@@ -64,17 +64,17 @@ def fix_boot_event(kernel_root):
 
     content = '\n'.join(lines)
 
-    # Append kprobe + workqueue code at end of file
-    kprobe_code = '''
+    # Add everything to boot_event.c: the kprobe struct, handler, and work.
+    # The kprobe struct must NOT be static (needed by core/init.c extern).
+    # The work and workfn must NOT be static (accessed by core/init.c extern).
+    # DECLARE_WORK always adds 'static', so we define the work struct manually.
+    boot_code = '''
 
 /* ===== SEL_LOAD kprobe — re-apply KSU rules after policy reload ===== */
 #ifdef CONFIG_KPROBES
 #include <linux/kprobes.h>
 #include <linux/workqueue.h>
 
-static void ksu_sel_write_load_workfn(struct work_struct *work);
-static DECLARE_WORK(ksu_sel_write_load_work, ksu_sel_write_load_workfn);
-
 static void ksu_sel_write_load_workfn(struct work_struct *work)
 {
 	apply_kernelsu_rules();
@@ -82,59 +82,41 @@ static void ksu_sel_write_load_workfn(struct work_struct *work)
 	setup_ksu_cred();
 }
 
-static int ksu_sel_write_load_pre(struct kprobe *p, struct pt_regs *regs)
+/* non-static: visible to core/init.c's extern declaration */
+struct work_struct ksu_sel_write_load_work;
+struct work_struct *ksu_sel_write_load_work_p = &ksu_sel_write_load_work;
+
+static int __init ksu_sel_write_load_work_init(void)
+{
+	INIT_WORK(&ksu_sel_write_load_work, ksu_sel_write_load_workfn);
+	return 0;
+}
+/* module_init level is earlier than late_initcall, so the work is
+   initialized before core/init.c's late_initcall tries to schedule it. */
+module_init(ksu_sel_write_load_work_init);
+
+/* non-static: visible to core/init.c's extern declaration */
+int ksu_sel_write_load_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	schedule_work(&ksu_sel_write_load_work);
 	return 0;
 }
 
-static struct kprobe ksu_sel_write_load_kp = {
+/* non-static: visible to core/init.c's extern declaration */
+struct kprobe ksu_sel_write_load_kp = {
 	.symbol_name = "sel_write_load",
 	.pre_handler = ksu_sel_write_load_pre,
 };
-
-static int __init ksu_sel_write_load_init(void)
-{
-	int ret = register_kprobe(&ksu_sel_write_load_kp);
-	if (ret)
-		pr_warn("ksu: sel_write_load kprobe failed: %d\\n", ret);
-	else
-		pr_info("ksu: sel_write_load kprobe registered\\n");
-	return 0;
-}
-late_initcall(ksu_sel_write_load_init);
 #endif /* CONFIG_KPROBES */
 '''
-
-    content = content.rstrip()
-
-    # Only add the work declaration + workfn to boot_event.c
-    # (the DECLARE_WORK must live in a compiled .o)
-    # The kprobe registration late_initcall goes to core/init.c
-    boot_code_only = '''
-
-/* ===== SEL_LOAD kprobe — re-apply KSU rules after policy reload ===== */
-#ifdef CONFIG_KPROBES
-#include <linux/workqueue.h>
-
-static void ksu_sel_write_load_workfn(struct work_struct *work);
-static DECLARE_WORK(ksu_sel_write_load_work, ksu_sel_write_load_workfn);
-
-static void ksu_sel_write_load_workfn(struct work_struct *work)
-{
-	apply_kernelsu_rules();
-	cache_sid();
-	setup_ksu_cred();
-}
-#endif /* CONFIG_KPROBES */
-'''
-    content += boot_code_only
+    content += boot_code
 
     with open(path, 'w') as f:
         f.write(content)
-    print(f"  {path}: added SEL_LOAD workqueue")
+    print(f"  {path}: added SEL_LOAD kprobe struct + pre_handler + work")
 
-    # kprobe registration + late_initcall goes to core/init.c
+    # core/init.c: just register the kprobe via late_initcall.
+    # All definitions live in boot_event.c.
     init_path = find_file(kernel_root, [
         "drivers/kernelsu/core/init.c",
         "KernelSU/kernel/core/init.c",
@@ -146,19 +128,17 @@ static void ksu_sel_write_load_workfn(struct work_struct *work)
     with open(init_path) as f:
         init_content = f.read()
 
-    if 'ksu_sel_write_load_kp' in init_content:
+    if 'ksu_sel_write_load_register' in init_content:
         print(f"  {init_path}: SEL_LOAD kprobe already present")
         return True
 
-    # Add extern declaration and kprobe init to core/init.c
     kprobe_init = '''
 
-/* ===== SEL_LOAD kprobe (declared in boot_event.c) ===== */
+/* ===== SEL_LOAD kprobe registration (definitions in boot_event.c) ===== */
 #ifdef CONFIG_KPROBES
 #include <linux/kprobes.h>
+extern int ksu_sel_write_load_pre(struct kprobe *, struct pt_regs *);
 extern struct kprobe ksu_sel_write_load_kp;
-extern struct work_struct ksu_sel_write_load_work;
-extern void ksu_sel_write_load_workfn(struct work_struct *work);
 
 static int __init ksu_sel_write_load_init(void)
 {
