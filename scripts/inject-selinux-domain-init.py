@@ -193,13 +193,15 @@ def fix_boot_event(kernel_root):
             '#include <linux/export.h>\n#include <linux/workqueue.h>'
         )
 
-    # 4b. Add DELAYED_WORK declaration and work function BEFORE
-    #     MODULE_LICENSE at end of file. NOT using late_initcall -
-    #     instead the schedule call is injected into kernelsu_init().
+    # 4b. Add work function and DECLARE_DELAYED_WORK right after includes,
+    #     BEFORE any function definitions (C requires declaration before use).
+    #     The work function is static (file-scoped), DECLARE_DELAYED_WORK
+    #     is also static.
     work_decl = '''
 
-/* 15-second delayed workqueue: apply KSU SELinux rules AFTER the
- * full SELinux policy has been loaded by init userspace. */
+/* 15-second delayed workqueue: apply KSU SELinux domain AFTER the
+ * full SELinux policy has been loaded by init userspace.
+ * Scheduled from kernelsu_init() at boot. */
 static void ksu_delayed_selinux_init(struct work_struct *work)
 {
 	apply_kernelsu_rules();
@@ -208,7 +210,19 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 }
 static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
 '''
-    init_content = re.sub(r'^(MODULE_LICENSE\()', work_decl + r'\1', init_content, count=1, flags=re.MULTILINE)
+    # Insert after the last #include line
+    lines = init_content.split('\n')
+    last_include = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#include'):
+            last_include = i
+    if last_include >= 0:
+        lines.insert(last_include + 1, work_decl)
+        init_content = '\n'.join(lines)
+        print(f"  {init_path}: added work function + DECLARE_DELAYED_WORK")
+    else:
+        print(f"  WARNING: could not find includes, appending at end")
+        init_content = init_content.rstrip() + work_decl
 
     # 4c. Add schedule_delayed_work() call inside kernelsu_init(),
     #     before the final 'return 0;' at the end of the function.
