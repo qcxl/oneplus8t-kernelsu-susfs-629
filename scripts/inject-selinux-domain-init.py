@@ -148,6 +148,53 @@ def fix_selinux_clear_exec_sid(kernel_root):
     return True
 
 
+def fix_app_profile(kernel_root):
+    """Remove early return in escape_with_root_profile when euid==0.
+    The early return skips setup_selinux(), leaving the process in the
+    wrong domain. Even if already root, we should still set the ksu domain
+    so that exec()'d child processes inherit the correct context."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/policy/app_profile.c",
+        "KernelSU/kernel/policy/app_profile.c",
+    ])
+    if not path:
+        print(f"  WARNING: app_profile.c not found")
+        return True
+
+    with open(path) as f:
+        content = f.read()
+
+    if 'Already root, setup selinux anyway' in content:
+        print(f"  {path}: already fixed")
+        return True
+
+    # Replace the early return with setup_selinux + commit
+    old = (
+        '\tif (cred->euid.val == 0) {\n'
+        '\t\tpr_warn("Already root, don\'t escape!\\n");\n'
+        '\t\tgoto out_abort_creds;\n'
+        '\t}'
+    )
+    new = (
+        '\tif (cred->euid.val == 0) {\n'
+        '\t\t/* Already root, but still set up ksu domain for child processes */\n'
+        '\t\tpr_debug("Already root, setup selinux anyway\\n");\n'
+        '\t\tsetup_selinux(KERNEL_SU_CONTEXT, cred);\n'
+        '\t\tcommit_creds(cred);\n'
+        '\t\treturn 0;\n'
+        '\t}'
+    )
+    if old not in content:
+        print(f"  WARNING: pattern not found in {path}")
+        return True
+
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: replaced early bail with setup_selinux")
+    return True
+
+
 def fix_rules(kernel_root):
     """Add type_transition rule: ksu exec's shell_exec → stays in ksu, not shell.
     Without this, the stock type_transition domain shell_exec:process shell;
@@ -326,6 +373,7 @@ def main():
     ok &= fix_ksud_integration(root)
     ok &= fix_boot_event(root)
     ok &= fix_selinux_clear_exec_sid(root)
+    ok &= fix_app_profile(root)
     ok &= fix_rules(root)
     ok &= fix_kernelsu_init(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
