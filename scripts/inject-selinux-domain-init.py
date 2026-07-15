@@ -871,17 +871,27 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		if (!ksu_is_manager_appid_valid()) {
 			struct file *f2 = filp_open("/data/system/packages.list",
 				O_RDONLY, 0);
+			printk(KERN_INFO "ksu_dbg: open=%ld\\n",
+				IS_ERR(f2) ? PTR_ERR(f2) : 0L);
 			if (!IS_ERR(f2)) {
 				loff_t sz2 = i_size_read(file_inode(f2));
+				printk(KERN_INFO "ksu_dbg: plist sz=%lld\\n", sz2);
 				if (sz2 > 0 && sz2 < 131072) {
 					char *bf = kvmalloc((size_t)sz2 + 1,
 						GFP_KERNEL);
+					printk(KERN_INFO "ksu_dbg: alloc=%s\\n",
+						bf ? "ok" : "fail");
 					if (bf) {
 						loff_t rp2 = 0;
-						if (kernel_read(f2, bf, (size_t)sz2,
-							&rp2) == (ssize_t)sz2) {
+						ssize_t nr2 = kernel_read(f2, bf,
+							(size_t)sz2, &rp2);
+						printk(KERN_INFO "ksu_dbg: read=%zd/%lld\\n",
+							nr2, sz2);
+						if (nr2 == (ssize_t)sz2) {
 							char *hit2 = strstr(bf,
 								KSU_MANAGER_PACKAGE);
+							printk(KERN_INFO "ksu_dbg: strstr=%s\\n",
+								hit2 ? "found" : "miss");
 							if (hit2) {
 								while (*hit2
 									!= 32 && *hit2)
@@ -896,6 +906,12 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 										ksu_set_manager_appid(
 											(uid_t)
 											vu2);
+										printk(KERN_INFO
+											"ksu_dbg: set UID=%lu\\n",
+											vu2);
+									} else {
+										printk(KERN_INFO
+											"ksu_dbg: kstrtoul fail\\n");
 									}
 								}
 							}
