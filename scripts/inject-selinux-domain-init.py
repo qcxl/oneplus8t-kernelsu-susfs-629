@@ -219,6 +219,47 @@ def fix_rules(kernel_root):
     return True
 
 
+def fix_ksu_fd(kernel_root):
+    """Remove O_CLOEXEC from ksu_install_fd so the driver fd survives exec().
+    Without this, the embedded libksud.so in the manager app cannot locate the
+    KSU driver fd after exec, and the fallback syscall(SYS_reboot) is blocked
+    by Android's seccomp filter (__NR_reboot=142 not in the whitelist).
+    This causes SIGSYS on every KSU ioctl call from the app's root shell."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/supercall/supercall.c",
+        "KernelSU/kernel/supercall/supercall.c",
+    ])
+    if not path:
+        print(f"  WARNING: supercall.c not found")
+        return True
+
+    with open(path) as f:
+        content = f.read()
+
+    if '/* NO_CLOEXEC fix: fd survives exec */' in content:
+        print(f"  {path}: already fixed")
+        return True
+
+    # Change get_unused_fd_flags(O_CLOEXEC) to get_unused_fd_flags(0)
+    old1 = 'fd = get_unused_fd_flags(O_CLOEXEC);'
+    new1 = 'fd = get_unused_fd_flags(0); /* NO_CLOEXEC fix: fd survives exec */'
+    if old1 not in content:
+        print(f"  WARNING: get_unused_fd_flags pattern not found in {path}")
+        return True
+
+    content = content.replace(old1, new1, 1)
+
+    # Change anon_inode_getfile's O_CLOEXEC to 0
+    old2 = 'O_RDWR | O_CLOEXEC'
+    new2 = 'O_RDWR /* NO_CLOEXEC fix */'
+    content = content.replace(old2, new2, 1)
+
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: removed O_CLOEXEC from KSU driver fd")
+    return True
+
+
 def fix_kernelsu_init(kernel_root):
     """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred directly in
     kernelsu_init(), before the final 'return 0;'. This runs at
@@ -317,6 +358,7 @@ def main():
     ok &= fix_selinux_clear_exec_sid(root)
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
+    ok &= fix_ksu_fd(root)
     ok &= fix_kernelsu_init(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
