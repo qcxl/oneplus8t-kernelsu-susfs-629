@@ -86,32 +86,8 @@ def fix_boot_event(kernel_root):
 
 
 def fix_selinux_clear_exec_sid(kernel_root):
-    """Change setup_selinux to clear exec_sid (prevents domain transition on exec)."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/selinux/selinux.c",
-        "KernelSU/kernel/selinux/selinux.c",
-    ])
-    if not path:
-        print(f"  WARNING: selinux.c not found, clear_exec_sid skipped")
-        return True
-
-    with open(path) as f:
-        content = f.read()
-
-    if 'transive_to_domain(domain, cred, true)' in content:
-        print(f"  {path}: already fixed")
-        return True
-
-    old = 'transive_to_domain(domain, cred, false)'
-    new = 'transive_to_domain(domain, cred, true)'
-    if old not in content:
-        print(f"  WARNING: pattern not found in {path}")
-        return True
-
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: clear_exec_sid=true")
+    """NO-OP: do NOT clear exec_sid globally (breaks exec → untrusted_app domain with seccomp).
+    Type_transition rules handle domain preservation across exec instead."""
     return True
 
 
@@ -144,10 +120,10 @@ def fix_app_profile(kernel_root):
     )
     new = (
         '\tif (cred->euid.val == 0) {\n'
-        '\t\t/* Already root, but still set up ksu domain for child processes */\n'
         '\t\tpr_debug("Already root, setup selinux anyway\\n");\n'
         '\t\tsetup_selinux(KERNEL_SU_CONTEXT, cred);\n'
         '\t\tcommit_creds(cred);\n'
+        '\t\tdisable_seccomp();\n'
         '\t\treturn 0;\n'
         '\t}'
     )
