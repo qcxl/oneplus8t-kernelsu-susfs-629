@@ -422,18 +422,40 @@ def fix_throne_deferred_cred(kernel_root):
         return True
     
     # Find the broken pattern and fix it
-    old = 'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))\n\t/* setup_ksu_cred: retry-safe, called before filp_open */\n\t{\n\t\tstatic bool ksu_cred_ready = false;\n\t\textern void apply_kernelsu_rules();\n\t\textern void setup_ksu_cred();\n\t\tif (!ksu_cred_ready) {\n\t\t\tapply_kernelsu_rules();\n\t\t\tsetup_ksu_cred();\n\t\t\tksu_cred_ready = true;\n\t\t}\n\t}\n {'
-    if old not in content:
-        print(f"  WARNING: deferred-cred block pattern not found in {path}")
+    # Find the deferred-cred injected block and replace everything from
+    # "if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))" through the orphaned
+    # "{ return false; }" with clean code:
+    #   if (is_lock_held(path)) {
+    #       return false;
+    #   }
+    anchor = 'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))'
+    if anchor not in content:
+        print(f"  WARNING: deferred-cred block not found in {path}")
         return True
     
-    new = (
+    idx = content.find(anchor)
+    # The orphan block (added by inject-deferred-ksu-cred.py) is:
+    #  {\n\t\treturn false; // comment\n\t}
+    # Find the orphan closing brace after the return false line
+    search_start = content.find('\n {', idx)  # orphan block start
+    if search_start < 0:
+        print(f"  WARNING: orphan block start not found in {path}")
+        return True
+    orphan_close = content.find('\n\t}\n\n\tstruct file', search_start)
+    if orphan_close < 0:
+        orphan_close = content.find('\n\t}\n\n\tstruct file', search_start)
+    if orphan_close < 0:
+        print(f"  WARNING: orphan block close not found in {path}")
+        return True
+    orphan_close += len('\n\t}')
+    
+    replacement = (
         'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH)) {\n'
-        '\t\t/* deferred_cred_fixed: block merged into if body */\n'
-        '\t\treturn false; // The file is blocked by Android, we ask for a retry\n'
-        '\t}'
+        '\t\t/* deferred_cred_fixed */\n'
+        '\t\treturn false;\n'
+        '\t}\n'
     )
-    content = content.replace(old, new, 1)
+    content = content[:idx] + replacement + content[orphan_close:]
     with open(path, 'w') as f:
         f.write(content)
     print(f"  {path}: fixed deferred-cred broken control flow")
