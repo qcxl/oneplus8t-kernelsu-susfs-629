@@ -394,6 +394,52 @@ def fix_syscall_hook_reboot(kernel_root):
     return True
 
 
+def fix_throne_deferred_cred(kernel_root):
+    """Fix broken control flow caused by inject-deferred-ksu-cred.py.
+    
+    That inject adds a code block AFTER the `if (is_lock_held(...))` condition
+    but BEFORE the `return false;` block. This creates an unconditional return:
+    
+      if (is_lock_held(...))  // controls only the ksu_cred block
+      /* deferred-cred code */ {
+          setup_ksu_cred();
+      }
+      { return false; }  // ← ALWAYS executes!
+    
+    Fix: remove the deferred-cred block entirely (our workqueue already
+    calls setup_ksu_cred + apply_kernelsu_rules before track_throne)."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/manager/throne_tracker.c",
+        "KernelSU/kernel/manager/throne_tracker.c",
+    ])
+    if not path:
+        print(f"  WARNING: throne_tracker.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'deferred_cred_fixed' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    # Find the broken pattern and fix it
+    old = 'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))\n\t/* setup_ksu_cred: retry-safe, called before filp_open */\n\t{\n\t\tstatic bool ksu_cred_ready = false;\n\t\textern void apply_kernelsu_rules();\n\t\textern void setup_ksu_cred();\n\t\tif (!ksu_cred_ready) {\n\t\t\tapply_kernelsu_rules();\n\t\t\tsetup_ksu_cred();\n\t\t\tksu_cred_ready = true;\n\t\t}\n\t}\n {'
+    if old not in content:
+        print(f"  WARNING: deferred-cred block pattern not found in {path}")
+        return True
+    
+    new = (
+        'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH)) {\n'
+        '\t\t/* deferred_cred_fixed: block merged into if body */\n'
+        '\t\treturn false; // The file is blocked by Android, we ask for a retry\n'
+        '\t}'
+    )
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: fixed deferred-cred broken control flow")
+    return True
+
+
 def fix_throne_lock(kernel_root):
     """Bypass is_lock_held() in throne_tracker.c.
     
@@ -858,6 +904,7 @@ def main():
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
     ok &= fix_ksud_postfsdata_noctx(root)
+    ok &= fix_throne_deferred_cred(root)
     ok &= fix_throne_lock(root)
     ok &= fix_allow_uid_zero(root)
     ok &= fix_diag_allowed_for_su(root)
