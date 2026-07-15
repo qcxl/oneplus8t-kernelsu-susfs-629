@@ -219,44 +219,136 @@ def fix_rules(kernel_root):
     return True
 
 
-def fix_ksu_fd(kernel_root):
-    """Remove O_CLOEXEC from ksu_install_fd so the driver fd survives exec().
-    Without this, the embedded libksud.so in the manager app cannot locate the
-    KSU driver fd after exec, and the fallback syscall(SYS_reboot) is blocked
-    by Android's seccomp filter (__NR_reboot=142 not in the whitelist).
-    This causes SIGSYS on every KSU ioctl call from the app's root shell."""
+def fix_ksu_exec_fd_reinstall(kernel_root):
+    """In the execve handler, reinstall the KSU driver fd for the new process.
+    Java's ProcessBuilder closes all non-std fds before exec, so even with
+    O_CLOEXEC removed, child processes lose the fd. Reinstall it during execve
+    so libksud.so can find it via scan_driver_fd()."""
     path = find_file(kernel_root, [
-        "drivers/kernelsu/supercall/supercall.c",
-        "KernelSU/kernel/supercall/supercall.c",
+        "drivers/kernelsu/runtime/ksud_integration.c",
+        "KernelSU/kernel/runtime/ksud_integration.c",
     ])
     if not path:
-        print(f"  WARNING: supercall.c not found")
+        print(f"  WARNING: ksud_integration.c not found")
         return True
 
     with open(path) as f:
         content = f.read()
 
-    if '/* NO_CLOEXEC fix: fd survives exec */' in content:
+    if '/* Reinstall KSU fd after exec */' in content:
         print(f"  {path}: already fixed")
         return True
 
-    # Change get_unused_fd_flags(O_CLOEXEC) to get_unused_fd_flags(0)
-    old1 = 'fd = get_unused_fd_flags(O_CLOEXEC);'
-    new1 = 'fd = get_unused_fd_flags(0); /* NO_CLOEXEC fix: fd survives exec */'
-    if old1 not in content:
-        print(f"  WARNING: get_unused_fd_flags pattern not found in {path}")
+    # Find the init second_stage check block and insert fd install after it
+    marker = 'init_second_stage_executed = true;'
+    if marker not in content:
+        print(f"  WARNING: init_second_stage_executed not found in {path}")
         return True
 
-    content = content.replace(old1, new1, 1)
+    replacement = (
+        marker + '\n'
+        '\t/* Reinstall KSU fd after exec (Java ProcessBuilder closes it). */\n'
+        '\t_extern_ksu_install_fd();'
+    )
+    content = content.replace(marker, replacement, 1)
 
-    # Change anon_inode_getfile's O_CLOEXEC to 0
-    old2 = 'O_RDWR | O_CLOEXEC'
-    new2 = 'O_RDWR /* NO_CLOEXEC fix */'
-    content = content.replace(old2, new2, 1)
+    # Also add the extern declaration
+    if 'extern int _extern_ksu_install_fd' not in content:
+        content = content.replace(
+            '#include "selinux/selinux.h"',
+            '#include "selinux/selinux.h"\n'
+            'extern int _extern_ksu_install_fd(void);'
+        )
+
+    # Find and rename ksu_install_fd to _extern_ksu_install_fd
+    sc_path = find_file(kernel_root, [
+        "drivers/kernelsu/supercall/supercall.c",
+        "KernelSU/kernel/supercall/supercall.c",
+    ])
+    if not sc_path:
+        print(f"  WARNING: supercall.c not found, fd reinstall might not compile")
+        return True
+
+    with open(sc_path) as f:
+        sc_content = f.read()
+
+    # Add __visible alias for ksu_install_fd (for extern use by ksud_integration)
+    old = 'int ksu_install_fd(void)'
+    new = 'int __visible ksu_install_fd(void)'
+    sc_content = sc_content.replace(old, new, 1)
+
+    with open(sc_path, 'w') as f:
+        f.write(sc_content)
 
     with open(path, 'w') as f:
         f.write(content)
-    print(f"  {path}: removed O_CLOEXEC from KSU driver fd")
+    print(f"  {path}: reinstalls KSU fd in execve hook")
+    return True
+
+
+def fix_ksu_exec_fd_install(kernel_root):
+    """In ksu_handle_execveat_ksud(), reinstall KSU driver fd after exec.
+    Java ProcessBuilder closes all non-std fds before exec, so child
+    processes lose the KSU fd. We detect this and reinstall in the execve
+    hook so libksud.so can find it via scan_driver_fd()."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/runtime/ksud_integration.c",
+        "KernelSU/kernel/runtime/ksud_integration.c",
+    ])
+    if not path:
+        print(f"  WARNING: ksud_integration.c not found")
+        return True
+
+    with open(path) as f:
+        content = f.read()
+
+    if 'ksu_install_fd()' in content:
+        print(f"  {path}: already fixed")
+        return True
+
+    # Add include for supercall.h (declares ksu_install_fd)
+    if '#include "supercall/supercall.h"' not in content:
+        for inc in ['#include "selinux/selinux.h"', '#include "hook/syscall_hook.h"']:
+            if inc in content:
+                content = content.replace(inc, inc + '\n#include "supercall/supercall.h"')
+                break
+
+    # Add ksu_install_fd() at the very beginning of ksu_handle_execveat_ksud()
+    # to guarantee the KSU driver fd is available in every exec'd process
+    func_marker = 'int ksu_handle_execveat_ksud(int *'
+    func_body = (
+        func_marker + 'fd, struct filename **filename_ptr,\n'
+        '\t\t\t\tstruct user_arg_ptr *argv,\n'
+        '\t\t\t\tstruct user_arg_ptr *envp, int *flags)\n'
+        '{\n'
+        '\t/* Reinstall KSU driver fd (Java ProcessBuilder closes all non-std fds). */\n'
+        '\t/* Without this, libksud.so can\'t find fd, falls back to SYS_reboot which */\n'
+        '\t/* triggers SIGSYS from seccomp (__NR_reboot not in Android whitelist). */\n'
+        '\tksu_install_fd();\n'
+        '\n'
+        '#ifndef KSU_KPROBES_HOOK\n'
+    )
+    func_orig = (
+        func_marker + 'fd, struct filename **filename_ptr,\n'
+        '\t\t\t\tstruct user_arg_ptr *argv,\n'
+        '\t\t\t\tstruct user_arg_ptr *envp, int *flags)\n'
+        '{\n'
+        '#ifndef KSU_KPROBES_HOOK\n'
+    )
+    if func_marker not in content:
+        print(f"  ERROR: could not find ksu_handle_execveat_ksud in {path}")
+        return False
+    content = content.replace(func_orig, func_body, 1)
+
+    # Also add to the execveat handler if it exists separately
+    if 'void ksu_execve_hook_ksud' in content:
+        # This is for the execve syscall hook; ksu_handle_execveat_ksud is called
+        # from inside it, so the fd installation in ksu_handle_execveat_ksud covers it
+        pass
+
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: auto-installs KSU fd on every execve")
     return True
 
 
@@ -358,7 +450,7 @@ def main():
     ok &= fix_selinux_clear_exec_sid(root)
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
-    ok &= fix_ksu_fd(root)
+    ok &= fix_ksu_exec_fd_install(root)
     ok &= fix_kernelsu_init(root)
     print(f"  Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
