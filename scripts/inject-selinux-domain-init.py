@@ -863,12 +863,53 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 	setup_ksu_cred();
 	/* Fix cold boot grant root: set manager UID before app starts. */
 	{
-		const struct cred *old_cred = override_creds(ksu_cred);
+		const struct cred *old_cred2 = override_creds(ksu_cred);
+		/* Call track_throne() first (it may already set manager_appid) */
 		track_throne(false);
-		revert_creds(old_cred);
+		/* If track_throne() failed (e.g. due to is_lock_held race), */
+		/* scan packages.list directly via kernel_read */
+		if (!ksu_is_manager_appid_valid()) {
+			struct file *f2 = filp_open("/data/system/packages.list",
+				O_RDONLY, 0);
+			if (!IS_ERR(f2)) {
+				loff_t sz2 = i_size_read(file_inode(f2));
+				if (sz2 > 0 && sz2 < 131072) {
+					char *bf = kvmalloc((size_t)sz2 + 1,
+						GFP_KERNEL);
+					if (bf) {
+						loff_t rp2 = 0;
+						if (kernel_read(f2, bf, (size_t)sz2,
+							&rp2) == (ssize_t)sz2) {
+							char *hit2 = strstr(bf,
+								KSU_MANAGER_PACKAGE);
+							if (hit2) {
+								while (*hit2
+									!= 32 && *hit2)
+									hit2++;
+								if (*hit2 == 32) {
+									unsigned long vu2;
+									hit2++;
+									if (kstrtoul(
+										hit2, 10,
+										&vu2)
+										== 0) {
+										ksu_set_manager_appid(
+											(uid_t)
+											vu2);
+									}
+								}
+							}
+						}
+						kvfree(bf);
+					}
+				}
+				filp_close(f2, NULL);
+			}
+		}
+		revert_creds(old_cred2);
 	}
 	if (ksu_manager_appid != -1)
-		printk(KERN_INFO "ksu_debug: mgr=%d from track_throne\\n", ksu_manager_appid);
+		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
 	else
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
@@ -926,8 +967,6 @@ def main():
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
     ok &= fix_ksud_postfsdata_noctx(root)
-    ok &= fix_throne_deferred_cred(root)
-    ok &= fix_throne_lock(root)
     ok &= fix_allow_uid_zero(root)
     ok &= fix_diag_allowed_for_su(root)
     ok &= fix_diag_dispatch_eperm(root)
