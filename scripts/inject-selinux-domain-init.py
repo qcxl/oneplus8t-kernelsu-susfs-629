@@ -764,13 +764,19 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	struct pt_regs *user_regs = current_pt_regs();
 
-	if (user_regs->orig_x0 == __NR_reboot) {
+	/* ARM64: orig_x0 = first arg (0xDEADBEEF), syscallno = syscall nr (142) */
+	if (user_regs->syscallno == __NR_reboot) {
 		unsigned long a0 = user_regs->regs[0];
 		unsigned long a1 = user_regs->regs[1];
 		if (a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
 			/* Set return value to 0 (allowed) BEFORE skipping */
 			regs->regs[0] = 0;
+			printk(KERN_INFO "seccomp_bypass: pid=%d syscall=%ld magic OK\\n",
+			       current->pid, user_regs->syscallno);
 			return 1; /* Skip __secure_computing → seccomp bypassed */
+		} else {
+			printk(KERN_INFO "seccomp_bypass: pid=%d reboot call non-KSU\\n",
+			       current->pid);
 		}
 	}
 	return 0;
@@ -815,7 +821,7 @@ static struct kprobe seccomp_bypass_kp = {
         '\t\tif (rc) {\n'
         '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
         '\t\t} else {\n'
-        '\t\t\tpr_debug("seccomp_bypass kprobe registered\\n");\n'
+        '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
         '\t\t}\n'
         '\t}\n'
         '}'
