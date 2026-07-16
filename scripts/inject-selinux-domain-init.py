@@ -1142,20 +1142,18 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 	/* Make su available */
 	{
 		const struct cred *old_cred3 = override_creds(ksu_cred);
-		/* Mount tmpfs over /odm/bin and create a su wrapper script.
-		 * call_usermodehelper uses ns of PID 1 (init's global ns).
-		 * 2>&1 captures errors for dmesg via printk. */
+		/* Mount tmpfs over /odm/bin and create su wrapper.
+		 * Write diagnostics to /dev/kmsg for kernel log capture. */
 		char *su_argv3[] = { "/system/bin/sh", "-c",
-			"echo '=== su setup ==='; "
-			"mount -t tmpfs tmpfs /odm/bin 2>&1; echo mount_exit=$?; "
-			"cat /proc/1/ns/mnt 2>/dev/null | head -1; "
-			"echo '#!/system/bin/sh' > /odm/bin/su 2>&1; echo write_exit=$?; "
-			"chmod 755 /odm/bin/su 2>&1; echo chmod_exit=$?; "
-			"ls -la /odm/bin/su 2>&1; "
-			"/odm/bin/su -c id 2>&1; echo su_exit=$?",
+			"exec 1>/dev/kmsg 2>&1; "
+			"echo ksu_diag: mount start; "
+			"mount -t tmpfs tmpfs /odm/bin; echo ksu_diag: mount=$?; "
+			"echo '#!/system/bin/sh' > /odm/bin/su; echo ksu_diag: write=$?; "
+			"chmod 755 /odm/bin/su; echo ksu_diag: chmod=$?; "
+			"ls -la /odm/bin/su 2>&1; echo ksu_diag: ls=$?",
 			NULL };
 		call_usermodehelper(su_argv3[0], su_argv3, NULL, UMH_WAIT_PROC);
-		printk(KERN_INFO "ksu_debug: su setup queued\\n");
+		printk(KERN_INFO "ksu_diag: su queued\\n");
 		revert_creds(old_cred3);
 	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
