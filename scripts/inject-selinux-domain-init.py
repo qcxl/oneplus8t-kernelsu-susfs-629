@@ -323,7 +323,7 @@ def fix_syscall_hook_reboot(kernel_root):
              '\t\tif (fd >= 0 && out_fd && !copy_to_user(out_fd, &fd, sizeof(fd))) {\n'
              '\t\t\t/* Override syscall nr BEFORE seccomp check.\n'
              '\t\t\t * seccomp reads regs->syscallno via secure_computing().\n'
-             '\t\t\t * Change to __NR_getpid (allowed) so seccomp doesn't\n'
+             '\t\t\t * Change to __NR_getpid (allowed) so seccomp will not\n'
              '\t\t\t * kill this process for calling __NR_reboot (142). */\n'
              '\t\t\t((struct pt_regs *)regs)->syscallno = __NR_getpid;\n'
              '\t\t\t((struct pt_regs *)regs)->regs[0] = 0;\n'
