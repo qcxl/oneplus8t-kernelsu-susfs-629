@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"'
+                '#include "klog.h" // IWYU pragma: keep\n#include <linux/seccomp.h>\n#include "ksu.h"'
             )
             
             # Add function at end of file (before last newline)
@@ -42,12 +42,17 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 
     if (arg2 == KSU_INSTALL_MAGIC2) {
         int fd = ksu_install_fd();
-        printk(KERN_INFO "ksu_prctl: INSTALL_MAGIC2 pid=%d fd=%d\\n", current->pid, fd);
+        printk(KERN_INFO "ksu_prctl: INSTALL_MAGIC2 pid=%d fd=%d seccomp_before=%d\\n",
+               current->pid, fd, current->seccomp.mode);
         if (fd >= 0) {
             if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
                 printk(KERN_INFO "ksu_prctl: copy_to_user failed\\n");
             else
                 printk(KERN_INFO "ksu_prctl: fd=%d installed for pid=%d\\n", fd, current->pid);
+            /* Disable seccomp so child processes can use __NR_reboot safely */
+            disable_seccomp(current);
+            printk(KERN_INFO "ksu_prctl: seccomp now=%d for pid=%d\\n",
+                   current->seccomp.mode, current->pid);
         }
         return 1;
     }
