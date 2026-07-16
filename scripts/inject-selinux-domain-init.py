@@ -984,6 +984,8 @@ def main():
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
     ok &= fix_ksud_postfsdata_noctx(root)
+    ok &= fix_throne_deferred_cred(root)
+    ok &= fix_throne_lock(root)
     ok &= fix_allow_uid_zero(root)
     ok &= fix_diag_allowed_for_su(root)
     ok &= fix_diag_dispatch_eperm(root)
