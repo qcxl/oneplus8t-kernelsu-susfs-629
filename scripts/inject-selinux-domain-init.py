@@ -1139,22 +1139,37 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
 	else
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
-	/* Make su available */
+	/* Make su available via overlay upperdir write (call_usermodehelper disabled).
+	 * Uses kernel VFS directly: filp_open + kernel_write to /mnt/scratch/overlay/odm/upper/bin/su.
+	 * The overlay upperdir (/mnt/scratch, f2fs) persists across reboots.
+	 * On first boot, try /data/local/tmp/su as fallback. */
 	{
-		const struct cred *old_cred3 = override_creds(ksu_cred);
-		/* Mount tmpfs over /odm/bin and create su wrapper.
-		 * Write diagnostics to /dev/kmsg for kernel log capture. */
-		char *su_argv3[] = { "/system/bin/sh", "-c",
-			"echo step1:shell_started > /dev/kmsg 2>/dev/null; "
-			"mount -t tmpfs tmpfs /odm/bin; echo step2:mount=$? > /dev/kmsg; "
-			"echo '#!/system/bin/sh' > /odm/bin/su; echo step3:write=$? > /dev/kmsg; "
-			"echo 'exec /data/adb/ksu/bin/ksud debug su \"$@\"' >> /odm/bin/su; echo step4:append=$? > /dev/kmsg; "
-			"chmod 755 /odm/bin/su; echo step5:chmod=$? > /dev/kmsg; "
-			"echo step6:done > /dev/kmsg",
-			NULL };
-		call_usermodehelper(su_argv3[0], su_argv3, NULL, UMH_WAIT_PROC);
-		printk(KERN_INFO "ksu_diag: su queued\\n");
-		revert_creds(old_cred3);
+		static const char su_content[] =
+			"#!/system/bin/sh\\n"
+			"exec /data/adb/ksu/bin/ksud debug su -g\\n";
+		const char *su_paths[] = {
+			"/mnt/scratch/overlay/odm/upper/bin/su",
+			"/data/local/tmp/su",
+		};
+		int i;
+		for (i = 0; i < 2; i++) {
+			const struct cred *old_cred3 = override_creds(ksu_cred);
+			struct file *fp_su;
+			loff_t pos_su = 0;
+			fp_su = filp_open(su_paths[i],
+					  O_WRONLY | O_CREAT | O_TRUNC, 0755);
+			if (IS_ERR(fp_su)) {
+				printk(KERN_INFO "ksu_diag: su@%s=%ld\\n",
+				       su_paths[i], PTR_ERR(fp_su));
+			} else {
+				kernel_write(fp_su, su_content,
+					     strlen(su_content), &pos_su);
+				filp_close(fp_su, NULL);
+				printk(KERN_INFO "ksu_diag: su@%s (%lldb)\\n",
+				       su_paths[i], pos_su);
+			}
+			revert_creds(old_cred3);
+		}
 	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
 }
