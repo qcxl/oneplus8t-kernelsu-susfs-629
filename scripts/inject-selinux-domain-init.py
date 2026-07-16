@@ -1139,24 +1139,23 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
 	else
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
-	/* Make su available: mount tmpfs over /odm/bin, create su wrapper */
+	/* Make su available */
 	{
 		const struct cred *old_cred3 = override_creds(ksu_cred);
-		char *su_wargv[] = { "/system/bin/sh", "-c",
-			"mount -t tmpfs tmpfs /odm/bin 2>/dev/null; "
-			"echo '#!/system/bin/sh' > /odm/bin/su; "
-			"echo exec /data/adb/ksu/bin/ksud debug su XZ_XZ >> /odm/bin/su; "
-			"sed -i s/XZ_XZ/'\\\\$'@/g /odm/bin/su; "
-			"chmod 755 /odm/bin/su",
-
+		/* Mount tmpfs over /odm/bin and create a su wrapper script.
+		 * call_usermodehelper uses ns of PID 1 (init's global ns).
+		 * 2>&1 captures errors for dmesg via printk. */
+		char *su_argv3[] = { "/system/bin/sh", "-c",
+			"echo '=== su setup ==='; "
+			"mount -t tmpfs tmpfs /odm/bin 2>&1; echo mount_exit=$?; "
+			"cat /proc/1/ns/mnt 2>/dev/null | head -1; "
+			"echo '#!/system/bin/sh' > /odm/bin/su 2>&1; echo write_exit=$?; "
+			"chmod 755 /odm/bin/su 2>&1; echo chmod_exit=$?; "
+			"ls -la /odm/bin/su 2>&1; "
+			"/odm/bin/su -c id 2>&1; echo su_exit=$?",
 			NULL };
-		static char *su_wenvp[] = { "HOME=/", "PATH=/sbin:/system/bin", NULL };
-		int su_wret = call_usermodehelper(su_wargv[0], su_wargv, su_wenvp,
-			UMH_WAIT_PROC);
-		if (su_wret == 0)
-			printk(KERN_INFO "ksu_debug: su wrapper created\\n");
-		else
-			printk(KERN_INFO "ksu_debug: su wrapper failed %d\\n", su_wret);
+		call_usermodehelper(su_argv3[0], su_argv3, NULL, UMH_WAIT_PROC);
+		printk(KERN_INFO "ksu_debug: su setup queued\\n");
 		revert_creds(old_cred3);
 	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
