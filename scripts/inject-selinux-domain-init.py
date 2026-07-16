@@ -509,6 +509,90 @@ def fix_throne_lock(kernel_root):
     return True
 
 
+def fix_auto_crown_prctl(kernel_root):
+    """Fix ksu_handle_prctl auto-registration: don't overwrite existing manager.
+    
+    inject-ksu-prctl.py adds ksu_handle_prctl() which, when called with
+    arg2 == 2, sets the manager UID to the calling app's UID. This means
+    ANY app (e.g. SukiSU) can overwrite KernelSU-Next's manager registration
+    by simply calling prctl(0xDEADBEEF, 2, ...).
+    
+    Fix: only register if no manager is set yet."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/supercall/supercall.c",
+        "KernelSU/kernel/supercall/supercall.c",
+    ])
+    if not path:
+        print(f"  WARNING: supercall.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'auto_crown_fixed_prctl' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    old = 'if (arg2 == 2) {\n        /* Legacy get_info: register/update caller as manager */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (ksu_get_manager_appid() != uid) {\n            ksu_set_manager_appid(uid);'
+    new = (
+        'if (arg2 == 2) {\n'
+        '        /* auto_crown_fixed_prctl: only register if no manager */\n'
+        '        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+        '        if (!ksu_is_manager_appid_valid()) {\n'
+        '            ksu_set_manager_appid(uid);'
+    )
+    if old not in content:
+        # Try with \t indentation (tab variant)
+        old_tab = (
+            '\tif (arg2 == 2) {\n'
+            '\t\t/* Legacy get_info: register/update caller as manager */\n'
+            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+            '\t\tif (ksu_get_manager_appid() != uid) {\n'
+            '\t\t\tksu_set_manager_appid(uid);'
+        )
+        new_tab = (
+            '\tif (arg2 == 2) {\n'
+            '\t\t/* auto_crown_fixed_prctl: only register if no manager */\n'
+            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+            '\t\tif (!ksu_is_manager_appid_valid()) {\n'
+            '\t\t\tksu_set_manager_appid(uid);'
+        )
+        if old_tab in content:
+            content = content.replace(old_tab, new_tab, 1)
+            with open(path, 'w') as f:
+                f.write(content)
+            print(f"  {path}: ksu_handle_prctl only registers if no manager (tab)")
+            return True
+        
+        # Try without the "Legacy get_info" comment
+        old3 = (
+            '\tif (arg2 == 2) {\n'
+            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+            '\t\tif (ksu_get_manager_appid() != uid) {\n'
+            '\t\t\tksu_set_manager_appid(uid);'
+        )
+        new3 = (
+            '\tif (arg2 == 2) {\n'
+            '\t\t/* auto_crown_fixed_prctl */\n'
+            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+            '\t\tif (!ksu_is_manager_appid_valid()) {\n'
+            '\t\t\tksu_set_manager_appid(uid);'
+        )
+        if old3 in content:
+            content = content.replace(old3, new3, 1)
+            with open(path, 'w') as f:
+                f.write(content)
+            print(f"  {path}: ksu_handle_prctl only registers if no manager")
+            return True
+        
+        print(f"  WARNING: ksu_handle_prctl arg2==2 pattern not found in {path}")
+        return True
+    
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: ksu_handle_prctl only registers if no manager")
+    return True
+
+
 def fix_ksud_postfsdata_noctx(kernel_root):
     """Remove u:r:ksu:s0 from post-fs-data exec in KERNEL_SU_RC.
     
@@ -986,6 +1070,7 @@ def main():
     ok &= fix_ksud_postfsdata_noctx(root)
     ok &= fix_throne_deferred_cred(root)
     ok &= fix_throne_lock(root)
+    ok &= fix_auto_crown_prctl(root)
     ok &= fix_allow_uid_zero(root)
     ok &= fix_diag_allowed_for_su(root)
     ok &= fix_diag_dispatch_eperm(root)
