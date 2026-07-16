@@ -755,32 +755,28 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe 1: bypass seccomp check for KSU SYS_reboot magic.
- * Fires at entry of __secure_computing(). Check if the calling syscall
- * is __NR_reboot with KSU magic numbers. If so, skip the seccomp check
- * and set return value to 0 (allowed). The fd installation is handled
- * by apply-ksu-hooks.py's hook in kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
+/* Kprobe on __arm64_sys_seccomp: intercept seccomp() syscall installation.
+ * When a KSU-manager-related process tries to install a seccomp filter,
+ * skip it so the process and its children can call __NR_reboot freely.
+ * The fd installation is handled by apply-ksu-hooks.py's hook in kernel/reboot.c. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	struct pt_regs *user_regs = current_pt_regs();
-	int nr = user_regs->syscallno;
-	unsigned long a0 = user_regs->regs[0];
-	unsigned long a1 = user_regs->regs[1];
-
-	printk(KERN_INFO "seccomp_bypass: pid=%d nr=%ld a0=0x%lx a1=0x%lx\\n",
-	       current->pid, (long)nr, a0, a1);
-
-	/* ARM64: syscallno = syscall nr, regs[0]=arg0, regs[1]=arg1 */
-	if (nr == __NR_reboot && a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
+	uid_t uid = current_uid().val;
+	
+	/* Skip seccomp filter for the KSU manager app and its children.
+	 * Check: if the manager is valid and this process matches its UID,
+	 * or if the UID was registered via ksu_set_manager_appid(). */
+	if (ksu_is_manager_appid_valid() && uid == (uid_t)ksu_get_manager_appid()) {
 		regs->regs[0] = 0;
-		printk(KERN_INFO "seccomp_bypass: KSU magic OK, bypassing seccomp\\n");
+		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
+		       current->pid, uid);
 		return 1;
 	}
 	return 0;
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "__secure_computing",
+	.symbol_name = "__arm64_sys_seccomp",
 	.pre_handler = seccomp_bypass_pre,
 };
 
