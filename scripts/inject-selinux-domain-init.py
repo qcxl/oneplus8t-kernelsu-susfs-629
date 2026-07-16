@@ -1145,12 +1145,12 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		/* Mount tmpfs over /odm/bin and create su wrapper.
 		 * Write diagnostics to /dev/kmsg for kernel log capture. */
 		char *su_argv3[] = { "/system/bin/sh", "-c",
-			"exec 1>/dev/kmsg 2>&1; "
-			"echo ksu_diag: mount start; "
-			"mount -t tmpfs tmpfs /odm/bin; echo ksu_diag: mount=$?; "
-			"echo '#!/system/bin/sh' > /odm/bin/su; echo ksu_diag: write=$?; "
-			"chmod 755 /odm/bin/su; echo ksu_diag: chmod=$?; "
-			"ls -la /odm/bin/su 2>&1; echo ksu_diag: ls=$?",
+			"echo step1:shell_started > /dev/kmsg 2>/dev/null; "
+			"mount -t tmpfs tmpfs /odm/bin; echo step2:mount=$? > /dev/kmsg; "
+			"echo '#!/system/bin/sh' > /odm/bin/su; echo step3:write=$? > /dev/kmsg; "
+			"echo 'exec /data/adb/ksu/bin/ksud debug su \"$@\"' >> /odm/bin/su; echo step4:append=$? > /dev/kmsg; "
+			"chmod 755 /odm/bin/su; echo step5:chmod=$? > /dev/kmsg; "
+			"echo step6:done > /dev/kmsg",
 			NULL };
 		call_usermodehelper(su_argv3[0], su_argv3, NULL, UMH_WAIT_PROC);
 		printk(KERN_INFO "ksu_diag: su queued\\n");
