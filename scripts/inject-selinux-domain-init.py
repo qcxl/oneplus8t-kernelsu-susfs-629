@@ -755,7 +755,11 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe 1: bypass seccomp check for KSU SYS_reboot magic. */
+/* Kprobe 1: bypass seccomp check for KSU SYS_reboot magic.
+ * Fires at entry of __secure_computing(). Check if the calling syscall
+ * is __NR_reboot with KSU magic numbers. If so, skip the seccomp check
+ * and set return value to 0 (allowed). The fd installation is handled
+ * by apply-ksu-hooks.py's hook in kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	struct pt_regs *user_regs = current_pt_regs();
@@ -764,46 +768,23 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		unsigned long a0 = user_regs->regs[0];
 		unsigned long a1 = user_regs->regs[1];
 		if (a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
-			return 1; /* Skip secure_computing → seccomp bypassed */
+			/* Set return value to 0 (allowed) BEFORE skipping */
+			regs->regs[0] = 0;
+			return 1; /* Skip __secure_computing → seccomp bypassed */
 		}
 	}
 	return 0;
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "secure_computing",
+	.symbol_name = "__secure_computing",
 	.pre_handler = seccomp_bypass_pre,
 };
 
-/* Kprobe 2: always-registered reboot handler (not guarded by KSU_KPROBES_HOOK).
- * Installs the KSU driver fd when SYS_reboot is called with KSU magic.
- * The seccomp_bypass kprobe above guarantees this handler is reached. */
-static int ksu_reboot_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	struct pt_regs *real_regs = PT_REAL_REGS(regs);
-	unsigned long magic1 = PT_REGS_PARM1(real_regs);
-	unsigned long magic2 = PT_REGS_PARM2(real_regs);
-
-	if (magic1 == KSU_INSTALL_MAGIC1 && magic2 == KSU_INSTALL_MAGIC2) {
-		unsigned long arg4 = PT_REGS_SYSCALL_PARM4(real_regs);
-		int __user *out_fd = (int __user *)arg4;
-
-		if (out_fd) {
-			int fd = ksu_install_fd();
-			if (fd >= 0 && !copy_to_user(out_fd, &fd, sizeof(fd))) {
-				/* Override return value: 0 = success */
-				PT_REGS_RC(real_regs) = 0;
-				return 1; /* Skip original __arm64_sys_reboot */
-			}
-		}
-	}
-	return 0;
-}
-
-static struct kprobe ksu_reboot_kp = {
-	.symbol_name = REBOOT_SYMBOL,
-	.pre_handler = ksu_reboot_kprobe_pre,
-};
+/* Note: fd installation is handled by apply-ksu-hooks.py's hook in
+ * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). Once seccomp is bypassed
+ * above, the hook runs inside the reboot syscall handler and installs
+ * the KSU driver fd. No second kprobe needed. */
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
@@ -836,13 +817,6 @@ static struct kprobe ksu_reboot_kp = {
         '\t\t} else {\n'
         '\t\t\tpr_debug("seccomp_bypass kprobe registered\\n");\n'
         '\t\t}\n'
-        '\n'
-        '\t\trc = register_kprobe(&ksu_reboot_kp);\n'
-        '\t\tif (rc) {\n'
-        '\t\t\tpr_err("ksu_reboot kprobe failed: %d\\n", rc);\n'
-        '\t\t} else {\n'
-        '\t\t\tpr_debug("ksu_reboot kprobe registered\\n");\n'
-        '\t\t}\n'
         '\t}\n'
         '}'
     )
@@ -858,6 +832,11 @@ static struct kprobe ksu_reboot_kp = {
             '}',
             1
         )
+    else:
+        # Also try without prctl_kp (some branches don't have it)
+        old_exit2 = '\treturn 0;\n}'
+        if old_exit2 in content:
+            pass  # skip, not needed if prctl_kp not present
 
     with open(path, 'w') as f:
         f.write(content)
@@ -1247,6 +1226,7 @@ def main():
     ok &= fix_diag_allowed_for_su(root)
     ok &= fix_diag_dispatch_eperm(root)
     ok &= fix_syscall_hook_reboot(root)
+    ok &= fix_seccomp_bypass(root)
     ok &= fix_kernelsu_init(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
