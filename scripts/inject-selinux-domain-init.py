@@ -1141,24 +1141,22 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
 	/* Make su available: mount tmpfs over /odm/bin, create su wrapper */
 	{
-		/* Use call_usermodehelper to create a su wrapper script.
-		 * KSU's su binary (ksud invoked as su) does NOT accept -c.
-		 * libsu runs su -c id for rootAvailable().
-		 * The wrapper calls ksud debug su which DOES accept arguments. */
 		const struct cred *old_cred3 = override_creds(ksu_cred);
 		char *su_wargv[] = { "/system/bin/sh", "-c",
-			"mount -t tmpfs tmpfs /odm/bin && "
-			"echo '#!/system/bin/sh' > /odm/bin/su && "
-			"echo 'exec /data/adb/ksu/bin/ksud debug su \"$@\"' >> /odm/bin/su && "
+			"mount -t tmpfs tmpfs /odm/bin 2>/dev/null; "
+			"echo '#!/system/bin/sh' > /odm/bin/su; "
+			"echo exec /data/adb/ksu/bin/ksud debug su XZ_XZ >> /odm/bin/su; "
+			"sed -i s/XZ_XZ/'\\\\$'@/g /odm/bin/su; "
 			"chmod 755 /odm/bin/su",
+
 			NULL };
 		static char *su_wenvp[] = { "HOME=/", "PATH=/sbin:/system/bin", NULL };
 		int su_wret = call_usermodehelper(su_wargv[0], su_wargv, su_wenvp,
 			UMH_WAIT_PROC);
 		if (su_wret == 0)
-			printk(KERN_INFO "ksu_debug: su wrapper\\n");
+			printk(KERN_INFO "ksu_debug: su wrapper created\\n");
 		else
-			printk(KERN_INFO "ksu_debug: su wrapper fail %d\\n", su_wret);
+			printk(KERN_INFO "ksu_debug: su wrapper failed %d\\n", su_wret);
 		revert_creds(old_cred3);
 	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
