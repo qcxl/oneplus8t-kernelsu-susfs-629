@@ -334,7 +334,7 @@ def fix_syscall_hook_reboot(kernel_root):
              '\t\t((struct pt_regs *)regs)->regs[0] = -ENOSYS;\n'
              '\t\treturn 0;\n'
              '\t}\n'
-             '\treturn ksu_syscall_table[orig_nr](regs);\n"
+'\treturn ksu_syscall_table[orig_nr](regs);\n'
              '}\n'
             '\n'
             'long __nocfi ksu_hook_setresuid'
