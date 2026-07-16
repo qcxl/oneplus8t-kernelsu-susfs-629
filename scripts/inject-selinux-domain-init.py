@@ -510,14 +510,15 @@ def fix_throne_lock(kernel_root):
 
 
 def fix_auto_crown_prctl(kernel_root):
-    """Fix ksu_handle_prctl auto-registration: don't overwrite existing manager.
+    """Fix ksu_handle_prctl auto-registration: allow same-app re-registration.
     
     inject-ksu-prctl.py adds ksu_handle_prctl() which, when called with
-    arg2 == 2, sets the manager UID to the calling app's UID. This means
-    ANY app (e.g. SukiSU) can overwrite KernelSU-Next's manager registration
-    by simply calling prctl(0xDEADBEEF, 2, ...).
+    arg2 == 2, sets the manager UID to the calling app's UID. The original
+    condition `if (uid != ksu_get_manager_appid())` lets ANY app overwrite.
     
-    Fix: only register if no manager is set yet."""
+    Fix: only register if no manager exists, OR the calling app has the
+    same UID as the current manager (handles reinstall with no UID change):
+        if (!ksu_is_manager_appid_valid() || uid == ksu_get_manager_appid())"""
     path = find_file(kernel_root, [
         "drivers/kernelsu/supercall/supercall.c",
         "KernelSU/kernel/supercall/supercall.c",
@@ -531,65 +532,28 @@ def fix_auto_crown_prctl(kernel_root):
         print(f"  {path}: already fixed")
         return True
     
-    old = 'if (arg2 == 2) {\n        /* Legacy get_info: register/update caller as manager */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (ksu_get_manager_appid() != uid) {\n            ksu_set_manager_appid(uid);'
-    new = (
-        'if (arg2 == 2) {\n'
-        '        /* auto_crown_fixed_prctl: only register if no manager */\n'
-        '        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-        '        if (!ksu_is_manager_appid_valid()) {\n'
-        '            ksu_set_manager_appid(uid);'
-    )
-    if old not in content:
-        # Try with \t indentation (tab variant)
-        old_tab = (
-            '\tif (arg2 == 2) {\n'
-            '\t\t/* Legacy get_info: register/update caller as manager */\n'
-            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-            '\t\tif (ksu_get_manager_appid() != uid) {\n'
-            '\t\t\tksu_set_manager_appid(uid);'
-        )
-        new_tab = (
-            '\tif (arg2 == 2) {\n'
-            '\t\t/* auto_crown_fixed_prctl: only register if no manager */\n'
-            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-            '\t\tif (!ksu_is_manager_appid_valid()) {\n'
-            '\t\t\tksu_set_manager_appid(uid);'
-        )
-        if old_tab in content:
-            content = content.replace(old_tab, new_tab, 1)
-            with open(path, 'w') as f:
-                f.write(content)
-            print(f"  {path}: ksu_handle_prctl only registers if no manager (tab)")
-            return True
-        
-        # Try without the "Legacy get_info" comment
-        old3 = (
-            '\tif (arg2 == 2) {\n'
-            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-            '\t\tif (ksu_get_manager_appid() != uid) {\n'
-            '\t\t\tksu_set_manager_appid(uid);'
-        )
-        new3 = (
-            '\tif (arg2 == 2) {\n'
-            '\t\t/* auto_crown_fixed_prctl */\n'
-            '\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-            '\t\tif (!ksu_is_manager_appid_valid()) {\n'
-            '\t\t\tksu_set_manager_appid(uid);'
-        )
-        if old3 in content:
-            content = content.replace(old3, new3, 1)
-            with open(path, 'w') as f:
-                f.write(content)
-            print(f"  {path}: ksu_handle_prctl only registers if no manager")
-            return True
-        
-        print(f"  WARNING: ksu_handle_prctl arg2==2 pattern not found in {path}")
-        return True
+    # Try to match any of the known pattern variants
+    old_patterns = [
+        # 4-space indent with comment
+        ('if (arg2 == 2) {\n        /* Legacy get_info: register/update caller as manager */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (ksu_get_manager_appid() != uid) {\n            ksu_set_manager_appid(uid);',
+         'if (arg2 == 2) {\n        /* auto_crown_fixed_prctl */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (!ksu_is_manager_appid_valid() || uid == ksu_get_manager_appid()) {\n            ksu_set_manager_appid(uid);'),
+        # tab indent with comment
+        ('\tif (arg2 == 2) {\n\t\t/* Legacy get_info: register/update caller as manager */\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tif (ksu_get_manager_appid() != uid) {\n\t\t\tksu_set_manager_appid(uid);',
+         '\tif (arg2 == 2) {\n\t\t/* auto_crown_fixed_prctl */\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tif (!ksu_is_manager_appid_valid() || uid == ksu_get_manager_appid()) {\n\t\t\tksu_set_manager_appid(uid);'),
+        # tab indent without comment
+        ('\tif (arg2 == 2) {\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tif (ksu_get_manager_appid() != uid) {\n\t\t\tksu_set_manager_appid(uid);',
+         '\tif (arg2 == 2) {\n\t\t/* auto_crown_fixed_prctl */\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tif (!ksu_is_manager_appid_valid() || uid == ksu_get_manager_appid()) {\n\t\t\tksu_set_manager_appid(uid);'),
+    ]
     
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: ksu_handle_prctl only registers if no manager")
+    for old, new in old_patterns:
+        if old in content:
+            content = content.replace(old, new, 1)
+            with open(path, 'w') as f:
+                f.write(content)
+            print(f"  {path}: ksu_handle_prctl fixed")
+            return True
+    
+    print(f"  WARNING: ksu_handle_prctl arg2==2 pattern not found in {path}")
     return True
 
 
@@ -891,6 +855,163 @@ static struct kprobe ksu_reboot_kp = {
     return True
 
 
+def fix_throne_crown_manager(kernel_root):
+    """B1: Prevent crown_manager() from overwriting a valid manager.
+    
+    throne_tracker.c's crown_manager() unconditionally sets ksu_manager_appid
+    when scan_manager() finds a matching APK. If SukiSU APK somehow matched
+    EXPECTED_MANAGER_HASH, it could take over as manager.
+    
+    Fix: only set manager UID if no manager exists yet."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/manager/throne_tracker.c",
+        "KernelSU/kernel/manager/throne_tracker.c",
+    ])
+    if not path:
+        print(f"  WARNING: throne_tracker.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'crown_fixed' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    old = '\t\t\tksu_set_manager_appid(np->uid);'
+    new = '\t\t\tif (!ksu_is_manager_appid_valid()) { ksu_set_manager_appid(np->uid); } /* crown_fixed */'
+    if old not in content:
+        print(f"  WARNING: crown_manager pattern not found in {path}")
+        return True
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: crown_manager only sets if no manager exists")
+    return True
+
+
+def fix_kpm_manager_uid_export(kernel_root):
+    """B2: Make sukisu_set_manager_uid static (not exported) + remove force.
+    
+    kpm/compact.c exports sukisu_set_manager_uid() as a symbol that KPM
+    modules can find. With force=1, any KPM module can bypass APK signature
+    checks and overwrite ksu_manager_appid.
+    
+    Fix: change force parameter logic and make function static."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/kpm/compact.c",
+        "KernelSU/kernel/kpm/compact.c",
+    ])
+    if not path:
+        print(f"  WARNING: kpm/compact.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'kpm_uid_fixed' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    old = ('static void sukisu_set_manager_uid(uid_t uid, int force)\n'
+           '{\n'
+           '    if (force || ksu_manager_appid == -1)\n'
+           '        ksu_manager_appid = uid;')
+    new = ('/* kpm_uid_fixed: static function, force removed */\n'
+           'static void sukisu_set_manager_uid(uid_t uid, int force)\n'
+           '{\n'
+           '    (void)force; /* parameter kept for ABI but ignored */\n'
+           '    if (ksu_manager_appid == -1)\n'
+           '        ksu_manager_appid = uid;')
+    if old not in content:
+        print(f"  WARNING: sukisu_set_manager_uid pattern not found in {path}")
+        return True
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: sukisu_set_manager_uid force removed")
+    return True
+
+
+def fix_sysfs_manager_appid(kernel_root):
+    """B4: Only allow sysfs write to set manager when none exists, or clear it.
+    
+    apk_sign.c: set_expected_size() is called when root writes to
+    /sys/module/kernelsu/parameters/ksu_debug_manager_appid. The original
+    function unconditionally calls ksu_set_manager_appid().
+    
+    Fix: only set if no manager exists, or if writing -1 (INVALID) to clear."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/manager/apk_sign.c",
+        "KernelSU/kernel/manager/apk_sign.c",
+    ])
+    if not path:
+        print(f"  WARNING: apk_sign.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'sysfs_mgr_fixed' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    old = '\tksu_set_manager_appid(ksu_debug_manager_appid);'
+    new = ('\t/* sysfs_mgr_fixed: only allow set if no manager, or clear */\n'
+           '\tif (!ksu_is_manager_appid_valid() || '
+           'ksu_debug_manager_appid == KSU_INVALID_APPID)\n'
+           '\t\tksu_set_manager_appid(ksu_debug_manager_appid);')
+    if old not in content:
+        print(f"  WARNING: set_expected_size pattern not found in {path}")
+        return True
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: sysfs mgr write limited")
+    return True
+
+
+def fix_dispatch_get_info(kernel_root):
+    """NEW: Add auto-registration to do_get_info() (tab-indent matching LEGACY).
+    
+    inject-ksu-prctl.py tried to inject auto-registration into dispatch.c's
+    do_get_info(), but failed because it used SPACE indentation while the
+    LEGACY file uses TABS. This fix correctly injects using tab indent.
+    
+    Auto-registration: register calling app as manager if none exists,
+    or the caller matches the current manager UID (handles reinstall)."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/supercall/dispatch.c",
+        "KernelSU/kernel/supercall/dispatch.c",
+    ])
+    if not path:
+        print(f"  WARNING: dispatch.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'dispatch_mgr_auto_reg' in content:
+        print(f"  {path}: already fixed")
+        return True
+    
+    # Find the is_manager() check in do_get_info (tab-indented)
+    old = ('\tif (is_manager()) {\n'
+           '\t\tcmd.flags |= KSU_GET_INFO_FLAG_MANAGER;\n'
+           '\t}')
+    if old not in content:
+        print(f"  WARNING: do_get_info is_manager pattern not found in {path}")
+        return True
+    
+    new = (
+        '\t/* dispatch_mgr_auto_reg: register caller if no manager */\n'
+        '\tif (!ksu_is_manager_appid_valid() ||\n'
+        '\t    (current_uid().val % KSU_PER_USER_RANGE) == ksu_get_manager_appid()) {\n'
+        '\t\tksu_set_manager_appid(current_uid().val % KSU_PER_USER_RANGE);\n'
+        '\t}\n'
+        '\tif (is_manager()) {\n'
+        '\t\tcmd.flags |= KSU_GET_INFO_FLAG_MANAGER;\n'
+        '\t}'
+    )
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print(f"  {path}: do_get_info auto-registration added")
+    return True
+
+
 def fix_kernelsu_init(kernel_root):
     """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred directly in
     kernelsu_init(), before the final 'return 0;'. This runs at
@@ -1070,7 +1191,11 @@ def main():
     ok &= fix_ksud_postfsdata_noctx(root)
     ok &= fix_throne_deferred_cred(root)
     ok &= fix_throne_lock(root)
+    ok &= fix_throne_crown_manager(root)
+    ok &= fix_kpm_manager_uid_export(root)
     ok &= fix_auto_crown_prctl(root)
+    ok &= fix_sysfs_manager_appid(root)
+    ok &= fix_dispatch_get_info(root)
     ok &= fix_allow_uid_zero(root)
     ok &= fix_diag_allowed_for_su(root)
     ok &= fix_diag_dispatch_eperm(root)

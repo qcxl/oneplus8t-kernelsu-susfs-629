@@ -185,6 +185,14 @@ jobs:
           echo "=== Verification ==="
           grep -A10 'setup_ksu_cred_retry' drivers/kernelsu/manager/throne_tracker.c || echo "NOT FOUND"
 
+      - name: Fix throne_tracker control flow (post deferred-cred)
+        working-directory: kernel
+        run: |
+          echo "=== Fixing control flow broken by deferred-cred inject ==="
+          python3 ../scripts/inject-fix-throne-control-flow.py .
+          echo "=== Verification ==="
+          grep -c 'throne_control_flow_fixed' drivers/kernelsu/manager/throne_tracker.c || echo "NOT FOUND"
+
       - name: Convert pr_info/pr_warn to pr_debug (hide dmesg fingerprints)
         working-directory: kernel
         run: |
