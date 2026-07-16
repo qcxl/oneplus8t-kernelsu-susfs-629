@@ -893,27 +893,28 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 							printk(KERN_INFO "ksu_dbg: strstr=%s\\n",
 								hit2 ? "found" : "miss");
 							if (hit2) {
-								while (*hit2
-									!= 32 && *hit2)
+								hit2 +=
+									strlen(
+									KSU_MANAGER_PACKAGE);
+								while (*hit2 == 32)
 									hit2++;
-								if (*hit2 == 32) {
-									unsigned long vu2;
-									hit2++;
-									if (kstrtoul(
-										hit2, 10,
-										&vu2)
-										== 0) {
-										ksu_set_manager_appid(
-											(uid_t)
-											vu2);
-										printk(KERN_INFO
-											"ksu_dbg: set UID=%lu\\n",
-											vu2);
-									} else {
-										printk(KERN_INFO
-											"ksu_dbg: kstrtoul fail\\n");
-									}
+								if (*hit2 >= 48
+									&& *hit2 <= 57) {
+									uid_t vu2 =
+									simple_strtoul(
+									hit2, NULL, 10);
+									ksu_set_manager_appid(
+										vu2);
+									printk(KERN_INFO
+										"ksu_dbg: set UID=%d\\n",
+										vu2);
+								} else {
+									printk(KERN_INFO
+									"ksu_dbg: no digit\\n");
 								}
+							} else {
+								printk(KERN_INFO
+									"ksu_dbg: miss\\n");
 							}
 						}
 						kvfree(bf);
