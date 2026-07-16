@@ -763,21 +763,18 @@ def fix_seccomp_bypass(kernel_root):
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	struct pt_regs *user_regs = current_pt_regs();
+	int nr = user_regs->syscallno;
+	unsigned long a0 = user_regs->regs[0];
+	unsigned long a1 = user_regs->regs[1];
 
-	/* ARM64: orig_x0 = first arg (0xDEADBEEF), syscallno = syscall nr (142) */
-	if (user_regs->syscallno == __NR_reboot) {
-		unsigned long a0 = user_regs->regs[0];
-		unsigned long a1 = user_regs->regs[1];
-		if (a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
-			/* Set return value to 0 (allowed) BEFORE skipping */
-			regs->regs[0] = 0;
-			printk(KERN_INFO "seccomp_bypass: pid=%d syscall=%ld magic OK\\n",
-			       current->pid, user_regs->syscallno);
-			return 1; /* Skip __secure_computing → seccomp bypassed */
-		} else {
-			printk(KERN_INFO "seccomp_bypass: pid=%d reboot call non-KSU\\n",
-			       current->pid);
-		}
+	printk(KERN_INFO "seccomp_bypass: pid=%d nr=%ld a0=0x%lx a1=0x%lx\\n",
+	       current->pid, (long)nr, a0, a1);
+
+	/* ARM64: syscallno = syscall nr, regs[0]=arg0, regs[1]=arg1 */
+	if (nr == __NR_reboot && a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
+		regs->regs[0] = 0;
+		printk(KERN_INFO "seccomp_bypass: KSU magic OK, bypassing seccomp\\n");
+		return 1;
 	}
 	return 0;
 }
