@@ -1048,6 +1048,11 @@ def fix_kernelsu_init(kernel_root):
             '#include <linux/export.h>',
             '#include <linux/export.h>\n#include <linux/delay.h>'
         )
+    if '#include <linux/kmod.h>' not in content:
+        content = content.replace(
+            '#include <linux/export.h>',
+            '#include <linux/export.h>\n#include <linux/kmod.h>'
+        )
     if '#include "manager/manager_identity.h"' not in content:
         content = content.replace(
             '#include "klog.h"',
@@ -1134,6 +1139,23 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
 	else
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
+	/* Make su available: mount tmpfs over /odm/bin, symlink ksud as su */
+	{
+		const struct cred *old_cred3 = override_creds(ksu_cred);
+		char *su_argv[] = { "/system/bin/sh", "-c",
+			"mount -t tmpfs tmpfs /odm/bin 2>/dev/null; "
+			"ln -sf /data/adb/ksu/bin/ksud /odm/bin/su 2>/dev/null; "
+			"echo done",
+			NULL };
+		static char *su_envp[] = { "HOME=/", "PATH=/sbin:/system/bin", NULL };
+		int su_ret = call_usermodehelper(su_argv[0], su_argv, su_envp,
+			UMH_WAIT_PROC);
+		if (su_ret == 0)
+			printk(KERN_INFO "ksu_debug: su link created\\n");
+		else
+			printk(KERN_INFO "ksu_debug: su link failed: %d\\n", su_ret);
+		revert_creds(old_cred3);
+	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
 }
 static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
