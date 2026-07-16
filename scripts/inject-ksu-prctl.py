@@ -42,19 +42,22 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 
     if (arg2 == KSU_INSTALL_MAGIC2) {
         int fd = ksu_install_fd();
+        printk(KERN_INFO "ksu_prctl: INSTALL_MAGIC2 pid=%d fd=%d\\n", current->pid, fd);
         if (fd >= 0) {
             if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
-                pr_debug("prctl: install fd copy_to_user failed\\n");
+                printk(KERN_INFO "ksu_prctl: copy_to_user failed\\n");
+            else
+                printk(KERN_INFO "ksu_prctl: fd=%d installed for pid=%d\\n", fd, current->pid);
         }
         return 1;
     }
 
     if (arg2 == 2) {
-        /* Legacy get_info: register/update caller as manager */
         uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
+        printk(KERN_INFO "ksu_prctl: get_info pid=%d uid=%d mgr=%d\\n",
+               current->pid, uid, ksu_get_manager_appid());
         if (ksu_get_manager_appid() != uid) {
             ksu_set_manager_appid(uid);
-            pr_debug("prctl: set manager uid=%d\\n", uid);
         }
 
         u32 __user *version_ptr = (u32 __user *)arg3;
@@ -67,9 +70,11 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 
         copy_to_user(version_ptr, &version, sizeof(version));
         copy_to_user(flags_ptr, &flags, sizeof(flags));
+        printk(KERN_INFO "ksu_prctl: get_info done flags=0x%x\\n", flags);
         return 1;
     }
 
+    printk(KERN_INFO "ksu_prctl: unknown arg2=%lu pid=%d\\n", arg2, current->pid);
     return 0;
 }
 EXPORT_SYMBOL(ksu_handle_prctl);
