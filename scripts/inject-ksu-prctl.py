@@ -80,6 +80,17 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                 printk(KERN_INFO "ksu_prctl: seccomp disabled for %d threads\\n",
                        disabled);
             }
+            /* Register as manager if none exists yet.
+             * This MUST happen here (in INSTALL_MAGIC2) because PR_SET_SECCOMP
+             * checks ksu_get_manager_appid() and may be called BEFORE the
+             * do_get_info auto-registration runs. Without this, child processes
+             * would have Seccomp=2 (manager_appid=-1 → no match → seccomp installed). */
+            if (!ksu_is_manager_appid_valid()) {
+                uid_t mgr_uid = current_uid().val % KSU_PER_USER_RANGE;
+                ksu_set_manager_appid(mgr_uid);
+                printk(KERN_INFO "ksu_prctl: set manager uid=%d (from INSTALL_MAGIC2)\\n",
+                       mgr_uid);
+            }
         }
         return 1;
     }
