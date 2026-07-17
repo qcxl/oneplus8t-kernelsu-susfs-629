@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Apply KSU manual hook source patches - uses extern declarations."""
+"""Apply KSU manual hook source patches - uses extern declarations.
+cache_buster: 2026-07-17_v3 (PR_SET_SECCOMP + insert-before-switch)"""
 
 import sys, os, re
 
