@@ -781,28 +781,7 @@ static struct kprobe seccomp_bypass_kp = {
 	.pre_handler = seccomp_bypass_pre,
 };
 
-/* Kprobe on _do_fork: disable seccomp before fork for KSU-managed processes.
- * Handles threads created AFTER the thread-group iteration.
- * Note: we set mode=0 directly (no disable_seccomp) because kfree() inside
- * the kprobe handler triggers ARM64 single-step conflict with the kprobe's
- * own single-step context. The seccomp filter reference leaks (~80b/fork). */
-static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	unsigned int uid = current_uid().val;
-	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
-	if (app_uid >= 10000 && ksu_seccomp_check(app_uid) &&
-	    current->seccomp.mode != 0) {
-		current->seccomp.mode = 0;
-		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
-		       current->pid, app_uid);
-	}
-	return 0; /* Do NOT skip _do_fork */
-}
-
-static struct kprobe do_fork_kp = {
-	.symbol_name = "_do_fork",
-	.pre_handler = do_fork_bypass_pre,
-};
+/* _do_fork kprobe temporarily removed for crash isolation */
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
@@ -835,13 +814,8 @@ static struct kprobe do_fork_kp = {
          '\t\t} else {\n'
          '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
          '\t\t}\n'
-         '\t\trc = register_kprobe(&do_fork_kp);\n'
-         '\t\tif (rc) {\n'
-         '\t\t\tpr_err("do_fork kprobe failed: %d\\n", rc);\n'
-         '\t\t} else {\n'
-         '\t\t\tprintk(KERN_INFO "ksu_do_fork: kprobe registered\\n");\n'
-         '\t\t}\n'
-        '\t}\n'
+          '\t\t/* _do_fork kprobe removed for crash isolation */\n'
+         '\t}\n'
         '}'
     )
     content = content.replace(old, new, 1)
@@ -853,7 +827,6 @@ static struct kprobe do_fork_kp = {
             old_exit,
             '\tunregister_kprobe(&prctl_kp);\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
-            '\tunregister_kprobe(&do_fork_kp);\n'
             '}',
             1
         )
