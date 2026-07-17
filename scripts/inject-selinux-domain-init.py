@@ -755,35 +755,35 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe on __arm64_sys_seccomp: intercept seccomp() syscall installation.
- * When a KSU-manager-related process tries to install a seccomp filter,
- * skip it so the process and its children can call __NR_reboot freely.
- * The fd installation is handled by apply-ksu-hooks.py's hook in kernel/reboot.c. */
+/* Kprobe on __seccomp_filter: intercept seccomp BPF evaluation.
+ * When __NR_reboot is called with KSU magic numbers, override the
+ * seccomp result from KILL to ALLOW. This works for ANY process
+ * that has seccomp installed, without needing to skip installation.
+ * The fd installation is handled by apply-ksu-hooks.py's hook in
+ * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). No second kprobe needed. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	uid_t uid = current_uid().val;
+	/* At __seccomp_filter entry: x0 = this_syscall (int) */
+	int this_syscall = (int)regs->regs[0];
 	
-	/* Skip seccomp filter for the KSU manager app and its children.
-	 * Check: if the manager is valid and this process matches its UID,
-	 * or if the UID was registered via ksu_set_manager_appid(). */
-	if (ksu_is_manager_appid_valid() && uid == (uid_t)ksu_get_manager_appid()) {
-		regs->regs[0] = 0;
-		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
-		       current->pid, uid);
-		return 1;
+	if (this_syscall == __NR_reboot) {
+		struct pt_regs *user_regs = current_pt_regs();
+		unsigned long a0 = user_regs->regs[0];
+		unsigned long a1 = user_regs->regs[1];
+		if (a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
+			printk(KERN_INFO "seccomp_bypass: pid=%d __NR_reboot KSU\\n",
+			       current->pid);
+			regs->regs[0] = 0x7fff0000; /* SECCOMP_RET_ALLOW */
+			return 1; /* Skip __seccomp_filter → allow the call */
+		}
 	}
 	return 0;
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "__arm64_sys_seccomp",
+	.symbol_name = "__seccomp_filter",
 	.pre_handler = seccomp_bypass_pre,
 };
-
-/* Note: fd installation is handled by apply-ksu-hooks.py's hook in
- * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). Once seccomp is bypassed
- * above, the hook runs inside the reboot syscall handler and installs
- * the KSU driver fd. No second kprobe needed. */
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
