@@ -1048,7 +1048,7 @@ def fix_kernelsu_init(kernel_root):
 
 /* Delayed init: SELinux domain + auto-crown manager UID.
  * Runs ~30s after boot (policy fully loaded, /data accessible). */
-extern void ksu_seccomp_add_uid(unsigned int uid);
+extern unsigned long ksu_seccomp_bmp[];
 static void ksu_delayed_selinux_init(struct work_struct *work)
 {
 		printk(KERN_INFO "ksu_debug: delayed init executing\\n");
@@ -1130,25 +1130,29 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 					if (nr2 > 0) {
 						bf[nr2] = 0;
 						/* Scan for KSU-Next */
-						char *pkg = strstr(bf, "com.rifsxd.ksunext");
-						if (pkg) {
-							pkg += 20; /* "com.rifsxd.ksunext" len */
-							while (*pkg == 32) pkg++;
-							if (*pkg >= 48 && *pkg <= 57) {
-								uid_t uid = simple_strtoul(pkg, NULL, 10);
-								ksu_seccomp_add_uid(uid);
-								printk(KERN_INFO "ksu_dbg: bmp add ksunext uid=%d\\n", uid);
+						{
+							char *pkg = strstr(bf, "com.rifsxd.ksunext");
+							if (pkg) {
+								pkg += 20;
+								while (*pkg == 32) pkg++;
+								if (*pkg >= 48 && *pkg <= 57) {
+									uid_t uid = simple_strtoul(pkg, NULL, 10);
+									set_bit((int)uid, ksu_seccomp_bmp);
+									printk(KERN_INFO "ksu_dbg: bmp add ksunext uid=%d\\n", uid);
+								}
 							}
 						}
 						/* Scan for SukiSU */
-						pkg = strstr(bf, "com.sukisu.ultra");
-						if (pkg) {
-							pkg += 17; /* "com.sukisu.ultra" len */
-							while (*pkg == 32) pkg++;
-							if (*pkg >= 48 && *pkg <= 57) {
-								uid_t uid = simple_strtoul(pkg, NULL, 10);
-								ksu_seccomp_add_uid(uid);
-								printk(KERN_INFO "ksu_dbg: bmp add sukisu uid=%d\\n", uid);
+						{
+							char *pkg = strstr(bf, "com.sukisu.ultra");
+							if (pkg) {
+								pkg += 17;
+								while (*pkg == 32) pkg++;
+								if (*pkg >= 48 && *pkg <= 57) {
+									uid_t uid = simple_strtoul(pkg, NULL, 10);
+									set_bit((int)uid, ksu_seccomp_bmp);
+									printk(KERN_INFO "ksu_dbg: bmp add sukisu uid=%d\\n", uid);
+								}
 							}
 						}
 					}

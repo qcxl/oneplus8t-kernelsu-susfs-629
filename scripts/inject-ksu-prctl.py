@@ -44,13 +44,6 @@ def main():
 #define KSU_BMP_MAX_UID (KSU_CMP_WORDS * 64)
 unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
 
-/* Helper: add uid to seccomp bypass bitmap. Called from init.c workqueue. */
-void ksu_seccomp_add_uid(unsigned int uid)
-{
-	if (uid < KSU_BMP_MAX_UID)
-		set_bit((int)uid, ksu_seccomp_bmp);
-}
-
 /* Helper: check if uid is in the seccomp bypass bitmap.
  * Used by kprobe handler (inject-selinux-domain-init.py). */
 int ksu_seccomp_check(unsigned int uid)
