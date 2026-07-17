@@ -37,6 +37,19 @@ def main():
 int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                      unsigned long arg4, unsigned long arg5)
 {
+    /* Handle PR_SET_SECCOMP (22): skip seccomp filter installation for the
+     * KSU manager app and its children. libc uses prctl(PR_SET_SECCOMP, ...)
+     * to install seccomp. Skipping it allows __NR_reboot to work. */
+    if (option == 22) {
+        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
+        if (ksu_get_manager_appid() == uid && uid >= 10000) {
+            printk(KERN_INFO "ksu_prctl: skip PR_SET_SECCOMP pid=%d uid=%d\\n",
+                   current->pid, uid);
+            return 1;
+        }
+        return 0;
+    }
+
     if (option != KSU_INSTALL_MAGIC1)
         return 0;
 

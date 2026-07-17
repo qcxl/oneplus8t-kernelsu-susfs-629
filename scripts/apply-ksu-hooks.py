@@ -177,7 +177,7 @@ def main():
                 if line.startswith('#include'):
                     last_include = i
             if last_include >= 0:
-                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\nextern int ksu_debug_manager_appid;\n'
+                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\n'
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
@@ -185,15 +185,15 @@ def main():
             marker = '\terror = 0;\n\tswitch (option) {'
             hook = (
                 '\terror = 0;'
-                '\n\t/* KSU hook: handle prctl(0xDEADBEEF, ...) for manager fd */'
-                '\n\tif (IS_ENABLED(CONFIG_KSU) && option == 0xDEADBEEF) {'
-                '\n\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
-                '\n\t}'
-                '\n\t/* KSU hook: skip PR_SET_SECCOMP for manager app (libc uses prctl for seccomp) */'
-                '\n\tif (IS_ENABLED(CONFIG_KSU) && option == PR_SET_SECCOMP &&'
-                '\n\t    ksu_debug_manager_appid >= 0 &&'
-                '\n\t    ksu_debug_manager_appid == (int)current_uid().val) {'
-                '\n\t\treturn 0;'
+                '\n\t/* KSU hook: handle 0xDEADBEEF (manager fd) and PR_SET_SECCOMP (seccomp bypass) */'
+                '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
+                '\n\t\tif (option == 0xDEADBEEF) {'
+                '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
+                '\n\t\t}'
+                '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
+                '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
+                '\n\t\t\t\treturn 0;'
+                '\n\t\t}'
                 '\n\t}'
                 '\n\tswitch (option) {'
             )
