@@ -765,8 +765,8 @@ extern int ksu_seccomp_check(unsigned int uid);
 
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
-	if (uid >= 10000 && ksu_seccomp_check(uid)) {
+	unsigned int uid = current_uid().val;
+	if (ksu_seccomp_check(uid % KSU_PER_USER_RANGE)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
 		       current->pid, uid);
 		regs->regs[0] = 0;
