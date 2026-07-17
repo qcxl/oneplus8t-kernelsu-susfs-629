@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Apply KSU manual hook source patches - uses extern declarations.
-cache_buster: 2026-07-17_v3 (PR_SET_SECCOMP + insert-before-switch)"""
+"""Apply KSU manual hook source patches - uses extern declarations."""
 
 import sys, os, re
 
@@ -47,7 +46,7 @@ VAR_DECL_RE = re.compile(
     r'dev_t |ino_t |mode_t |nlink_t |blkcnt_t |'
     r'atomic_t |wait_queue_head_t |spinlock_t |mutex |'
     r'vm_flags_t |gfp_t |fmode_t |'
-    r'unsigned |signed'
+    r'unsigned |signed |'
     r')'
 )
 
@@ -166,61 +165,6 @@ def main():
             else:
                 print(f"  [WARN] SYSCALL_DEFINE4(reboot) marker not found")
 
-    # For kernel/sys.c (prctl syscall), add prctl hook
-    sys_path = os.path.join(KERNEL_DIR, "kernel", "sys.c")
-    if os.path.exists(sys_path):
-        with open(sys_path) as f:
-            content = f.read()
-        if '/* KSU_GUARD_20260717' not in content:
-            lines = content.split('\n')
-            last_include = -1
-            for i, line in enumerate(lines):
-                if line.startswith('#include'):
-                    last_include = i
-            if last_include >= 0:
-                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\n'
-                lines.insert(last_include + 1, extern_block)
-                content = '\n'.join(lines)
-
-            # Find the prctl function's switch(option) specifically.
-            # SUSFS patch may add OTHER functions with switch(option) before
-            # the prctl function. Search for the prctl definition first.
-            prctl_def = content.find('SYSCALL_DEFINE5(prctl,')
-            if prctl_def < 0:
-                prctl_def = content.find('SYSCALL_DEFINE5(prctl ')
-            if prctl_def < 0:
-                prctl_def = content.find('SYSCALL_DEFINE5(prctl)')
-            if prctl_def >= 0:
-                # Now find switch(option) AFTER the prctl definition
-                for sw_search in ['\tswitch (option) {', '    switch (option) {']:
-                    sw_pos = content.find(sw_search, prctl_def)
-                    if sw_pos >= 0:
-                        break
-                if sw_pos >= 0:
-                    hook = (
-                        '\n\t/* KSU_GUARD_20260717: handle 0xDEADBEEF and PR_SET_SECCOMP */'
-                        '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
-                        '\n\t\tif (option == 0xDEADBEEF) {'
-                        '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
-                        '\n\t\t}'
-                        '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
-                        '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
-                        '\n\t\t\t\treturn 0;'
-                        '\n\t\t}'
-                        '\n\t}'
-                        '\n\t'
-                    )
-                    content = content[:sw_pos] + hook + content[sw_pos:]
-                    with open(sys_path, 'w') as f:
-                        f.write(content)
-                    print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
-                else:
-                    print(f"  [WARN] SYSCALL_DEFINE5(prctl): switch(option) not found in prctl")
-            else:
-                print(f"  [WARN] SYSCALL_DEFINE5(prctl): function definition not found")
-        else:
-            print(f"  KSU prctl hook already present (with PR_SET_SECCOMP), skipping")
-
     # Standard insert_hook for the other files
     for hook in HOOKS:
         insert_hook(hook["file"], hook["func_pattern"], hook["code"])
@@ -237,11 +181,6 @@ def main():
     if os.path.exists(rp):
         rc = sum(1 for l in open(rp) if "ksu_handle_sys_reboot" in l)
         print(f"  ksu_handle_sys_reboot: {'OK' if rc >= 1 else 'MISSING!'}")
-    # Verify sys.c separately
-    sp = os.path.join(KERNEL_DIR, "kernel", "sys.c")
-    if os.path.exists(sp):
-        sc = sum(1 for l in open(sp) if "ksu_handle_prctl" in l)
-        print(f"  ksu_handle_prctl: {'OK' if sc >= 1 else 'MISSING!'}")
 
 if __name__ == "__main__":
     main()

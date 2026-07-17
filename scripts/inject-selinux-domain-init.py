@@ -755,64 +755,26 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe on __seccomp_filter: intercept seccomp BPF evaluation.
- * When __NR_reboot is called with KSU magic numbers, override the
- * seccomp result from KILL to ALLOW. This works for ANY process
- * that has seccomp installed, without needing to skip installation.
+/* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation.
+ * When the KSU manager app's process calls prctl(PR_SET_SECCOMP, ...)
+ * during libc init, skip the filter so __NR_reboot works for children.
  * The fd installation is handled by apply-ksu-hooks.py's hook in
  * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	int this_syscall = (int)regs->regs[0];
-	
-	if (this_syscall == __NR_reboot) {
-		struct pt_regs *user_regs = current_pt_regs();
-		unsigned long a0 = user_regs->regs[0];
-		unsigned long a1 = user_regs->regs[1];
-		if ((a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) ||
-		    (a0 == KSU_INSTALL_MAGIC1 && a1 == 0xFAFAFAFA)) {
-			printk(KERN_INFO "seccomp_bypass: pid=%d __NR_reboot magic ok\\n",
-			       current->pid);
-			regs->regs[0] = 0x7fff0000;
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "__seccomp_filter",
-	.pre_handler = seccomp_bypass_pre,
-};
-
-/* Kprobe on do_send_sig_info: catch SIGSYS delivery for processes that
- * went through the ARM64 fast path (seccomp kill in assembly). */
-static int sigsos_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	int sig = (int)regs->regs[0];
-	if (sig != SIGSYS)
-		return 0;
-	/* Check if current is calling __NR_reboot with KSU magic */
-	struct pt_regs *user_regs = current_pt_regs();
-	if (user_regs->syscallno != __NR_reboot)
-		return 0;
-	unsigned long a0 = user_regs->regs[0];
-	unsigned long a1 = user_regs->regs[1];
-	if ((a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) ||
-	    (a0 == KSU_INSTALL_MAGIC1 && a1 == 0xFAFAFAFA)) {
-		printk(KERN_INFO "seccomp_bypass: pid=%d SIGSYS bypass (fast path)\\n",
-		       current->pid);
-		/* Set x0 to 0 (success) so the process continues */
-		user_regs->regs[0] = 0;
-		regs->regs[0] = 0;
+	uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
+	if (ksu_get_manager_appid() == uid && uid >= 10000) {
+		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip PR_SET_SECCOMP\\n",
+		       current->pid, uid);
+		regs->regs[0] = 0; /* Return 0 = success, skip filter install */
 		return 1;
 	}
 	return 0;
 }
 
-static struct kprobe sigsos_kp = {
-	.symbol_name = "do_send_sig_info",
-	.pre_handler = sigsos_kprobe_pre,
+static struct kprobe seccomp_bypass_kp = {
+	.symbol_name = "prctl_set_seccomp",
+	.pre_handler = seccomp_bypass_pre,
 };
 '''
 
@@ -840,18 +802,12 @@ static struct kprobe sigsos_kp = {
         '\t/* seccomp_bypass: bypass seccomp for SYS_reboot + KSU magic. */\n'
         '\t{\n'
         '\t\tint rc;\n'
-        '\t\trc = register_kprobe(&seccomp_bypass_kp);\n'
-        '\t\tif (rc) {\n'
-        '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
-        '\t\t} else {\n'
-        '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
-        '\t\t}\n'
-        '\t\trc = register_kprobe(&sigsos_kp);\n'
-        '\t\tif (rc) {\n'
-        '\t\t\tpr_err("sigsos kprobe failed: %d\\n", rc);\n'
-        '\t\t} else {\n'
-        '\t\t\tprintk(KERN_INFO "ksu_sigsos_bypass: kprobe registered\\n");\n'
-        '\t\t}\n'
+'\t\trc = register_kprobe(&seccomp_bypass_kp);\n'
+         '\t\tif (rc) {\n'
+         '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
+         '\t\t} else {\n'
+         '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
+         '\t\t}\n'
         '\t}\n'
         '}'
     )
@@ -864,7 +820,6 @@ static struct kprobe sigsos_kp = {
             old_exit,
             '\tunregister_kprobe(&prctl_kp);\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
-            '\tunregister_kprobe(&sigsos_kp);\n'
             '}',
             1
         )
