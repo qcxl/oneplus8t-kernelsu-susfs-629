@@ -779,14 +779,18 @@ static struct kprobe seccomp_bypass_kp = {
 
 /* Kprobe on _do_fork: ensure threads forked by KSU-managed processes
  * have seccomp disabled. Handles threads created AFTER the thread-group
- * iteration (which weren't covered by disable_seccomp). */
+ * iteration (which weren't covered by disable_seccomp).
+ * NOTE: We set ->mode = 0 directly instead of calling disable_seccomp()
+ * because disable_seccomp()->kfree() may trigger ARM64 single-step which
+ * conflicts with the kprobe handler's own single-step context. The seccomp
+ * filter reference is intentionally leaked (minor per-process memory). */
 static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
 	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid >= 10000 && ksu_seccomp_check(app_uid) &&
 	    current->seccomp.mode != 0) {
-		disable_seccomp(current);
+		current->seccomp.mode = 0;
 		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
 		       current->pid, app_uid);
 	}
