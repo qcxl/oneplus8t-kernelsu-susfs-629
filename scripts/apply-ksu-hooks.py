@@ -177,7 +177,7 @@ def main():
                 if line.startswith('#include'):
                     last_include = i
             if last_include >= 0:
-                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\n'
+                extern_block = '\nextern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);\nextern bool ksu_is_manager_appid_valid(void);\nextern int ksu_get_manager_appid(void);\n'
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
@@ -188,6 +188,12 @@ def main():
                 '\n\t/* KSU hook: handle prctl(0xDEADBEEF, ...) for manager fd */'
                 '\n\tif (IS_ENABLED(CONFIG_KSU) && option == 0xDEADBEEF) {'
                 '\n\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
+                '\n\t}'
+                '\n\t/* KSU hook: skip PR_SET_SECCOMP for manager app (libc seccomp via prctl) */'
+                '\n\tif (IS_ENABLED(CONFIG_KSU) && option == PR_SET_SECCOMP &&'
+                '\n\t    ksu_is_manager_appid_valid() &&'
+                '\n\t    ksu_get_manager_appid() == (int)current_uid().val) {'
+                '\n\t\treturn 0;'
                 '\n\t}'
                 '\n\tswitch (option) {'
             )
