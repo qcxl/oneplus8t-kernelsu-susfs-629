@@ -758,11 +758,22 @@ def fix_seccomp_bypass(kernel_root):
 /* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation. */
 extern int ksu_seccomp_check(unsigned int uid);
 
+/* Kprobe on prctl_set_seccomp: skip seccomp installation.
+ * Checks: (1) mode already 0 (disabled by _do_fork or disable_seccomp),
+ *         (2) bitmap has this UID (from packages.list or INSTALL_MAGIC2). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
 	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid < 10000) return 0;
+	/* If seccomp was already disabled (by _do_fork or disable_seccomp),
+	 * don't allow reinstallation even if bitmap is not yet populated. */
+	if (current->seccomp.mode == 0) {
+		printk(KERN_INFO "seccomp_bypass: pid=%d mode=0 skip\\n",
+		       current->pid);
+		regs->regs[0] = 0;
+		return 1;
+	}
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
@@ -777,13 +788,18 @@ static struct kprobe seccomp_bypass_kp = {
 	.pre_handler = seccomp_bypass_pre,
 };
 
-/* Kprobe on _do_fork: ensure threads forked by KSU-managed processes
- * have seccomp disabled. Handles threads created AFTER the thread-group
- * iteration (which weren't covered by disable_seccomp).
- * NOTE: We set ->mode = 0 directly instead of calling disable_seccomp()
- * because disable_seccomp()->kfree() may trigger ARM64 single-step which
- * conflicts with the kprobe handler's own single-step context. The seccomp
- * filter reference is intentionally leaked (minor per-process memory). */
+/* task_work callback: properly free seccomp filter outside kprobe context */
+static void seccomp_cleanup_work(struct callback_head *head)
+{
+	if (current->seccomp.mode != 0)
+		disable_seccomp(current);
+	kfree(head);
+}
+
+/* Kprobe on _do_fork: disable seccomp before fork for KSU-managed processes.
+ * Handles threads created AFTER the thread-group iteration.
+ * Sets mode=0 immediately (in kprobe context), schedules proper cleanup
+ * via task_work to avoid single-step conflict with disable_seccomp->kfree. */
 static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
@@ -791,6 +807,13 @@ static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	if (app_uid >= 10000 && ksu_seccomp_check(app_uid) &&
 	    current->seccomp.mode != 0) {
 		current->seccomp.mode = 0;
+		/* Schedule cleanup to properly free the seccomp filter
+		 * (runs when returning to userspace, outside kprobe context). */
+		struct task_work *work = kmalloc(sizeof(*work), GFP_ATOMIC);
+		if (work) {
+			init_task_work(work, seccomp_cleanup_work);
+			task_work_add(current, work, TWA_RESUME);
+		}
 		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
 		       current->pid, app_uid);
 	}
