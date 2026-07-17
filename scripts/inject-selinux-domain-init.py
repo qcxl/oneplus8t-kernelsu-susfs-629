@@ -755,21 +755,14 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation.
- * Only skip for UIDs that have successfully installed the KSU driver fd
- * (tracked in ksu_seccomp_bypass_bmp in supercall.c). This covers both
- * KSU-Next and SukiSU without affecting other apps.
- * The fd installation is handled by apply-ksu-hooks.py's hook in
- * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
+/* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation. */
 extern int ksu_seccomp_check(unsigned int uid);
 
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
 	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
-	/* Never bypass seccomp for root or system processes */
-	if (app_uid < 10000)
-		return 0;
+	if (app_uid < 10000) return 0;
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
@@ -782,6 +775,27 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 static struct kprobe seccomp_bypass_kp = {
 	.symbol_name = "prctl_set_seccomp",
 	.pre_handler = seccomp_bypass_pre,
+};
+
+/* Kprobe on _do_fork: ensure threads forked by KSU-managed processes
+ * have seccomp disabled. Handles threads created AFTER the thread-group
+ * iteration (which weren't covered by disable_seccomp). */
+static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
+{
+	unsigned int uid = current_uid().val;
+	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
+	if (app_uid >= 10000 && ksu_seccomp_check(app_uid) &&
+	    current->seccomp.mode != 0) {
+		disable_seccomp(current);
+		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
+		       current->pid, app_uid);
+	}
+	return 0; /* Do NOT skip _do_fork */
+}
+
+static struct kprobe do_fork_kp = {
+	.symbol_name = "_do_fork",
+	.pre_handler = do_fork_bypass_pre,
 };
 '''
 
@@ -815,6 +829,12 @@ static struct kprobe seccomp_bypass_kp = {
          '\t\t} else {\n'
          '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
          '\t\t}\n'
+         '\t\trc = register_kprobe(&do_fork_kp);\n'
+         '\t\tif (rc) {\n'
+         '\t\t\tpr_err("do_fork kprobe failed: %d\\n", rc);\n'
+         '\t\t} else {\n'
+         '\t\t\tprintk(KERN_INFO "ksu_do_fork: kprobe registered\\n");\n'
+         '\t\t}\n'
         '\t}\n'
         '}'
     )
@@ -827,6 +847,7 @@ static struct kprobe seccomp_bypass_kp = {
             old_exit,
             '\tunregister_kprobe(&prctl_kp);\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
+            '\tunregister_kprobe(&do_fork_kp);\n'
             '}',
             1
         )
