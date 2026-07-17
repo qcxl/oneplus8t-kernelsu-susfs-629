@@ -182,34 +182,42 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Hook inside SYSCALL_DEFINE5(prctl...) BEFORE switch(option).
-            # Insert KSU hook before switch(option) in the prctl function.
-            # SUSFS patch may change indentation, so try tab first then space.
-            for sw_search in ['\tswitch (option) {', '    switch (option) {']:
-                sw_pos = content.find(sw_search)
+            # Find the prctl function's switch(option) specifically.
+            # SUSFS patch may add OTHER functions with switch(option) before
+            # the prctl function. Search for the prctl definition first.
+            prctl_def = content.find('SYSCALL_DEFINE5(prctl,')
+            if prctl_def < 0:
+                prctl_def = content.find('SYSCALL_DEFINE5(prctl ')
+            if prctl_def < 0:
+                prctl_def = content.find('SYSCALL_DEFINE5(prctl)')
+            if prctl_def >= 0:
+                # Now find switch(option) AFTER the prctl definition
+                for sw_search in ['\tswitch (option) {', '    switch (option) {']:
+                    sw_pos = content.find(sw_search, prctl_def)
+                    if sw_pos >= 0:
+                        break
                 if sw_pos >= 0:
-                    break
-            if sw_pos >= 0:
-                # Insert hook right before switch(option) {
-                hook = (
-                    '\n\t/* KSU_GUARD_20260717: handle 0xDEADBEEF and PR_SET_SECCOMP */'
-                    '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
-                    '\n\t\tif (option == 0xDEADBEEF) {'
-                    '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
-                    '\n\t\t}'
-                    '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
-                    '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
-                    '\n\t\t\t\treturn 0;'
-                    '\n\t\t}'
-                    '\n\t}'
-                    '\n\t'
-                )
-                content = content[:sw_pos] + hook + content[sw_pos:]
-                with open(sys_path, 'w') as f:
-                    f.write(content)
-                print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
+                    hook = (
+                        '\n\t/* KSU_GUARD_20260717: handle 0xDEADBEEF and PR_SET_SECCOMP */'
+                        '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
+                        '\n\t\tif (option == 0xDEADBEEF) {'
+                        '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
+                        '\n\t\t}'
+                        '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
+                        '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
+                        '\n\t\t\t\treturn 0;'
+                        '\n\t\t}'
+                        '\n\t}'
+                        '\n\t'
+                    )
+                    content = content[:sw_pos] + hook + content[sw_pos:]
+                    with open(sys_path, 'w') as f:
+                        f.write(content)
+                    print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
+                else:
+                    print(f"  [WARN] SYSCALL_DEFINE5(prctl): switch(option) not found in prctl")
             else:
-                print(f"  [WARN] SYSCALL_DEFINE5(prctl): switch(option) not found")
+                print(f"  [WARN] SYSCALL_DEFINE5(prctl): function definition not found")
         else:
             print(f"  KSU prctl hook already present (with PR_SET_SECCOMP), skipping")
 
