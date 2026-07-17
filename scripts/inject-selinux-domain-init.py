@@ -809,9 +809,12 @@ static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		current->seccomp.mode = 0;
 		/* Schedule cleanup to properly free the seccomp filter
 		 * (runs when returning to userspace, outside kprobe context). */
-		struct task_work *work = kmalloc(sizeof(*work), GFP_ATOMIC);
+		/* kmalloc + init_task_work + task_work_add require
+		 * <linux/task_work.h> (added in inject-ksu-prctl.py) */
+		struct callback_head *work = kmalloc(sizeof(struct callback_head), GFP_ATOMIC);
 		if (work) {
-			init_task_work(work, seccomp_cleanup_work);
+			work->next = NULL;
+			work->func = seccomp_cleanup_work;
 			task_work_add(current, work, TWA_RESUME);
 		}
 		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
