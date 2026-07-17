@@ -170,7 +170,7 @@ def main():
     if os.path.exists(sys_path):
         with open(sys_path) as f:
             content = f.read()
-        if 'ksu_handle_prctl' not in content:
+        if '/* KSU hook: handle 0xDEADBEEF' not in content:
             lines = content.split('\n')
             last_include = -1
             for i, line in enumerate(lines):
@@ -205,7 +205,7 @@ def main():
             else:
                 print(f"  [WARN] SYSCALL_DEFINE5(prctl) marker not found")
         else:
-            print(f"  prctl hook already present, skipping")
+            print(f"  KSU prctl hook already present (with PR_SET_SECCOMP), skipping")
 
     # Standard insert_hook for the other files
     for hook in HOOKS:
