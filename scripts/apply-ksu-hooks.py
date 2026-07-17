@@ -171,7 +171,7 @@ def main():
     if os.path.exists(sys_path):
         with open(sys_path) as f:
             content = f.read()
-        if '/* KSU hook: handle 0xDEADBEEF' not in content:
+        if '/* KSU_GUARD_20260717' not in content:
             lines = content.split('\n')
             last_include = -1
             for i, line in enumerate(lines):
@@ -192,7 +192,7 @@ def main():
             if sw_pos >= 0:
                 # Insert hook right before switch(option) {
                 hook = (
-                    '\n\t/* KSU hook: handle 0xDEADBEEF (manager fd) and PR_SET_SECCOMP (seccomp bypass) */'
+                    '\n\t/* KSU_GUARD_20260717: handle 0xDEADBEEF and PR_SET_SECCOMP */'
                     '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
                     '\n\t\tif (option == 0xDEADBEEF) {'
                     '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
