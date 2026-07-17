@@ -815,7 +815,7 @@ static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		if (work) {
 			work->next = NULL;
 			work->func = seccomp_cleanup_work;
-			task_work_add(current, work, TWA_RESUME);
+			task_work_add(current, work, 1); /* notify: wake up/resume */
 		}
 		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
 		       current->pid, app_uid);
