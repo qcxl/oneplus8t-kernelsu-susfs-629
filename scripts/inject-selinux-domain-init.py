@@ -766,9 +766,13 @@ extern int ksu_seccomp_check(unsigned int uid);
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
-	if (ksu_seccomp_check(uid % KSU_PER_USER_RANGE)) {
-		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
-		       current->pid, uid);
+	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
+	/* Never bypass seccomp for root or system processes */
+	if (app_uid < 10000)
+		return 0;
+	if (ksu_seccomp_check(app_uid)) {
+		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
+		       current->pid, app_uid);
 		regs->regs[0] = 0;
 		return 1;
 	}
@@ -1053,7 +1057,7 @@ static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext,com.sukisu.ultra";
 module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkglist), 0644);
 
 /* Check if a package name line from packages.list matches our seccomp list. */
-static int ksu_seccomp_pkg_match(const char *line)
+static int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out)
 {
 	const char *list = ksu_seccomp_pkglist;
 	int nlen = 0;
@@ -1064,8 +1068,16 @@ static int ksu_seccomp_pkg_match(const char *line)
 	while (*list) {
 		const char *comma = strchr(list, ',');
 		int llen = comma ? (int)(comma - list) : (int)strlen(list);
-		if (nlen == llen && strncmp(list, line, llen) == 0)
-			return 1;
+		if (nlen == llen && strncmp(list, line, llen) == 0) {
+			/* Package matched, extract UID from line (2nd field) */
+			const char *sp = line + nlen;
+			while (*sp == 32 || *sp == 9) sp++;
+			if (*sp >= 48 && *sp <= 57) {
+				*uid_out = (uid_t)simple_strtoul(sp, NULL, 10);
+				return 1;
+			}
+			return 0; /* Found package but no valid UID */
+		}
 		if (!comma) break;
 		list = comma + 1;
 	}
@@ -1161,15 +1173,10 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 						while (line && *line) {
 							char *nl = strchr(line, 10);
 							if (nl) *nl = 0;
-							if (ksu_seccomp_pkg_match(line)) {
-								char *sp = line;
-								while (*sp && *sp != 32) sp++;
-								while (*sp == 32) sp++;
-								if (*sp >= 48 && *sp <= 57) {
-									uid_t uid = simple_strtoul(sp, NULL, 10);
-									set_bit((int)uid, ksu_seccomp_bmp);
-									printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", uid);
-								}
+							uid_t pkg_uid = 0;
+							if (ksu_seccomp_pkg_match(line, &pkg_uid) && pkg_uid >= 10000) {
+								set_bit((int)pkg_uid, ksu_seccomp_bmp);
+								printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", pkg_uid);
 							}
 							if (nl) { *nl = 10; line = nl + 1; }
 							else break;
