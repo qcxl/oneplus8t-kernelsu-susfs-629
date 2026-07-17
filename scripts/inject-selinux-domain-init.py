@@ -1056,9 +1056,10 @@ module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkg
 static int ksu_seccomp_pkg_match(const char *line)
 {
 	const char *list = ksu_seccomp_pkglist;
-	/* Extract package name: chars before first space/tab */
-	int nlen;
-	for (nlen = 0; line[nlen] && line[nlen] != ' ' && line[nlen] != '\\t'; nlen++);
+	int nlen = 0;
+	/* Extract package name length (up to space, newline, tab) */
+	while (line[nlen] && line[nlen] != 32 && line[nlen] != 9 && line[nlen] != 10)
+		nlen++;
 	if (!nlen) return 0;
 	while (*list) {
 		const char *comma = strchr(list, ',');
@@ -1158,19 +1159,19 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 						/* Iterate each line, match against ksu_seccomp_pkglist */
 						char *line = bf;
 						while (line && *line) {
-							char *nl = strchr(line, '\\n');
+							char *nl = strchr(line, 10);
 							if (nl) *nl = 0;
 							if (ksu_seccomp_pkg_match(line)) {
 								char *sp = line;
-								while (*sp && *sp != ' ') sp++;
-								while (*sp == ' ') sp++;
-								if (*sp >= '0' && *sp <= '9') {
+								while (*sp && *sp != 32) sp++;
+								while (*sp == 32) sp++;
+								if (*sp >= 48 && *sp <= 57) {
 									uid_t uid = simple_strtoul(sp, NULL, 10);
 									set_bit((int)uid, ksu_seccomp_bmp);
 									printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", uid);
 								}
 							}
-							if (nl) { *nl = '\n'; line = nl + 1; }
+							if (nl) { *nl = 10; line = nl + 1; }
 							else break;
 						}
 					}
