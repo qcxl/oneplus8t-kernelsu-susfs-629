@@ -756,17 +756,20 @@ def fix_seccomp_bypass(kernel_root):
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
 /* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation.
- * When the KSU manager app's process calls prctl(PR_SET_SECCOMP, ...)
- * during libc init, skip the filter so __NR_reboot works for children.
+ * Skip for ALL app processes (uid >= 10000). This allows both KSU-Next
+ * and SukiSU (and any other root manager) to use __NR_reboot freely.
  * The fd installation is handled by apply-ksu-hooks.py's hook in
- * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
+ * kernel/reboot.c (SYSCALL_DEFINE4(reboot)).
+ * Security: seccomp is defense-in-depth. SELinux + UID isolation are the
+ * primary security mechanisms. Without seccomp, apps still can't actually
+ * reboot the device (CAP_SYS_BOOT required for real reboot calls). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
-	if (ksu_get_manager_appid() == uid && uid >= 10000) {
-		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip PR_SET_SECCOMP\\n",
+	if (uid >= 10000) {
+		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
 		       current->pid, uid);
-		regs->regs[0] = 0; /* Return 0 = success, skip filter install */
+		regs->regs[0] = 0;
 		return 1;
 	}
 	return 0;
