@@ -189,7 +189,7 @@ def main():
                 if sw_pos >= 0:
                     break
             if sw_pos >= 0:
-                # Insert hook right before switch(option) { (after error=0;)
+                # Insert hook right before switch(option) {
                 hook = (
                     '\n\t/* KSU hook: handle 0xDEADBEEF (manager fd) and PR_SET_SECCOMP (seccomp bypass) */'
                     '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
@@ -207,8 +207,6 @@ def main():
                 with open(sys_path, 'w') as f:
                     f.write(content)
                 print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
-                else:
-                    print(f"  [WARN] SYSCALL_DEFINE5(prctl): error=0; not found before switch")
             else:
                 print(f"  [WARN] SYSCALL_DEFINE5(prctl): switch(option) not found")
         else:
