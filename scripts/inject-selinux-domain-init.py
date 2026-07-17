@@ -1162,10 +1162,12 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 			struct file *f2 = filp_open("/data/system/packages.list",
 				O_RDONLY, 0);
 			if (!IS_ERR(f2)) {
-				char *bf = kvmalloc(8192, GFP_KERNEL);
+				loff_t fsize = i_size_read(file_inode(f2));
+			if (fsize > 65536) fsize = 65536;
+			char *bf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);
 				if (bf) {
 					loff_t rp2 = 0;
-					ssize_t nr2 = kernel_read(f2, bf, 8192, &rp2);
+					ssize_t nr2 = kernel_read(f2, bf, (size_t)fsize, &rp2);
 					if (nr2 > 0) {
 						bf[nr2] = 0;
 						/* Iterate each line, match against ksu_seccomp_pkglist */
