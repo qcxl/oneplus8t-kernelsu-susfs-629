@@ -34,6 +34,19 @@ def main():
             
             # Add function at end of file (before last newline)
             func = '''
+/* Bitmap of UIDs that have successfully installed the KSU driver fd.
+ * Used by kprobe on prctl_set_seccomp to skip seccomp for these UIDs. */
+#define KSU_SECCOMP_BMP_WORDS 1024
+static unsigned long ksu_seccomp_bypass_bmp[KSU_SECCOMP_BMP_WORDS] = { };
+
+/* Helper for kprobe handler (inject-selinux-domain-init.py) */
+int ksu_seccomp_uid_allowed(unsigned int uid)
+{
+	if (uid < (KSU_SECCOMP_BMP_WORDS * BITS_PER_LONG))
+		return test_bit((int)uid, ksu_seccomp_bypass_bmp) ? 1 : 0;
+	return 0;
+}
+
 int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                      unsigned long arg4, unsigned long arg5)
 {
@@ -90,6 +103,16 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                 ksu_set_manager_appid(mgr_uid);
                 printk(KERN_INFO "ksu_prctl: set manager uid=%d (from INSTALL_MAGIC2)\\n",
                        mgr_uid);
+            }
+            /* Register this UID in the seccomp bypass bitmap.
+             * Both KSU-Next and SukiSU UIDs will be added here.
+             * Kprobe on prctl_set_seccomp checks this bitmap. */
+            {
+                uid_t bmp_uid = current_uid().val % KSU_PER_USER_RANGE;
+                if (bmp_uid < (KSU_SECCOMP_BMP_WORDS * BITS_PER_LONG)) {
+                    set_bit((int)bmp_uid, ksu_seccomp_bypass_bmp);
+                    printk(KERN_INFO "ksu_prctl: seccomp_bypass uid=%d\\n", bmp_uid);
+                }
             }
         }
         return 1;
