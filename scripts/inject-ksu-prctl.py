@@ -34,14 +34,25 @@ def main():
             
             # Add function at end of file (before last newline)
             func = '''
-/* Bitmap of UIDs that have successfully installed the KSU driver fd.
- * 1024 words * 64 bits = covers UIDs 0-65535 (all Android app UIDs). */
+/* Seccomp bypass bitmap. Tracks UIDs that should skip prctl_set_seccomp.
+ * 1024 words * 64 bits = covers UIDs 0-65535 (all Android app UIDs).
+ * Populated by:
+ *   1. Package-name scan in delayed workqueue (init.c)
+ *   2. ksu_handle_prctl(INSTALL_MAGIC2)
+ *   3. ksu_handle_sys_reboot(KSU_INSTALL_MAGIC2) */
 #define KSU_CMP_WORDS 1024
 #define KSU_BMP_MAX_UID (KSU_CMP_WORDS * 64)
-static unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
+unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
 
-/* Helper for kprobe handler (inject-selinux-domain-init.py).
- * Returns 1 if uid has KSU fd installed, 0 otherwise. */
+/* Helper: add uid to seccomp bypass bitmap. Called from init.c workqueue. */
+void ksu_seccomp_add_uid(unsigned int uid)
+{
+	if (uid < KSU_BMP_MAX_UID)
+		set_bit((int)uid, ksu_seccomp_bmp);
+}
+
+/* Helper: check if uid is in the seccomp bypass bitmap.
+ * Used by kprobe handler (inject-selinux-domain-init.py). */
 int ksu_seccomp_check(unsigned int uid)
 {
 	if (uid < KSU_BMP_MAX_UID)

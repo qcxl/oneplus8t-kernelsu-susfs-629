@@ -1048,6 +1048,7 @@ def fix_kernelsu_init(kernel_root):
 
 /* Delayed init: SELinux domain + auto-crown manager UID.
  * Runs ~30s after boot (policy fully loaded, /data accessible). */
+extern void ksu_seccomp_add_uid(unsigned int uid);
 static void ksu_delayed_selinux_init(struct work_struct *work)
 {
 		printk(KERN_INFO "ksu_debug: delayed init executing\\n");
@@ -1112,6 +1113,46 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 						}
 						kvfree(bf);
 					}
+				}
+				filp_close(f2, NULL);
+			}
+		}
+		/* Populate seccomp bypass bitmap from packages.list.
+		 * Runs regardless of manager state to cover both KSU apps. */
+		{
+			struct file *f2 = filp_open("/data/system/packages.list",
+				O_RDONLY, 0);
+			if (!IS_ERR(f2)) {
+				char *bf = kvmalloc(8192, GFP_KERNEL);
+				if (bf) {
+					loff_t rp2 = 0;
+					ssize_t nr2 = kernel_read(f2, bf, 8192, &rp2);
+					if (nr2 > 0) {
+						bf[nr2] = 0;
+						/* Scan for KSU-Next */
+						char *pkg = strstr(bf, "com.rifsxd.ksunext");
+						if (pkg) {
+							pkg += 20; /* "com.rifsxd.ksunext" len */
+							while (*pkg == 32) pkg++;
+							if (*pkg >= 48 && *pkg <= 57) {
+								uid_t uid = simple_strtoul(pkg, NULL, 10);
+								ksu_seccomp_add_uid(uid);
+								printk(KERN_INFO "ksu_dbg: bmp add ksunext uid=%d\\n", uid);
+							}
+						}
+						/* Scan for SukiSU */
+						pkg = strstr(bf, "com.sukisu.ultra");
+						if (pkg) {
+							pkg += 17; /* "com.sukisu.ultra" len */
+							while (*pkg == 32) pkg++;
+							if (*pkg >= 48 && *pkg <= 57) {
+								uid_t uid = simple_strtoul(pkg, NULL, 10);
+								ksu_seccomp_add_uid(uid);
+								printk(KERN_INFO "ksu_dbg: bmp add sukisu uid=%d\\n", uid);
+							}
+						}
+					}
+					kvfree(bf);
 				}
 				filp_close(f2, NULL);
 			}
