@@ -1058,7 +1058,7 @@ static int ksu_seccomp_pkg_match(const char *line)
 	const char *list = ksu_seccomp_pkglist;
 	/* Extract package name: chars before first space/tab */
 	int nlen;
-	for (nlen = 0; line[nlen] && line[nlen] != ' ' && line[nlen] != '\t'; nlen++);
+	for (nlen = 0; line[nlen] && line[nlen] != ' ' && line[nlen] != '\\t'; nlen++);
 	if (!nlen) return 0;
 	while (*list) {
 		const char *comma = strchr(list, ',');
@@ -1158,7 +1158,7 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 						/* Iterate each line, match against ksu_seccomp_pkglist */
 						char *line = bf;
 						while (line && *line) {
-							char *nl = strchr(line, '\n');
+							char *nl = strchr(line, '\\n');
 							if (nl) *nl = 0;
 							if (ksu_seccomp_pkg_match(line)) {
 								char *sp = line;
