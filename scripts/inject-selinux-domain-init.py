@@ -758,22 +758,15 @@ def fix_seccomp_bypass(kernel_root):
 /* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation. */
 extern int ksu_seccomp_check(unsigned int uid);
 
-/* Kprobe on prctl_set_seccomp: skip seccomp installation.
- * Checks: (1) mode already 0 (disabled by _do_fork or disable_seccomp),
- *         (2) bitmap has this UID (from packages.list or INSTALL_MAGIC2). */
+/* Kprobe on prctl_set_seccomp: skip seccomp installation for KSU-managed
+ * UIDs. Only checks bitmap (populated by workqueue/INSTALL_MAGIC2/reboot).
+ * We DON'T check current->seccomp.mode here because Zygote-forked children
+ * start with mode=0, which would incorrectly match ALL apps, not just KSU. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
 	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid < 10000) return 0;
-	/* If seccomp was already disabled (by _do_fork or disable_seccomp),
-	 * don't allow reinstallation even if bitmap is not yet populated. */
-	if (current->seccomp.mode == 0) {
-		printk(KERN_INFO "seccomp_bypass: pid=%d mode=0 skip\\n",
-		       current->pid);
-		regs->regs[0] = 0;
-		return 1;
-	}
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
