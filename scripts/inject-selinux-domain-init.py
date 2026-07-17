@@ -1046,9 +1046,35 @@ def fix_kernelsu_init(kernel_root):
     # (must be declared before the function that uses it)
     work_decl = '''
 
+/* Seccomp bypass package list (comma-separated, module parameter).
+ * Default: KernelSU-Next + SukiSU. Add new KSU forks here.
+ * Runtime update: echo "pkg1,pkg2" > /sys/module/kernelsu/parameters/seccomp_pkglist */
+static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext,com.sukisu.ultra";
+module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkglist), 0644);
+
+/* Check if a package name line from packages.list matches our seccomp list. */
+static int ksu_seccomp_pkg_match(const char *line)
+{
+	const char *list = ksu_seccomp_pkglist;
+	/* Extract package name: chars before first space/tab */
+	int nlen;
+	for (nlen = 0; line[nlen] && line[nlen] != ' ' && line[nlen] != '\t'; nlen++);
+	if (!nlen) return 0;
+	while (*list) {
+		const char *comma = strchr(list, ',');
+		int llen = comma ? (int)(comma - list) : (int)strlen(list);
+		if (nlen == llen && strncmp(list, line, llen) == 0)
+			return 1;
+		if (!comma) break;
+		list = comma + 1;
+	}
+	return 0;
+}
+
+extern unsigned long ksu_seccomp_bmp[];
+
 /* Delayed init: SELinux domain + auto-crown manager UID.
  * Runs ~30s after boot (policy fully loaded, /data accessible). */
-extern unsigned long ksu_seccomp_bmp[];
 static void ksu_delayed_selinux_init(struct work_struct *work)
 {
 		printk(KERN_INFO "ksu_debug: delayed init executing\\n");
@@ -1129,31 +1155,23 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 					ssize_t nr2 = kernel_read(f2, bf, 8192, &rp2);
 					if (nr2 > 0) {
 						bf[nr2] = 0;
-						/* Scan for KSU-Next */
-						{
-							char *pkg = strstr(bf, "com.rifsxd.ksunext");
-							if (pkg) {
-								pkg += 20;
-								while (*pkg == 32) pkg++;
-								if (*pkg >= 48 && *pkg <= 57) {
-									uid_t uid = simple_strtoul(pkg, NULL, 10);
+						/* Iterate each line, match against ksu_seccomp_pkglist */
+						char *line = bf;
+						while (line && *line) {
+							char *nl = strchr(line, '\n');
+							if (nl) *nl = 0;
+							if (ksu_seccomp_pkg_match(line)) {
+								char *sp = line;
+								while (*sp && *sp != ' ') sp++;
+								while (*sp == ' ') sp++;
+								if (*sp >= '0' && *sp <= '9') {
+									uid_t uid = simple_strtoul(sp, NULL, 10);
 									set_bit((int)uid, ksu_seccomp_bmp);
-									printk(KERN_INFO "ksu_dbg: bmp add ksunext uid=%d\\n", uid);
+									printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", uid);
 								}
 							}
-						}
-						/* Scan for SukiSU */
-						{
-							char *pkg = strstr(bf, "com.sukisu.ultra");
-							if (pkg) {
-								pkg += 17;
-								while (*pkg == 32) pkg++;
-								if (*pkg >= 48 && *pkg <= 57) {
-									uid_t uid = simple_strtoul(pkg, NULL, 10);
-									set_bit((int)uid, ksu_seccomp_bmp);
-									printk(KERN_INFO "ksu_dbg: bmp add sukisu uid=%d\\n", uid);
-								}
-							}
+							if (nl) { *nl = '\n'; line = nl + 1; }
+							else break;
 						}
 					}
 					kvfree(bf);
