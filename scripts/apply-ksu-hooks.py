@@ -181,29 +181,37 @@ def main():
                 lines.insert(last_include + 1, extern_block)
                 content = '\n'.join(lines)
 
-            # Hook inside SYSCALL_DEFINE5(prctl...) BEFORE the switch(option).
-            marker = '\terror = 0;\n\tswitch (option) {'
-            hook = (
-                '\terror = 0;'
-                '\n\t/* KSU hook: handle 0xDEADBEEF (manager fd) and PR_SET_SECCOMP (seccomp bypass) */'
-                '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
-                '\n\t\tif (option == 0xDEADBEEF) {'
-                '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
-                '\n\t\t}'
-                '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
-                '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
-                '\n\t\t\t\treturn 0;'
-                '\n\t\t}'
-                '\n\t}'
-                '\n\tswitch (option) {'
-            )
-            if marker in content:
-                content = content.replace(marker, hook, 1)
-                with open(sys_path, 'w') as f:
-                    f.write(content)
-                print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
+            # Hook inside SYSCALL_DEFINE5(prctl...) BEFORE switch(option).
+            # Find switch(option) in the prctl function and inject hook before it.
+            # SUSFS patch may add code before switch(option), so we can't use
+            # a fixed marker pattern. Search for the switch line and find the
+            # error=0; before it, then replace everything between with the hook.
+            sw_pos = content.find('\tswitch (option) {')
+            if sw_pos >= 0:
+                err_pos = content.rfind('\terror = 0;', 0, sw_pos)
+                if err_pos >= 0:
+                    hook = (
+                        '\terror = 0;'
+                        '\n\t/* KSU hook: handle 0xDEADBEEF (manager fd) and PR_SET_SECCOMP (seccomp bypass) */'
+                        '\n\tif (IS_ENABLED(CONFIG_KSU)) {'
+                        '\n\t\tif (option == 0xDEADBEEF) {'
+                        '\n\t\t\treturn ksu_handle_prctl(option, arg2, arg3, arg4, arg5);'
+                        '\n\t\t}'
+                        '\n\t\tif (option == 22 /* PR_SET_SECCOMP */) {'
+                        '\n\t\t\tif (ksu_handle_prctl(option, arg2, 0, 0, 0))'
+                        '\n\t\t\t\treturn 0;'
+                        '\n\t\t}'
+                        '\n\t}'
+                        '\n\tswitch (option) {'
+                    )
+                    content = content[:err_pos] + hook + content[sw_pos + len('\tswitch (option) {'):]
+                    with open(sys_path, 'w') as f:
+                        f.write(content)
+                    print(f"  [OK] Hook in SYSCALL_DEFINE5(prctl): {sys_path}")
+                else:
+                    print(f"  [WARN] SYSCALL_DEFINE5(prctl): error=0; not found before switch")
             else:
-                print(f"  [WARN] SYSCALL_DEFINE5(prctl) marker not found")
+                print(f"  [WARN] SYSCALL_DEFINE5(prctl): switch(option) not found")
         else:
             print(f"  KSU prctl hook already present (with PR_SET_SECCOMP), skipping")
 
