@@ -788,18 +788,11 @@ static struct kprobe seccomp_bypass_kp = {
 	.pre_handler = seccomp_bypass_pre,
 };
 
-/* task_work callback: properly free seccomp filter outside kprobe context */
-static void seccomp_cleanup_work(struct callback_head *head)
-{
-	if (current->seccomp.mode != 0)
-		disable_seccomp(current);
-	kfree(head);
-}
-
 /* Kprobe on _do_fork: disable seccomp before fork for KSU-managed processes.
  * Handles threads created AFTER the thread-group iteration.
- * Sets mode=0 immediately (in kprobe context), schedules proper cleanup
- * via task_work to avoid single-step conflict with disable_seccomp->kfree. */
+ * Note: we set mode=0 directly (no disable_seccomp) because kfree() inside
+ * the kprobe handler triggers ARM64 single-step conflict with the kprobe's
+ * own single-step context. The seccomp filter reference leaks (~80b/fork). */
 static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid = current_uid().val;
@@ -807,16 +800,6 @@ static int do_fork_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	if (app_uid >= 10000 && ksu_seccomp_check(app_uid) &&
 	    current->seccomp.mode != 0) {
 		current->seccomp.mode = 0;
-		/* Schedule cleanup to properly free the seccomp filter
-		 * (runs when returning to userspace, outside kprobe context). */
-		/* kmalloc + init_task_work + task_work_add require
-		 * <linux/task_work.h> (added in inject-ksu-prctl.py) */
-		struct callback_head *work = kmalloc(sizeof(struct callback_head), GFP_ATOMIC);
-		if (work) {
-			work->next = NULL;
-			work->func = seccomp_cleanup_work;
-			task_work_add(current, work, 1); /* notify: wake up/resume */
-		}
 		printk(KERN_INFO "seccomp_bypass: fork pid=%d uid=%d disable\\n",
 		       current->pid, app_uid);
 	}

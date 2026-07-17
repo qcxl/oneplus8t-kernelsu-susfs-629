@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include <linux/task_work.h>\n#include "ksu.h"\n/* Forward decl: disable_seccomp is exported from kernel/seccomp.c */\nextern void disable_seccomp(struct task_struct *tsk);'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n/* Forward decl: disable_seccomp is exported from kernel/seccomp.c */\nextern void disable_seccomp(struct task_struct *tsk);'
             )
             
             # Add function at end of file (before last newline)
