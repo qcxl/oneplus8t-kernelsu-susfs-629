@@ -770,8 +770,9 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		struct pt_regs *user_regs = current_pt_regs();
 		unsigned long a0 = user_regs->regs[0];
 		unsigned long a1 = user_regs->regs[1];
-		if (a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) {
-			printk(KERN_INFO "seccomp_bypass: pid=%d __NR_reboot KSU\\n",
+		if ((a0 == KSU_INSTALL_MAGIC1 && a1 == KSU_INSTALL_MAGIC2) ||
+		    (a0 == KSU_INSTALL_MAGIC1 && a1 == 0xFAFAFAFA)) {
+			printk(KERN_INFO "seccomp_bypass: pid=%d __NR_reboot magic ok\\n",
 			       current->pid);
 			regs->regs[0] = 0x7fff0000; /* SECCOMP_RET_ALLOW */
 			return 1; /* Skip __seccomp_filter → allow the call */
