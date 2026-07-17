@@ -761,12 +761,12 @@ def fix_seccomp_bypass(kernel_root):
  * KSU-Next and SukiSU without affecting other apps.
  * The fd installation is handled by apply-ksu-hooks.py's hook in
  * kernel/reboot.c (SYSCALL_DEFINE4(reboot)). */
-extern int ksu_seccomp_uid_allowed(unsigned int uid);
+extern int ksu_seccomp_check(unsigned int uid);
 
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
-	if (uid >= 10000 && ksu_seccomp_uid_allowed(uid)) {
+	if (uid >= 10000 && ksu_seccomp_check(uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d uid=%d skip seccomp\\n",
 		       current->pid, uid);
 		regs->regs[0] = 0;

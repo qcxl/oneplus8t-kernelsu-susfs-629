@@ -35,15 +35,17 @@ def main():
             # Add function at end of file (before last newline)
             func = '''
 /* Bitmap of UIDs that have successfully installed the KSU driver fd.
- * Used by kprobe on prctl_set_seccomp to skip seccomp for these UIDs. */
-#define KSU_SECCOMP_BMP_WORDS 1024
-static unsigned long ksu_seccomp_bypass_bmp[KSU_SECCOMP_BMP_WORDS] = { };
+ * 1024 words * 64 bits = covers UIDs 0-65535 (all Android app UIDs). */
+#define KSU_CMP_WORDS 1024
+#define KSU_BMP_MAX_UID (KSU_CMP_WORDS * 64)
+static unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
 
-/* Helper for kprobe handler (inject-selinux-domain-init.py) */
-int ksu_seccomp_uid_allowed(unsigned int uid)
+/* Helper for kprobe handler (inject-selinux-domain-init.py).
+ * Returns 1 if uid has KSU fd installed, 0 otherwise. */
+int ksu_seccomp_check(unsigned int uid)
 {
-	if (uid < (KSU_SECCOMP_BMP_WORDS * BITS_PER_LONG))
-		return test_bit((int)uid, ksu_seccomp_bypass_bmp) ? 1 : 0;
+	if (uid < KSU_BMP_MAX_UID)
+		return test_bit((int)uid, ksu_seccomp_bmp) ? 1 : 0;
 	return 0;
 }
 
@@ -109,8 +111,8 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
              * Kprobe on prctl_set_seccomp checks this bitmap. */
             {
                 uid_t bmp_uid = current_uid().val % KSU_PER_USER_RANGE;
-                if (bmp_uid < (KSU_SECCOMP_BMP_WORDS * BITS_PER_LONG)) {
-                    set_bit((int)bmp_uid, ksu_seccomp_bypass_bmp);
+                if (bmp_uid < KSU_BMP_MAX_UID) {
+                    set_bit((int)bmp_uid, ksu_seccomp_bmp);
                     printk(KERN_INFO "ksu_prctl: seccomp_bypass uid=%d\\n", bmp_uid);
                 }
             }
@@ -161,8 +163,8 @@ EXPORT_SYMBOL(ksu_handle_prctl);
                       '\t\tint fd = ksu_install_fd();\n'
                       '\t\tif (fd >= 0) {\n'
                       '\t\t\tunsigned int bmp_uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-                      '\t\t\tif (bmp_uid < (KSU_SECCOMP_BMP_WORDS * BITS_PER_LONG))\n'
-                      '\t\t\t\tset_bit((int)bmp_uid, ksu_seccomp_bypass_bmp);\n'
+                      '\t\t\tif (bmp_uid < KSU_BMP_MAX_UID)\n'
+                      '\t\t\t\tset_bit((int)bmp_uid, ksu_seccomp_bmp);\n'
                       '\t\t\tif (copy_to_user')
             if sys_old in content:
                 content = content.replace(sys_old, sys_new, 1)
