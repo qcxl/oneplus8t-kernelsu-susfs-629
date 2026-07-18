@@ -702,7 +702,6 @@ def fix_seccomp_bypass(kernel_root):
 
     # Add the seccomp kprobe structure before ksu_supercalls_init
     kprobe_decl = '''
-#include <linux/syscalls.h>
 
 /* seccomp_bypass: bypass seccomp for KSU SYS_reboot magic, then install fd.
  * Android seccomp blocks __NR_reboot (142). libksud.so calls:
@@ -730,13 +729,12 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	/* __secure_computing(const struct seccomp_data *sd):
 	 * x0 = pointer to seccomp_data (may be NULL).
 	 * sd->nr = syscall number (if sd non-NULL).
-	 * We check the actual syscall nr via current_pt_regs. */
+	 * We check the actual syscall nr via current_pt_regs.
+	 * Use direct syscall number (142 = __NR_reboot on ARM64). */
 	{
 		struct pt_regs *uregs = task_pt_regs(current);
-		int sc_nr = syscall_get_nr(current, uregs);
-		if (sc_nr == __NR_reboot) {
-			/* Allow __NR_reboot through seccomp check.
-			 * Return 0 to __secure_computing caller. */
+		int sc_nr = uregs->syscallno;
+		if (sc_nr == 142) {
 			regs->regs[0] = 0;
 			return 1;
 		}
