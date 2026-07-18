@@ -770,6 +770,19 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
+		/* Full seccomp bypass: clear mode AND TIF_SECCOMP.
+		 *
+		 * mode=0: copy_seccomp() (fork.c:1650) checks
+		 * 'p->seccomp.mode != SECCOMP_MODE_DISABLED' and only then
+		 * re-sets TIF_SECCOMP on children. Without mode=0, children
+		 * forked via Runtime.exec() inherit TIF_SECCOMP and hit
+		 * Zygote's filter that blocks __NR_reboot.
+		 *
+		 * clear TIF_SECCOMP: secure_computing() checks
+		 * test_thread_flag(TIF_SECCOMP) first. If set but mode=0,
+		 * __secure_computing() hits default: BUG() → kernel panic. */
+		current->seccomp.mode = 0;
+		clear_tsk_thread_flag(current, TIF_SECCOMP);
 		regs->regs[0] = 0;
 		return 1;
 	}
