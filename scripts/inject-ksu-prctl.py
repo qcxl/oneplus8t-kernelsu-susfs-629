@@ -81,24 +81,10 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                 printk(KERN_INFO "ksu_prctl: copy_to_user failed\\n");
             else
                 printk(KERN_INFO "ksu_prctl: fd=%d installed for pid=%d\\n", fd, current->pid);
-            /* Disable seccomp for ALL threads in this process group.
-             * libkernelsu.so may call prctl from a temporary thread that exits,
-             * leaving the main thread with Seccomp=2. Children forked from the
-             * main thread inherit Seccomp=2, causing SIGSYS on __NR_reboot. */
-            {
-                struct task_struct *leader = current->group_leader;
-                struct task_struct *t = leader;
-                int disabled = 0;
-                do {
-                    if (t->seccomp.mode != 0) {
-                        disable_seccomp(t);
-                        disabled++;
-                    }
-                    t = next_thread(t);
-                } while (t != leader);
-                printk(KERN_INFO "ksu_prctl: seccomp disabled for %d threads\\n",
-                       disabled);
-            }
+            /* NOTE: disable_seccomp deliberately REMOVED.
+             * The kprobe on __secure_computing handles __NR_reboot bypass,
+             * keeping Seccomp=2 (normal) for all processes.
+             * disable_seccomp would set Seccomp=0, which detection tools flag. */
             /* Register as manager if none exists yet.
              * This MUST happen here (in INSTALL_MAGIC2) because PR_SET_SECCOMP
              * checks ksu_get_manager_appid() and may be called BEFORE the
