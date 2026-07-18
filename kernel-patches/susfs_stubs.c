@@ -2,10 +2,8 @@
 /*
  * susfs_stubs.c - SUSFS compatibility stubs for builtin branch
  *
- * SukiSU-Ultra builtin branch dispatch.c calls newer SUSFS APIs
- * that don't exist in the kernel-4.19 SUSFS branch.
- * These stubs provide the missing symbols so the kernel can link.
- */
+ * The dispatch code calls newer SUSFS APIs that don't exist in the
+ * kernel-4.19 SUSFS branch. These stubs provide missing symbols.
 
 #include <linux/module.h>
 #include <linux/kernel.h>

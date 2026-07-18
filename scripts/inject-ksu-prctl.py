@@ -29,7 +29,28 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>'
+            )
+
+            # Fix CPU spinning: add .poll handler to anon_ksu_fops so epoll blocks.
+            # Without .poll, default returns POLLIN|POLLOUT → libksud epoll_wait
+            # returns immediately → 100% CPU spinning. With .poll that returns 0
+            # and waits on ksu_poll_wq, epoll blocks forever (correct behavior).
+            poll_decl = (
+                '\nstatic DECLARE_WAIT_QUEUE_HEAD(ksu_poll_wq);\n'
+                'static unsigned int ksu_poll(struct file *filp, poll_table *wait)\n'
+                '{\n'
+                '\tpoll_wait(filp, &ksu_poll_wq, wait);\n'
+                '\treturn 0;\n'
+                '}\n'
+            )
+            content = content.replace(
+                'static const struct file_operations anon_ksu_fops',
+                poll_decl + 'static const struct file_operations anon_ksu_fops'
+            )
+            content = content.replace(
+                '.release = anon_ksu_release,',
+                '.poll = ksu_poll,\n\t.release = anon_ksu_release,'
             )
             
             # Add function at end of file (before last newline)
@@ -41,7 +62,7 @@ def main():
  *   2. ksu_handle_prctl(INSTALL_MAGIC2)
  *   3. ksu_handle_sys_reboot(KSU_INSTALL_MAGIC2) */
 #define KSU_CMP_WORDS 1024
-#define KSU_BMP_MAX_UID (KSU_CMP_WORDS * 64)
+#define KSU_BMP_MAX_UID (KSU_CMP_WORDS * BITS_PER_LONG)
 unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
 
 /* Per-UID PID tracking: kill old libksud instances on reconnect.
@@ -60,18 +81,15 @@ static void ksu_kill_old_instance(uid_t uid)
 	spin_lock(&ksu_pid_lock);
 	old_pid = ksu_active_pid[slot];
 	ksu_active_pid[slot] = task_pid_vnr(current);
-	spin_unlock(&ksu_pid_lock);
-
 	if (old_pid && old_pid != task_pid_vnr(current)) {
-		rcu_read_lock();
 		t = find_task_by_vpid(old_pid);
 		if (t && t->exit_state == 0) {
-			printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d slot=%d\\n",
-			       old_pid, uid, slot);
+			printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
+			       old_pid, uid);
 			send_sig(SIGKILL, t, 0);
 		}
-		rcu_read_unlock();
 	}
+	spin_unlock(&ksu_pid_lock);
 }
 
 /* Helper: check if uid is in the seccomp bypass bitmap.
@@ -86,19 +104,6 @@ int ksu_seccomp_check(unsigned int uid)
 int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                      unsigned long arg4, unsigned long arg5)
 {
-    /* Handle PR_SET_SECCOMP (22): skip seccomp filter installation for the
-     * KSU manager app and its children. libc uses prctl(PR_SET_SECCOMP, ...)
-     * to install seccomp. Skipping it allows __NR_reboot to work. */
-    if (option == 22) {
-        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
-        if (ksu_get_manager_appid() == uid && uid >= 10000) {
-            printk(KERN_INFO "ksu_prctl: skip PR_SET_SECCOMP pid=%d uid=%d\\n",
-                   current->pid, uid);
-            return 1;
-        }
-        return 0;
-    }
-
     if (option != KSU_INSTALL_MAGIC1)
         return 0;
 
@@ -113,9 +118,11 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
         printk(KERN_INFO "ksu_prctl: INSTALL_MAGIC2 pid=%d fd=%d seccomp_before=%d\\n",
                current->pid, fd, current->seccomp.mode);
         if (fd >= 0) {
-            if (copy_to_user((int __user *)arg3, &fd, sizeof(fd)))
-                printk(KERN_INFO "ksu_prctl: copy_to_user failed\\n");
-            else
+            if (copy_to_user((int __user *)arg3, &fd, sizeof(fd))) {
+                printk(KERN_INFO "ksu_prctl: copy_to_user failed, closing fd=%d\\n", fd);
+                ksys_close(fd);
+                return 1;
+            }
                 printk(KERN_INFO "ksu_prctl: fd=%d installed for pid=%d\\n", fd, current->pid);
             /* Set PDEATHSIG so this process (libksud daemon) dies when
              * its parent (main app) is killed. Without this, killed apps
