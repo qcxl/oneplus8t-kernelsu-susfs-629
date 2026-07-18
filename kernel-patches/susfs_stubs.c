@@ -4,6 +4,7 @@
  *
  * The dispatch code calls newer SUSFS APIs that don't exist in the
  * kernel-4.19 SUSFS branch. These stubs provide missing symbols.
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
