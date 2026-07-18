@@ -32,16 +32,10 @@ def find_file(kernel_root, candidates):
 
 
 def fix_boot_event(kernel_root):
-    """NO-OP: boot_event.c modifications are deferred to the delayed workqueue
-    which runs at 30s. The kprobe on __arm64_sys_prctl handles seccomp bypass
-    independently via bitmap + manager_appid fallback."""
-    print(f"  [SKIP] boot_event.c: deferred to delayed workqueue")
     return True
 
 
 def fix_selinux_clear_exec_sid(kernel_root):
-    """NO-OP: do NOT clear exec_sid globally (breaks exec → untrusted_app domain with seccomp).
-    Type_transition rules handle domain preservation across exec instead."""
     return True
 
 
@@ -602,70 +596,6 @@ def fix_allow_uid_zero(kernel_root):
     return True
 
 
-def fix_diag_allowed_for_su(kernel_root):
-    """Add diagnostic printk to allowed_for_su() to trace 'grant root failed'."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/supercall/perm.c",
-        "KernelSU/kernel/supercall/perm.c",
-    ])
-    if not path:
-        print(f"  WARNING: perm.c not found")
-        return True
-    with open(path) as f:
-        content = f.read()
-    if 'diag_allowed' in content:
-        print(f"  {path}: already has diag")
-        return True
-    old = 'bool allowed_for_su(void)\n{\n\tbool is_allowed = is_manager() || ksu_is_allow_uid_for_current(current_uid().val);\n\treturn is_allowed;\n}'
-    new = (
-        'bool allowed_for_su(void)\n'
-        '{\n'
-        '\tbool is_mgr = is_manager();\n'
-        '\tuid_t uid = current_uid().val;\n'
-        '\tbool is_allow = ksu_is_allow_uid_for_current(uid);\n'
-        '\tprintk(KERN_INFO "diag: allowed_for_su uid=%d is_mgr=%d is_allow=%d\\n",\n'
-        '\t\tuid, is_mgr, is_allow);\n'
-        '\treturn is_mgr || is_allow;\n'
-        '}'
-    )
-    if old not in content:
-        print(f"  WARNING: allowed_for_su pattern not found in {path}")
-        return True
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: added diag logs to allowed_for_su()")
-    return True
-
-
-def fix_diag_dispatch_eperm(kernel_root):
-    """Add diagnostic printk to dispatch.c when returning EPERM from perm check."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/supercall/dispatch.c",
-        "KernelSU/kernel/supercall/dispatch.c",
-    ])
-    if not path:
-        print(f"  WARNING: dispatch.c not found")
-        return True
-    with open(path) as f:
-        content = f.read()
-    if 'diag_eperm' in content:
-        print(f"  {path}: already has diag")
-        return True
-    old = 'pr_warn("ksu ioctl: permission denied for cmd=0x%x uid=%d\\n",'
-    new = (
-        'printk(KERN_INFO "diag: EPERM cmd=0x%x uid=%d\\n",'
-    )
-    if old not in content:
-        print(f"  WARNING: EPERM pattern not found in {path}")
-        return True
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: added diag to dispatch EPERM")
-    return True
-
-
 def fix_seccomp_bypass(kernel_root):
     """Add kprobe on secure_computing to bypass seccomp for KSU SYS_reboot magic calls.
     
@@ -806,80 +736,6 @@ static struct kprobe seccomp_bypass_kp = {
     return True
 
 
-def fix_throne_crown_manager(kernel_root):
-    """B1: Prevent crown_manager() from overwriting a valid manager.
-    
-    throne_tracker.c's crown_manager() unconditionally sets ksu_manager_appid
-    when scan_manager() finds a matching APK. If SukiSU APK somehow matched
-    EXPECTED_MANAGER_HASH, it could take over as manager.
-    
-    Fix: only set manager UID if no manager exists yet."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/manager/throne_tracker.c",
-        "KernelSU/kernel/manager/throne_tracker.c",
-    ])
-    if not path:
-        print(f"  WARNING: throne_tracker.c not found")
-        return True
-    with open(path) as f:
-        content = f.read()
-    if 'crown_fixed' in content:
-        print(f"  {path}: already fixed")
-        return True
-    
-    old = '\t\t\tksu_set_manager_appid(np->uid);'
-    new = '\t\t\tif (!ksu_is_manager_appid_valid()) { ksu_set_manager_appid(np->uid); } /* crown_fixed */'
-    if old not in content:
-        print(f"  WARNING: crown_manager pattern not found in {path}")
-        return True
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: crown_manager only sets if no manager exists")
-    return True
-
-
-def fix_kpm_manager_uid_export(kernel_root):
-    """B2: Make sukisu_set_manager_uid static (not exported) + remove force.
-    
-    kpm/compact.c exports sukisu_set_manager_uid() as a symbol that KPM
-    modules can find. With force=1, any KPM module can bypass APK signature
-    checks and overwrite ksu_manager_appid.
-    
-    Fix: change force parameter logic and make function static."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/kpm/compact.c",
-        "KernelSU/kernel/kpm/compact.c",
-    ])
-    if not path:
-        print(f"  WARNING: kpm/compact.c not found")
-        return True
-    with open(path) as f:
-        content = f.read()
-    if 'kpm_uid_fixed' in content:
-        print(f"  {path}: already fixed")
-        return True
-    
-    old = ('static void sukisu_set_manager_uid(uid_t uid, int force)\n'
-           '{\n'
-           '    if (force || ksu_manager_appid == -1)\n'
-           '        ksu_manager_appid = uid;')
-    new = ('/* kpm_uid_fixed: static function, force removed */\n'
-           'static void sukisu_set_manager_uid(uid_t uid, int force)\n'
-           '{\n'
-           '    (void)force; /* parameter kept for ABI but ignored */\n'
-           '    if (ksu_manager_appid == -1)\n'
-           '        ksu_manager_appid = uid;')
-    if old not in content:
-        print(f"  WARNING: sukisu_set_manager_uid pattern not found in {path}")
-        return True
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: sukisu_set_manager_uid force removed")
-    return True
-
-
 def fix_sysfs_manager_appid(kernel_root):
     """B4: Only allow sysfs write to set manager when none exists, or clear it.
     
@@ -1015,9 +871,8 @@ def fix_kernelsu_init(kernel_root):
     work_decl = '''
 
 /* Seccomp bypass package list (comma-separated, module parameter).
- * Default: KernelSU-Next + SukiSU. Add new KSU forks here.
  * Runtime update: echo "pkg1,pkg2" > /sys/module/kernelsu/parameters/seccomp_pkglist */
-static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext,com.sukisu.ultra";
+static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext";
 module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkglist), 0644);
 
 /* Check if a package name line from packages.list matches our seccomp list. */
@@ -1248,14 +1103,10 @@ def main():
     ok &= fix_ksud_postfsdata_noctx(root)
     ok &= fix_throne_deferred_cred(root)
     ok &= fix_throne_lock(root)
-    ok &= fix_throne_crown_manager(root)
-    ok &= fix_kpm_manager_uid_export(root)
     ok &= fix_auto_crown_prctl(root)
     ok &= fix_sysfs_manager_appid(root)
     ok &= fix_dispatch_get_info(root)
     ok &= fix_allow_uid_zero(root)
-    ok &= fix_diag_allowed_for_su(root)
-    ok &= fix_diag_dispatch_eperm(root)
     ok &= fix_syscall_hook_reboot(root)
     ok &= fix_seccomp_bypass(root)
     ok &= fix_kernelsu_init(root)

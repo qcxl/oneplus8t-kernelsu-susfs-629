@@ -98,8 +98,7 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                        mgr_uid);
             }
             /* Register this UID in the seccomp bypass bitmap.
-             * Both KSU-Next and SukiSU UIDs will be added here.
-             * Kprobe on prctl_set_seccomp checks this bitmap. */
+              * Kprobe on __secure_computing checks this bitmap. */
             {
                 uid_t bmp_uid = current_uid().val % KSU_PER_USER_RANGE;
                 if (bmp_uid < KSU_BMP_MAX_UID) {
@@ -144,7 +143,7 @@ EXPORT_SYMBOL(ksu_handle_prctl);
                 f.write(content)
             print("  ksu_handle_prctl injected into supercall.c")
             # Also modify ksu_handle_sys_reboot in supercall.c to set bitmap bit
-            # when fd is installed via reboot syscall path (used by SukiSU).
+            # when fd is installed via reboot syscall path.
             content = open(c_path).read()
             sys_old = ('\tif (magic1 == KSU_INSTALL_MAGIC1 && magic2 == KSU_INSTALL_MAGIC2) {\n'
                       '\t\tint fd = ksu_install_fd();\n'
