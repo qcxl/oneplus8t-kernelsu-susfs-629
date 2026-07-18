@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n/* Forward decl: disable_seccomp is exported from kernel/seccomp.c */\nextern void disable_seccomp(struct task_struct *tsk);'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>'
             )
             
             # Add function at end of file (before last newline)
@@ -43,6 +43,36 @@ def main():
 #define KSU_CMP_WORDS 1024
 #define KSU_BMP_MAX_UID (KSU_CMP_WORDS * 64)
 unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
+
+/* Per-UID PID tracking: kill old libksud instances on reconnect.
+ * Prevents orphaned daemon processes from spinning at 100% CPU.
+ * Array size = 256 (covers UIDs 10000-65535 at KSU_PER_USER_RANGE). */
+#define KSU_PID_MAP_SIZE 256
+static pid_t ksu_active_pid[KSU_PID_MAP_SIZE] = { };
+static DEFINE_SPINLOCK(ksu_pid_lock);
+
+static void ksu_kill_old_instance(uid_t uid)
+{
+	unsigned int slot = uid % KSU_PID_MAP_SIZE;
+	pid_t old_pid;
+	struct task_struct *t;
+
+	spin_lock(&ksu_pid_lock);
+	old_pid = ksu_active_pid[slot];
+	ksu_active_pid[slot] = task_pid_vnr(current);
+	spin_unlock(&ksu_pid_lock);
+
+	if (old_pid && old_pid != task_pid_vnr(current)) {
+		rcu_read_lock();
+		t = find_task_by_vpid(old_pid);
+		if (t && t->exit_state == 0) {
+			printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d slot=%d\\n",
+			       old_pid, uid, slot);
+			send_sig(SIGKILL, t, 0);
+		}
+		rcu_read_unlock();
+	}
+}
 
 /* Helper: check if uid is in the seccomp bypass bitmap.
  * Used by kprobe handler (inject-selinux-domain-init.py). */
@@ -73,6 +103,12 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
         return 0;
 
     if (arg2 == KSU_INSTALL_MAGIC2) {
+        /* Kill old libksud instance for this UID before installing new fd.
+         * Prevents orphaned daemon processes from accumulating at 100% CPU. */
+        {
+            uid_t uid = current_uid().val % KSU_PER_USER_RANGE;
+            ksu_kill_old_instance(uid);
+        }
         int fd = ksu_install_fd();
         printk(KERN_INFO "ksu_prctl: INSTALL_MAGIC2 pid=%d fd=%d seccomp_before=%d\\n",
                current->pid, fd, current->seccomp.mode);
