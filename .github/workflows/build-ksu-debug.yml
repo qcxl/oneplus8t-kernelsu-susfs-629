@@ -111,7 +111,7 @@ jobs:
           echo "-- ksud_integration.c exec line:"
           grep -n "post-fs-data" drivers/kernelsu/runtime/ksud_integration.c
           echo "-- boot_event.c apply calls:"
-          grep -n "apply_kernelsu_rules\|cache_sid\|setup_ksu_cred" drivers/kernelsu/runtime/boot_event.c
+           grep -n "apply_kernelsu_rules\|cache_sid\|setup_ksu_cred" drivers/kernelsu/runtime/boot_event.c || true
 
       - name: Fix UAPI version mismatch (legacy → v2 compat)
         working-directory: kernel
