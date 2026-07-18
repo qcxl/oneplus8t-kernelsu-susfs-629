@@ -32,57 +32,10 @@ def find_file(kernel_root, candidates):
 
 
 def fix_boot_event(kernel_root):
-    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred + bitmap population
-    to on_post_fs_data(). Runs at post-fs-data time when /data is available."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/runtime/boot_event.c",
-        "KernelSU/kernel/runtime/boot_event.c",
-    ])
-    if not path:
-        print(f"  ERROR: boot_event.c not found")
-        return False
-
-    with open(path) as f:
-        content = f.read()
-
-    # Add include if not present
-    include_line = '#include "selinux/selinux.h"'
-    if include_line not in content:
-        lines = content.split('\n')
-        first_include = -1
-        for i, line in enumerate(lines):
-            if line.startswith('#include'):
-                first_include = i
-                break
-        if first_include >= 0:
-            lines.insert(first_include + 1, include_line)
-            content = '\n'.join(lines)
-            print(f"  {path}: added #include selinux/selinux.h")
-
-    if 'apply_kernelsu_rules()' in content:
-        print(f"  {path}: already applied, skipping")
-        return True
-
-    # Insert before ksu_load_allow_list()
-    marker = re.compile(r'^([ \t]*)ksu_load_allow_list\(\);', re.MULTILINE)
-    m = marker.search(content)
-    if not m:
-        print(f"  ERROR: cannot find ksu_load_allow_list() in {path}")
-        return False
-
-    indent = m.group(1)
-    block = (
-        f'{indent}/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
-        f'{indent}apply_kernelsu_rules();\n'
-        f'{indent}cache_sid();\n'
-        f'{indent}setup_ksu_cred();\n'
-        f'\n'
-        f'{indent}ksu_load_allow_list();'
-    )
-    content, count = marker.subn(block, content, count=1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: added calls to on_post_fs_data()")
+    """NO-OP: boot_event.c modifications are deferred to the delayed workqueue
+    which runs at 30s. The kprobe on __arm64_sys_prctl handles seccomp bypass
+    independently via bitmap + manager_appid fallback."""
+    print(f"  [SKIP] boot_event.c: deferred to delayed workqueue")
     return True
 
 
