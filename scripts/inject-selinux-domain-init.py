@@ -815,9 +815,12 @@ extern int ksu_seccomp_check(unsigned int uid);
  * start with mode=0, which would incorrectly match ALL apps, not just KSU. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	unsigned int option = (unsigned int)regs->regs[0];
+	/* __arm64_sys_prctl(const struct pt_regs *regs):
+	 * x0 (regs->regs[0]) = pointer to syscall's pt_regs.
+	 * option = syscall_regs->regs[0]. */
+	struct pt_regs *sr = (struct pt_regs *)regs->regs[0];
+	unsigned int option = (unsigned int)sr->regs[0];
 	unsigned int uid, app_uid;
-	/* Only intercept PR_SET_SECCOMP (22) */
 	if (option != 22)
 		return 0;
 	uid = current_uid().val;
@@ -827,19 +830,9 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
-		/* Full seccomp bypass: clear mode AND TIF_SECCOMP.
-		 *
-		 * mode=0: copy_seccomp() (fork.c:1650) checks
-		 * 'p->seccomp.mode != SECCOMP_MODE_DISABLED' and only then
-		 * re-sets TIF_SECCOMP on children. Without mode=0, children
-		 * forked via Runtime.exec() inherit TIF_SECCOMP and hit
-		 * Zygote's filter that blocks __NR_reboot.
-		 *
-		 * clear TIF_SECCOMP: secure_computing() checks
-		 * test_thread_flag(TIF_SECCOMP) first. If set but mode=0,
-		 * __secure_computing() hits default: BUG() → kernel panic. */
 		current->seccomp.mode = 0;
 		clear_tsk_thread_flag(current, TIF_SECCOMP);
+		/* regs->regs[0] is x0 = return value after skip */
 		regs->regs[0] = 0;
 		return 1;
 	}
@@ -847,7 +840,7 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "sys_prctl",
+	.symbol_name = "__arm64_sys_prctl",
 	.pre_handler = seccomp_bypass_pre,
 };
 
