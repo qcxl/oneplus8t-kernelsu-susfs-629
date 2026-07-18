@@ -709,45 +709,44 @@ def fix_seccomp_bypass(kernel_root):
  * We intercept secure_computing(), skip it for KSU magic, AND install the fd
  * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
 
-/* Kprobe on prctl_set_seccomp: intercept seccomp FILTER installation. */
 extern int ksu_seccomp_check(unsigned int uid);
 
-/* Kprobe on prctl_set_seccomp: skip seccomp installation for KSU-managed
- * UIDs. Only checks bitmap (populated by workqueue/INSTALL_MAGIC2/reboot).
- * We DON'T check current->seccomp.mode here because Zygote-forked children
- * start with mode=0, which would incorrectly match ALL apps, not just KSU. */
+/* Seccomp bypass: intercept __secure_computing and allow __NR_reboot
+ * for KSU-managed apps. Unlike the prctl-intercept approach, this
+ * fires AFTER seccomp is installed, so it works regardless of when
+ * INSTALL_MAGIC2 runs. Children forked before INSTALL_MAGIC2 inherit
+ * Seccomp=2, but their __NR_reboot calls are allowed through here. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	/* __arm64_sys_prctl(const struct pt_regs *regs):
-	 * x0 (regs->regs[0]) = pointer to syscall's pt_regs.
-	 * option = syscall_regs->regs[0]. */
-	struct pt_regs *sr = (struct pt_regs *)regs->regs[0];
-	unsigned int option = (unsigned int)sr->regs[0];
 	unsigned int uid, app_uid;
-	if (option != 22)
-		return 0;
 	uid = current_uid().val;
 	app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid < 10000)
 		return 0;
-	if (ksu_seccomp_check(app_uid) ||
-	    (ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid)) {
-		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
-		       current->pid, app_uid);
-		current->seccomp.mode = 0;
-		clear_tsk_thread_flag(current, TIF_SECCOMP);
-		regs->regs[0] = 0;
-		return 1;
+	if (!ksu_seccomp_check(app_uid) &&
+	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
+		return 0;
+	/* __secure_computing(const struct seccomp_data *sd):
+	 * x0 = pointer to seccomp_data (may be NULL).
+	 * sd->nr = syscall number (if sd non-NULL).
+	 * We check the actual syscall nr via current_pt_regs. */
+	{
+		struct pt_regs *uregs = task_pt_regs(current);
+		int sc_nr = syscall_get_nr(current, uregs);
+		if (sc_nr == __NR_reboot) {
+			/* Allow __NR_reboot through seccomp check.
+			 * Return 0 to __secure_computing caller. */
+			regs->regs[0] = 0;
+			return 1;
+		}
 	}
 	return 0;
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "__arm64_sys_prctl",
+	.symbol_name = "__secure_computing",
 	.pre_handler = seccomp_bypass_pre,
 };
-
-/* _do_fork kprobe temporarily removed for crash isolation */
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
