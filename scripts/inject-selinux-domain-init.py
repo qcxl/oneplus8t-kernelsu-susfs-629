@@ -815,9 +815,15 @@ extern int ksu_seccomp_check(unsigned int uid);
  * start with mode=0, which would incorrectly match ALL apps, not just KSU. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	unsigned int uid = current_uid().val;
-	unsigned int app_uid = uid % KSU_PER_USER_RANGE;
-	if (app_uid < 10000) return 0;
+	unsigned int option = (unsigned int)regs->regs[0];
+	unsigned int uid, app_uid;
+	/* Only intercept PR_SET_SECCOMP (22) */
+	if (option != 22)
+		return 0;
+	uid = current_uid().val;
+	app_uid = uid % KSU_PER_USER_RANGE;
+	if (app_uid < 10000)
+		return 0;
 	if (ksu_seccomp_check(app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
@@ -841,7 +847,7 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 }
 
 static struct kprobe seccomp_bypass_kp = {
-	.symbol_name = "prctl_set_seccomp",
+	.symbol_name = "sys_prctl",
 	.pre_handler = seccomp_bypass_pre,
 };
 
