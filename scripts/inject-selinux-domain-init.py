@@ -827,12 +827,12 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid < 10000)
 		return 0;
-	if (ksu_seccomp_check(app_uid)) {
+	if (ksu_seccomp_check(app_uid) ||
+	    (ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid)) {
 		printk(KERN_INFO "seccomp_bypass: pid=%d app_uid=%d skip seccomp\\n",
 		       current->pid, app_uid);
 		current->seccomp.mode = 0;
 		clear_tsk_thread_flag(current, TIF_SECCOMP);
-		/* regs->regs[0] is x0 = return value after skip */
 		regs->regs[0] = 0;
 		return 1;
 	}
