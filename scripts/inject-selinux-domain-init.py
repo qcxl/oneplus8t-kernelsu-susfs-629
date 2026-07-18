@@ -45,6 +45,20 @@ def fix_boot_event(kernel_root):
     with open(path) as f:
         content = f.read()
 
+    # Add include if not present
+    include_line = '#include "selinux/selinux.h"'
+    if include_line not in content:
+        lines = content.split('\n')
+        first_include = -1
+        for i, line in enumerate(lines):
+            if line.startswith('#include'):
+                first_include = i
+                break
+        if first_include >= 0:
+            lines.insert(first_include + 1, include_line)
+            content = '\n'.join(lines)
+            print(f"  {path}: added #include selinux/selinux.h")
+
     if 'apply_kernelsu_rules()' in content:
         print(f"  {path}: already applied, skipping")
         return True
