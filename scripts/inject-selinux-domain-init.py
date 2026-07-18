@@ -32,7 +32,8 @@ def find_file(kernel_root, candidates):
 
 
 def fix_boot_event(kernel_root):
-    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred to on_post_fs_data()."""
+    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred + bitmap population
+    to on_post_fs_data(). Runs at post-fs-data time when /data is available."""
     path = find_file(kernel_root, [
         "drivers/kernelsu/runtime/boot_event.c",
         "KernelSU/kernel/runtime/boot_event.c",
@@ -44,9 +45,14 @@ def fix_boot_event(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    # Add include if not present
-    include_line = '#include "selinux/selinux.h"'
-    if include_line not in content:
+    includes_to_add = []
+    if '#include "selinux/selinux.h"' not in content:
+        includes_to_add.append('#include "selinux/selinux.h"')
+    if '#include "ksu.h"' not in content:
+        includes_to_add.append('#include "ksu.h"')
+    if 'extern unsigned long ksu_seccomp_bmp[]' not in content:
+        includes_to_add.append('extern unsigned long ksu_seccomp_bmp[];')
+    if includes_to_add:
         lines = content.split('\n')
         first_include = -1
         for i, line in enumerate(lines):
@@ -54,9 +60,11 @@ def fix_boot_event(kernel_root):
                 first_include = i
                 break
         if first_include >= 0:
-            lines.insert(first_include + 1, include_line)
+            for inc in reversed(includes_to_add):
+                lines.insert(first_include + 1, inc)
             content = '\n'.join(lines)
-            print(f"  {path}: added #include selinux/selinux.h")
+            for inc in includes_to_add:
+                print(f"  {path}: added {inc.strip()}")
 
     if 'apply_kernelsu_rules()' in content:
         print(f"  {path}: already applied, skipping")
@@ -70,51 +78,49 @@ def fix_boot_event(kernel_root):
         return False
 
     indent = m.group(1)
+    i = indent
+    # Use raw string concatenation to avoid f-string brace escaping issues
     block = (
-        f'{indent}/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
-        f'{indent}apply_kernelsu_rules();\n'
-        f'{indent}cache_sid();\n'
-        f'{indent}setup_ksu_cred();\n'
+        f'{i}/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
+        f'{i}apply_kernelsu_rules();\n'
+        f'{i}cache_sid();\n'
+        f'{i}setup_ksu_cred();\n'
         f'\n'
-        f'{indent}/* Populate seccomp bypass bitmap from packages.list.\n'
-        f'{indent} * /data is now available (post-fs-data). Must use ksu_cred\n'
-        f'{indent} * for SELinux DAC override. This runs well before any user\n'
-        f'{indent} * app starts, so the kprobe on prctl_set_seccomp will find\n'
-        f'{indent} * KSU app UIDs in the bitmap on the first prctl call. */\n'
-        f'{indent}if (ksu_cred) {{\n'
-        f'{indent}\tconst struct cred *old = override_creds(ksu_cred);\n'
-        f'{indent}\tstruct file *f2 = filp_open("/data/system/packages.list", O_RDONLY, 0);\n'
-        f'{indent}\tif (!IS_ERR(f2)) {{\n'
-        f'{indent}\t\tloff_t fsize = i_size_read(file_inode(f2));\n'
-        f'{indent}\t\tif (fsize > 65536) fsize = 65536;\n'
-        f'{indent}\t\tchar *bf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);\n'
-        f'{indent}\t\tif (bf) {{\n'
-        f'{indent}\t\t\tloff_t rp = 0;\n'
-        f'{indent}\t\t\tssize_t nr = kernel_read(f2, bf, (size_t)fsize, &rp);\n'
-        f'{indent}\t\t\tif (nr > 0) {{\n'
-        f'{indent}\t\t\t\tbf[nr] = 0;\n'
-        f'{indent}\t\t\t\tchar *cur = bf, *nl;\n'
-        f'{indent}\t\t\t\twhile (cur && *cur) {{\n'
-        f'{indent}\t\t\t\t\tnl = strchr(cur, 10);\n'
-        f'{indent}\t\t\t\t\tif (nl) *nl = 0;\n'
-        f'{indent}\t\t\t\t\tuid_t pkg_uid = 0;\n'
-        f'{indent}\t\t\t\t\textern unsigned long ksu_seccomp_bmp[];\n'
-        f'{indent}\t\t\t\t\tif (ksu_seccomp_pkg_match(cur, &pkg_uid) && pkg_uid >= 10000) {{\n'
-        f'{indent}\t\t\t\t\t\tprintk(KERN_INFO "ksu_dbg: postfs bmp uid=%d\\n", pkg_uid);\n'
-        f'{indent}\t\t\t\t\t\tset_bit((int)pkg_uid, ksu_seccomp_bmp);\n'
-        f'{indent}\t\t\t\t\t}}\n'
-        f'{indent}\t\t\t\t\tif (nl) {{ *nl = 10; cur = nl + 1; }}\n'
-        f'{indent}\t\t\t\t\telse break;\n'
-        f'{indent}\t\t\t\t}}\n'
-        f'{indent}\t\t\t}}\n'
-        f'{indent}\t\t\tkvfree(bf);\n'
-        f'{indent}\t\t}}\n'
-        f'{indent}\t\tfilp_close(f2, NULL);\n'
-        f'{indent}\t}}\n'
-        f'{indent}\trevert_creds(old);\n'
-        f'{indent}}}\n'
+        f'{i}/* Populate seccomp bypass bitmap from packages.list.\n'
+        f'{i} * /data is now available (post-fs-data). Must use ksu_cred\n'
+        f'{i} * for cred override to read system files. */\n'
+        f'{i}if (ksu_cred) {{\n'
+        f'{i}\tconst struct cred *old = override_creds(ksu_cred);\n'
+        f'{i}\tstruct file *fp = filp_open("/data/system/packages.list", O_RDONLY, 0);\n'
+        f'{i}\tif (!IS_ERR(fp)) {{\n'
+        f'{i}\t\tloff_t fsize = i_size_read(file_inode(fp));\n'
+        f'{i}\t\tif (fsize > 65536) fsize = 65536;\n'
+        f'{i}\t\tchar *buf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);\n'
+        f'{i}\t\tif (buf) {{\n'
+        f'{i}\t\t\tloff_t rp = 0;\n'
+        f'{i}\t\t\tssize_t nr = kernel_read(fp, buf, (size_t)fsize, &rp);\n'
+        f'{i}\t\t\tif (nr > 0) {{\n'
+        f'{i}\t\t\t\tbuf[nr] = 0;\n'
+        f'{i}\t\t\t\tchar *ln = buf;\n'
+        f'{i}\t\t\t\twhile (ln && *ln) {{\n'
+        f'{i}\t\t\t\t\tchar *nl = strchr(ln, 10);\n'
+        f'{i}\t\t\t\t\tif (nl) *nl = 0;\n'
+        f'{i}\t\t\t\t\tuid_t pkg_uid = 0;\n'
+        f'{i}\t\t\t\t\tif (ksu_seccomp_pkg_match(ln, &pkg_uid) && pkg_uid >= 10000) {{\n'
+        f'{i}\t\t\t\t\t\tprintk(KERN_INFO "ksu_dbg: bmp uid=%d\\n", pkg_uid);\n'
+        f'{i}\t\t\t\t\t\tset_bit((int)pkg_uid, ksu_seccomp_bmp);\n'
+        f'{i}\t\t\t\t\t}}\n'
+        f'{i}\t\t\t\t\tif (nl) {{ *nl = 10; ln = nl + 1; }} else break;\n'
+        f'{i}\t\t\t\t}}\n'
+        f'{i}\t\t\t}}\n'
+        f'{i}\t\t\tkvfree(buf);\n'
+        f'{i}\t\t}}\n'
+        f'{i}\t\tfilp_close(fp, NULL);\n'
+        f'{i}\t}}\n'
+        f'{i}\trevert_creds(old);\n'
+        f'{i}}}\n'
         f'\n'
-        f'{indent}ksu_load_allow_list();'
+        f'{i}ksu_load_allow_list();'
     )
     content, count = marker.subn(block, content, count=1)
     with open(path, 'w') as f:
@@ -1108,7 +1114,7 @@ static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext,com.sukisu.ultra";
 module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkglist), 0644);
 
 /* Check if a package name line from packages.list matches our seccomp list. */
-static int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out)
+int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out)
 {
 	const char *list = ksu_seccomp_pkglist;
 	int nlen = 0;
