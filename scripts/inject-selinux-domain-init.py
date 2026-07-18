@@ -52,6 +52,8 @@ def fix_boot_event(kernel_root):
         includes_to_add.append('#include "ksu.h"')
     if 'extern unsigned long ksu_seccomp_bmp[]' not in content:
         includes_to_add.append('extern unsigned long ksu_seccomp_bmp[];')
+    if 'ksu_seccomp_pkg_match' not in content:
+        includes_to_add.append('extern int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out);')
     if includes_to_add:
         lines = content.split('\n')
         first_include = -1
@@ -78,49 +80,54 @@ def fix_boot_event(kernel_root):
         return False
 
     indent = m.group(1)
-    i = indent
-    # Use raw string concatenation to avoid f-string brace escaping issues
+    t = i + "\t"
+    tt = i + "\t\t"
+    ttt = i + "\t\t\t"
+    tttt = i + "\t\t\t\t"
+    ttttt = i + "\t\t\t\t\t"
+    tttttt = i + "\t\t\t\t\t\t"
+    # C89-compatible: all declarations at block start
     block = (
-        f'{i}/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
-        f'{i}apply_kernelsu_rules();\n'
-        f'{i}cache_sid();\n'
-        f'{i}setup_ksu_cred();\n'
-        f'\n'
-        f'{i}/* Populate seccomp bypass bitmap from packages.list.\n'
-        f'{i} * /data is now available (post-fs-data). Must use ksu_cred\n'
-        f'{i} * for cred override to read system files. */\n'
-        f'{i}if (ksu_cred) {{\n'
-        f'{i}\tconst struct cred *old = override_creds(ksu_cred);\n'
-        f'{i}\tstruct file *fp = filp_open("/data/system/packages.list", O_RDONLY, 0);\n'
-        f'{i}\tif (!IS_ERR(fp)) {{\n'
-        f'{i}\t\tloff_t fsize = i_size_read(file_inode(fp));\n'
-        f'{i}\t\tif (fsize > 65536) fsize = 65536;\n'
-        f'{i}\t\tchar *buf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);\n'
-        f'{i}\t\tif (buf) {{\n'
-        f'{i}\t\t\tloff_t rp = 0;\n'
-        f'{i}\t\t\tssize_t nr = kernel_read(fp, buf, (size_t)fsize, &rp);\n'
-        f'{i}\t\t\tif (nr > 0) {{\n'
-        f'{i}\t\t\t\tbuf[nr] = 0;\n'
-        f'{i}\t\t\t\tchar *ln = buf;\n'
-        f'{i}\t\t\t\twhile (ln && *ln) {{\n'
-        f'{i}\t\t\t\t\tchar *nl = strchr(ln, 10);\n'
-        f'{i}\t\t\t\t\tif (nl) *nl = 0;\n'
-        f'{i}\t\t\t\t\tuid_t pkg_uid = 0;\n'
-        f'{i}\t\t\t\t\tif (ksu_seccomp_pkg_match(ln, &pkg_uid) && pkg_uid >= 10000) {{\n'
-        f'{i}\t\t\t\t\t\tprintk(KERN_INFO "ksu_dbg: bmp uid=%d\\n", pkg_uid);\n'
-        f'{i}\t\t\t\t\t\tset_bit((int)pkg_uid, ksu_seccomp_bmp);\n'
-        f'{i}\t\t\t\t\t}}\n'
-        f'{i}\t\t\t\t\tif (nl) {{ *nl = 10; ln = nl + 1; }} else break;\n'
-        f'{i}\t\t\t\t}}\n'
-        f'{i}\t\t\t}}\n'
-        f'{i}\t\t\tkvfree(buf);\n'
-        f'{i}\t\t}}\n'
-        f'{i}\t\tfilp_close(fp, NULL);\n'
-        f'{i}\t}}\n'
-        f'{i}\trevert_creds(old);\n'
-        f'{i}}}\n'
-        f'\n'
-        f'{i}ksu_load_allow_list();'
+        i + '/* Initialize KSU SELinux domain. Build: __DATE__ __TIME__ */\n'
+        + i + 'apply_kernelsu_rules();\n'
+        + i + 'cache_sid();\n'
+        + i + 'setup_ksu_cred();\n'
+        + '\n'
+        + i + '/* Populate seccomp bypass bitmap from packages.list */\n'
+        + i + 'if (ksu_cred) {\n'
+        + t + 'const struct cred *old = override_creds(ksu_cred);\n'
+        + t + 'struct file *fp = filp_open("/data/system/packages.list", O_RDONLY, 0);\n'
+        + t + 'if (!IS_ERR(fp)) {\n'
+        + tt + 'loff_t fsize = i_size_read(file_inode(fp));\n'
+        + tt + 'if (fsize > 0 && fsize <= 65536) {\n'
+        + tt + 'char *buf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);\n'
+        + tt + 'if (buf) {\n'
+        + ttt + 'loff_t rp;\nssize_t nr;\n'
+        + ttt + 'rp = 0;\n'
+        + ttt + 'nr = kernel_read(fp, buf, (size_t)fsize, &rp);\n'
+        + ttt + 'if (nr > 0) {\n'
+        + tttt + 'buf[nr] = 0;\n'
+        + tttt + '{ /* nested block for C89 decls */\n'
+        + ttttt + 'char *ln = buf;\n'
+        + ttttt + 'while (ln && *ln) {\n'
+        + tttttt + 'char *nl = strchr(ln, 10);\n'
+        + tttttt + 'uid_t pkg_uid = 0;\n'
+        + tttttt + 'if (nl) *nl = 0;\n'
+        + tttttt + 'if (ksu_seccomp_pkg_match(ln, &pkg_uid) && pkg_uid >= 10000)\n'
+        + tttttt + '\tset_bit((int)pkg_uid, ksu_seccomp_bmp);\n'
+        + tttttt + 'if (nl) { *nl = 10; ln = nl + 1; } else break;\n'
+        + ttttt + '}\n'
+        + tttt + '}\n'
+        + ttt + '}\n'
+        + ttt + 'kvfree(buf);\n'
+        + tt + '}\n'
+        + tt + '}\n'
+        + tt + 'filp_close(fp, NULL);\n'
+        + t + '}\n'
+        + t + 'revert_creds(old);\n'
+        + i + '}\n'
+        + '\n'
+        + i + 'ksu_load_allow_list();'
     )
     content, count = marker.subn(block, content, count=1)
     with open(path, 'w') as f:
