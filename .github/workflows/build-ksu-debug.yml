@@ -245,6 +245,24 @@ jobs:
           sed -i 's/define SUSFS_VERSION.*/define SUSFS_VERSION "v2.2.0"/' include/linux/susfs.h
           grep "SUSFS_VERSION" include/linux/susfs.h
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
+          # V2.2.0 CMD constants missing in v1.5.5 susfs_def.h - add them here
+          # so the dispatch code (inject-susfs-dispatch.py) can compile.
+          # Values from upstream v2.2.0 susfs_def.h (via SukiSU source).
+          cat >> include/linux/susfs_def.h << 'CMDEOF'
+/* V2.2.0 CMD constants (added by build-ksu-debug.yml) */
+#define CMD_SUSFS_ADD_SUS_PATH               0x1005
+#define CMD_SUSFS_ADD_SUS_MOUNT              0x1006
+#define CMD_SUSFS_ADD_SUS_KSTAT              0x1010
+#define CMD_SUSFS_UPDATE_SUS_KSTAT           0x1011
+#define CMD_SUSFS_SET_UNAME                  0x1012
+#define CMD_SUSFS_ADD_OPEN_REDIRECT          0x1020
+#define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG  0x1030
+#define CMD_SUSFS_ENABLE_LOG                 0x1040
+#define CMD_SUSFS_ADD_TRY_UMOUNT             0x1050
+#define CMD_SUSFS_SHOW_VERSION               0x1060
+#define CMD_SUSFS_SHOW_VARIANT               0x1061
+#define CMD_SUSFS_SHOW_ENABLED_FEATURES      0x1062
+CMDEOF
 
       - name: Register SUSFS Kconfig and dispatch for KernelSU-Next legacy
         working-directory: kernel
