@@ -79,7 +79,7 @@ def fix_boot_event(kernel_root):
         print(f"  ERROR: cannot find ksu_load_allow_list() in {path}")
         return False
 
-    indent = m.group(1)
+    i = m.group(1)
     t = i + "\t"
     tt = i + "\t\t"
     ttt = i + "\t\t\t"
