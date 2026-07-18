@@ -81,10 +81,11 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                 printk(KERN_INFO "ksu_prctl: copy_to_user failed\\n");
             else
                 printk(KERN_INFO "ksu_prctl: fd=%d installed for pid=%d\\n", fd, current->pid);
-            /* NOTE: disable_seccomp deliberately REMOVED.
-             * The kprobe on __secure_computing handles __NR_reboot bypass,
-             * keeping Seccomp=2 (normal) for all processes.
-             * disable_seccomp would set Seccomp=0, which detection tools flag. */
+            /* Set PDEATHSIG so this process (libksud daemon) dies when
+             * its parent (main app) is killed. Without this, killed apps
+             * leave orphan libksud processes spinning at 100% CPU. */
+            current->pdeath_signal = SIGKILL;
+            /* NOTE: disable_seccomp deliberately REMOVED. */
             /* Register as manager if none exists yet.
              * This MUST happen here (in INSTALL_MAGIC2) because PR_SET_SECCOMP
              * checks ksu_get_manager_appid() and may be called BEFORE the
