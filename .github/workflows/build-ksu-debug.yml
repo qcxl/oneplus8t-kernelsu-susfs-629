@@ -245,20 +245,24 @@ jobs:
           sed -i 's/define SUSFS_VERSION.*/define SUSFS_VERSION "v2.2.0"/' include/linux/susfs.h
           grep "SUSFS_VERSION" include/linux/susfs.h
           ls -la fs/susfs.c include/linux/susfs.h 2>/dev/null
-          # V2.2.0 CMD constants missing in v1.5.5 susfs_def.h
-          printf '\n/* V2.2.0 CMD constants */\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_SUS_PATH              0x1005\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_SUS_MOUNT             0x1006\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_SUS_KSTAT             0x1010\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_UPDATE_SUS_KSTAT          0x1011\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_SET_UNAME                 0x1012\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_OPEN_REDIRECT         0x1020\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x1030\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ENABLE_LOG                0x1040\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_TRY_UMOUNT            0x1050\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_SHOW_VERSION              0x1060\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_SHOW_VARIANT              0x1061\n' >> include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_SHOW_ENABLED_FEATURES     0x1062\n' >> include/linux/susfs_def.h
+          # V2.2.0 CMD constants - only add if not already defined in v1.5.5
+          for def in \
+            'CMD_SUSFS_ADD_SUS_PATH 0x1005' \
+            'CMD_SUSFS_ADD_SUS_MOUNT 0x1006' \
+            'CMD_SUSFS_ADD_SUS_KSTAT 0x1010' \
+            'CMD_SUSFS_UPDATE_SUS_KSTAT 0x1011' \
+            'CMD_SUSFS_SET_UNAME 0x1012' \
+            'CMD_SUSFS_ADD_OPEN_REDIRECT 0x1020' \
+            'CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x1030' \
+            'CMD_SUSFS_ENABLE_LOG 0x1040' \
+            'CMD_SUSFS_ADD_TRY_UMOUNT 0x1050' \
+            'CMD_SUSFS_SHOW_VERSION 0x1060' \
+            'CMD_SUSFS_SHOW_VARIANT 0x1061' \
+            'CMD_SUSFS_SHOW_ENABLED_FEATURES 0x1062'; do
+            name="${def%% *}"
+            grep -q "#define $name " include/linux/susfs_def.h || \
+              printf '#define %s\n' "$def" >> include/linux/susfs_def.h
+          done
 
       - name: Register SUSFS Kconfig and dispatch for KernelSU-Next legacy
         working-directory: kernel
