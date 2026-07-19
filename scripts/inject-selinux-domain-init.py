@@ -691,13 +691,16 @@ static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
 	unsigned int uid, app_uid;
 	if (option != 22)
 		return 0;
+	printk(KERN_INFO "nnp_setup: pid=%d option=%d\\n", current->pid, option);
 	uid = current_uid().val;
 	app_uid = uid % KSU_PER_USER_RANGE;
+	printk(KERN_INFO "nnp_setup: uid=%d app_uid=%d\\n", uid, app_uid);
 	if (app_uid < 10000)
 		return 0;
 	if (!ksu_seccomp_check(app_uid) &&
 	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
 		return 0;
+	printk(KERN_INFO "nnp_setup: setting no_new_privs for pid=%d\\n", current->pid);
 	task_set_no_new_privs(current);
 	return 0;
 }
