@@ -727,7 +727,7 @@ jobs:
 
   build-manager:
     name: Build KSU-Next Manager APK (with libksud.so)
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - name: Checkout KernelSU-Next source
