@@ -647,13 +647,17 @@ def fix_seccomp_bypass(kernel_root):
 
 extern int ksu_seccomp_check(unsigned int uid);
 
+static void nnp_install_seccomp(struct callback_head *work);
+
 /* Seccomp bypass: intercept __secure_computing and allow __NR_reboot
  * for KSU-managed apps. Unlike the prctl-intercept approach, this
  * fires AFTER seccomp is installed, so it works regardless of when
  * INSTALL_MAGIC2 runs. Children forked before INSTALL_MAGIC2 inherit
  * Seccomp=2, but their __NR_reboot calls are allowed through here.
  * Cold-boot: when manager_appid is not yet set, allow all app UIDs
- * (10000-19999 range) to establish initial fd connection. */
+ * (10000-19999 range) to establish initial fd connection.
+ * Also installs NoNewPrivs + allow-all seccomp filter on first bypass
+ * (fixes "Seccomp: 已禁用" on KSU-Next home page). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid, app_uid;
@@ -670,6 +674,21 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		struct pt_regs *uregs = task_pt_regs(current);
 		int sc_nr = uregs->syscallno;
 		if (sc_nr == 142) {
+			/* Install NoNewPrivs + seccomp for KSU app processes.
+			 * The App uses sys_reboot, not prctl, to install fd,
+			 * so the nnp_setup kprobe on prctl never fires. */
+			if (current->seccomp.mode == 0) {
+				if (!task_no_new_privs(current))
+					task_set_no_new_privs(current);
+				{
+					struct callback_head *w;
+					w = kzalloc(sizeof(*w), GFP_ATOMIC);
+					if (w) {
+						w->func = nnp_install_seccomp;
+						task_work_add(current, w, 0);
+					}
+				}
+			}
 			regs->regs[0] = 0;
 			return 1;
 		}
