@@ -208,23 +208,28 @@ EXPORT_SYMBOL(ksu_handle_prctl);
             # Also modify ksu_handle_sys_reboot in supercall.c to set bitmap bit
             # when fd is installed via reboot syscall path.
             content = open(c_path).read()
-            sys_old = ('\tif (magic1 == KSU_INSTALL_MAGIC1 && magic2 == KSU_INSTALL_MAGIC2) {\n'
-                      '\t\tint fd = ksu_install_fd();\n'
-                      '\t\tif (fd >= 0) {\n'
-                      '\t\t\tif (copy_to_user')
-            sys_new = ('\tif (magic1 == KSU_INSTALL_MAGIC1 && magic2 == KSU_INSTALL_MAGIC2) {\n'
-                      '\t\tint fd = ksu_install_fd();\n'
-                      '\t\tif (fd >= 0) {\n'
-                      '\t\t\tunsigned int bmp_uid = current_uid().val % KSU_PER_USER_RANGE;\n'
-                      '\t\t\tif (bmp_uid < KSU_BMP_MAX_UID)\n'
-                      '\t\t\t\tset_bit((int)bmp_uid, ksu_seccomp_bmp);\n'
-                      '\t\t\tif (copy_to_user')
-            if sys_old in content:
-                content = content.replace(sys_old, sys_new, 1)
+            # KSU-Next uses task_work-based fd install in ksu_install_fd_tw_func.
+            # The direct fd install is inside ksu_install_fd_tw_func().
+            # We patch the function to add bitmap set after fd install completes.
+            tw_old = ('int fd = ksu_install_fd();\n'
+                      '\n'
+                      '\tpr_debug("[%d] install ksu fd: %d\\n", current->pid, fd);\n'
+                      '\tif (copy_to_user(tw->outp, &fd, sizeof(fd)))')
+            tw_new = ('int fd = ksu_install_fd();\n'
+                      '\n'
+                      '\tpr_debug("[%d] install ksu fd: %d\\n", current->pid, fd);\n'
+                      '\tif (fd >= 0) {\n'
+                      '\t\tunsigned int bmp_uid = current_uid().val % KSU_PER_USER_RANGE;\n'
+                      '\t\tif (bmp_uid < KSU_BMP_MAX_UID)\n'
+                      '\t\t\tset_bit((int)bmp_uid, ksu_seccomp_bmp);\n'
+                      '\t}\n'
+                      '\tif (copy_to_user(tw->outp, &fd, sizeof(fd)))')
+            if tw_old in content:
+                content = content.replace(tw_old, tw_new, 1)
                 open(c_path, 'w').write(content)
-                print("  ksu_handle_sys_reboot: set_bit added")
+                print("  ksu_install_fd_tw_func: set_bit added")
             else:
-                print("  WARNING: ksu_handle_sys_reboot pattern not found")
+                print("  WARNING: ksu_install_fd_tw_func pattern not found")
             success = True
         else:
             print("  ksu_handle_prctl already in supercall.c, skipping")

@@ -20,7 +20,8 @@ Fix:
   4. Add calls to on_post_fs_data() (boot_event.c) as a safety net.
 """
 
-import sys, os, re
+import sys, os
+import re as _re
 
 
 def find_file(kernel_root, candidates):
@@ -245,6 +246,7 @@ def fix_syscall_hook_reboot(kernel_root):
     # 1. Add handler to syscall_event_bridge.c
     bridge_path = find_file(kernel_root, [
         "drivers/kernelsu/hook/syscall_event_bridge.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/hook/syscall_event_bridge.c",
         "KernelSU/kernel/hook/syscall_event_bridge.c",
     ])
     if not bridge_path:
@@ -299,6 +301,7 @@ def fix_syscall_hook_reboot(kernel_root):
     # 2. Register the hook in syscall_hook_manager.c
     mgr_path = find_file(kernel_root, [
         "drivers/kernelsu/hook/syscall_hook_manager.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/hook/syscall_hook_manager.c",
         "KernelSU/kernel/hook/syscall_hook_manager.c",
     ])
     if not mgr_path:
@@ -378,42 +381,41 @@ def fix_throne_deferred_cred(kernel_root):
     if 'deferred_cred_fixed' in content:
         print(f"  {path}: already fixed")
         return True
-    
-    # Find the broken pattern and fix it
-    # Find the deferred-cred injected block and replace everything from
-    # "if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))" through the orphaned
-    # "{ return false; }" with clean code:
-    #   if (is_lock_held(path)) {
-    #       return false;
-    #   }
-    anchor = 'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))'
+
+    # Find deferred-cred injected block and fix orphan control flow.
+    # The broken pattern (from inject-deferred-ksu-cred.py):
+    #   if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))
+    #   /* setup_ksu_cred: ... */
+    #   { deferred-cred block }
+    #   { return false; }
+    anchor = 'if (is_lock_held('
     if anchor not in content:
-        print(f"  WARNING: deferred-cred block not found in {path}")
+        print(f"  WARNING: is_lock_held not found in {path}")
         return True
     
     idx = content.find(anchor)
-    # The orphan block (added by inject-deferred-ksu-cred.py) is:
-    #  {\n\t\treturn false; // comment\n\t}
-    # Find the orphan closing brace after the return false line
-    search_start = content.find('\n {', idx)  # orphan block start
-    if search_start < 0:
-        print(f"  WARNING: orphan block start not found in {path}")
+    # Find the orphan block after the deferred-cred. It should be:
+    # whitespace + { + whitespace + return false + whitespace + }
+    rest = content[idx + len('if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))'):]
+    # Find the orphan { return false; } block. It's the FIRST
+    # standalone "{ return false; ... }" after the if/block.
+    orphan_pat = _re.compile(r'\n\s*\{\s*\n\s*return false[^}]*\}')
+    orphan_m = orphan_pat.search(rest)
+    if not orphan_m:
+        print(f"  WARNING: orphan return-false block not found in {path}")
         return True
-    orphan_close = content.find('\n\t}\n\n\tstruct file', search_start)
-    if orphan_close < 0:
-        orphan_close = content.find('\n\t}\n\n\tstruct file', search_start)
-    if orphan_close < 0:
-        print(f"  WARNING: orphan block close not found in {path}")
-        return True
-    orphan_close += len('\n\t}')
     
+    # Replace from 'if (is_lock_held' to end of orphan block
+    orphan_end = idx + len('if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH))') + orphan_m.end()
     replacement = (
         'if (is_lock_held(SYSTEM_PACKAGES_LIST_PATH)) {\n'
         '\t\t/* deferred_cred_fixed */\n'
         '\t\treturn false;\n'
         '\t}\n'
     )
-    content = content[:idx] + replacement + content[orphan_close:]
+    # Find the next statement after orphan block to avoid corrupting code
+    next_stmt = content[orphan_end:].lstrip('\n')
+    content = content[:idx] + replacement + next_stmt
     with open(path, 'w') as f:
         f.write(content)
     print(f"  {path}: fixed deferred-cred broken control flow")
@@ -492,6 +494,9 @@ def fix_auto_crown_prctl(kernel_root):
     
     # Try to match any of the known pattern variants
     old_patterns = [
+        # Injected by inject-ksu-prctl.py (has printk between uid decl and if)
+        ('\tif (arg2 == 2) {\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tprintk(KERN_INFO "ksu_prctl: get_info',
+         '\tif (arg2 == 2) {\n\t\t/* auto_crown_fixed_prctl */\n\t\tuid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n\t\tprintk(KERN_INFO "ksu_prctl: get_info'),
         # 4-space indent with comment
         ('if (arg2 == 2) {\n        /* Legacy get_info: register/update caller as manager */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (ksu_get_manager_appid() != uid) {\n            ksu_set_manager_appid(uid);',
          'if (arg2 == 2) {\n        /* auto_crown_fixed_prctl */\n        uid_t uid = current_uid().val % KSU_PER_USER_RANGE;\n        if (!ksu_is_manager_appid_valid() || uid == ksu_get_manager_appid()) {\n            ksu_set_manager_appid(uid);'),
@@ -738,69 +743,135 @@ static struct kprobe nnp_setup_kp = {
     # Insert kprobe declaration before ksu_supercalls_init
     # First, remove duplicate prctl_kp registration (original kprobe also
     # installs fd, which conflicts with our ksu_handle_prctl handler).
-    content = content.replace(
-        '\trc = register_kprobe(&prctl_kp);\n'
-        '\tif (rc) {\n'
-        '\t\tpr_err("prctl kprobe failed: %d\\n", rc);\n'
-        '\t}\n',
-        '\t/* prctl_kp disabled: ksu_handle_prctl handles fd install */\n'
-    )
+    prctl_kp_pat1 = ('\trc = register_kprobe(&prctl_kp);\n'
+                     '\tif (rc) {\n'
+                     '\t\tpr_err("prctl kprobe failed: %d\\n", rc);\n'
+                     '\t} else {\n'
+                     '\t\tpr_debug("prctl kprobe registered successfully\\n");\n'
+                     '\t}\n')
+    prctl_kp_pat2 = ('\trc = register_kprobe(&prctl_kp);\n'
+                     '\tif (rc) {\n'
+                     '\t\tpr_err("prctl kprobe failed: %d\\n", rc);\n'
+                     '\t}\n')
+    prctl_kp_match = prctl_kp_pat1 if prctl_kp_pat1 in content else \
+                     (prctl_kp_pat2 if prctl_kp_pat2 in content else '')
+    if prctl_kp_match:
+        content = content.replace(
+            prctl_kp_match,
+            '\t/* prctl_kp disabled: ksu_handle_prctl handles fd install */\n'
+        )
+    else:
+        print("  WARNING: prctl_kp registration pattern not found, skipping removal")
+
     old = '\nvoid __init ksu_supercalls_init(void)'
     if old not in content:
         print(f"  ERROR: cannot find ksu_supercalls_init in {path}")
         return False
     content = content.replace(old, kprobe_decl + '\nvoid __init ksu_supercalls_init(void)', 1)
 
-    # In the legacy branch, ksu_supercalls_init ends with:
-    #   #ifdef KSU_KPROBES_HOOK
-    #       register_kprobe(&reboot_kp);
-    #   #endif
-    #   }
-    # We add our two kprobes after #endif, before }.
-    old = '#endif\n}'
-    if old not in content:
-        print(f"  ERROR: cannot find end of ksu_supercalls_init in {path}")
-        return False
-    
-    new = (
-        '#endif\n'
-        '\n'
-	    '\t/* seccomp_bypass: bypass seccomp for SYS_reboot + KSU magic. */\n'
-        '\t{\n'
-        '\t\tint rc;\n'
-'\t\trc = register_kprobe(&seccomp_bypass_kp);\n'
-         '\t\tif (rc) {\n'
-         '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
-         '\t\t} else {\n'
-         '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
-         '\t\t}\n'
-'\t\trc = register_kprobe(&nnp_setup_kp);\n'
-         '\t\tif (rc) {\n'
-         '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
-         '\t\t} else {\n'
-         '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
-         '\t\t}\n'
-         '\t}\n'
-        '}'
-    )
-    content = content.replace(old, new, 1)
+    # KSU-Next legacy supercall.c: ksu_supercalls_init directly ends with } (no #endif).
+    # Insert new kprobe registrations before the closing } of ksu_supercalls_init.
+    # Find the init function closing: "\tpr_debug("prctl kprobe registered successfully\n");\n}"
+    init_close_a = '\t\tpr_debug("prctl kprobe registered successfully\\n");\n\t}\n}'
+    init_close_b = '\t/* prctl_kp disabled: ksu_handle_prctl handles fd install */\n}'
+    init_close = None
+    for pat in [init_close_a, init_close_b]:
+        if pat in content:
+            init_close = pat
+            break
+    if not init_close:
+        # Fallback: match "}\n*/\n}" or similar ending
+        print(f"  WARNING: ksu_supercalls_init closing not found, scanning for function end")
+        idx = content.find('void __init ksu_supercalls_init')
+        if idx >= 0:
+            # Find the first "}\n" after ksu_supercalls_exit or EOF, whichever comes first
+            # This only works if ksu_supercalls_init is the last function before exit
+            for search_marker in ['\nvoid __exit ksu_supercalls_exit', '\n\nvoid __exit ksu_supercalls_exit']:
+                end_idx = content.find(search_marker, idx)
+                if end_idx > 0:
+                    # Find the last "}" before the exit function
+                    block = content[idx:end_idx]
+                    last_brace = block.rfind('\n}')
+                    if last_brace >= 0:
+                        # This is the closing of ksu_supercalls_init
+                        old = block[last_brace:]  # \n}
+                        new = (
+                            '\n'
+                            '\t/* seccomp_bypass: bypass seccomp for SYS_reboot + KSU magic. */\n'
+                            '\t{\n'
+                            '\t\tint rc;\n'
+                            '\t\trc = register_kprobe(&seccomp_bypass_kp);\n'
+                            '\t\tif (rc) {\n'
+                            '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
+                            '\t\t} else {\n'
+                            '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
+                            '\t\t}\n'
+                            '\t\trc = register_kprobe(&nnp_setup_kp);\n'
+                            '\t\tif (rc) {\n'
+                            '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
+                            '\t\t} else {\n'
+                            '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
+                            '\t\t}\n'
+                            '\t}\n'
+                            '}'
+                        )
+                        content = content[:idx+last_brace] + new + content[end_idx:]
+                        print(f"  KSU-Next: kprobe registration added (fallback)")
+                        init_close_found = True
+                        break
+        if not init_close and not init_close_found:
+            print(f"  ERROR: cannot find end of ksu_supercalls_init in {path}")
+            return False
+    else:
+        # Found the closing pattern, insert kprobe registration before it
+        new_init_close = (
+            '\t\tpr_debug("prctl kprobe registered successfully\\n");\n'
+            '\t}\n'
+            '\t/* seccomp_bypass: bypass seccomp for SYS_reboot + KSU magic. */\n'
+            '\t{\n'
+            '\t\tint rc;\n'
+            '\t\trc = register_kprobe(&seccomp_bypass_kp);\n'
+            '\t\tif (rc) {\n'
+            '\t\t\tpr_err("seccomp_bypass kprobe failed: %d\\n", rc);\n'
+            '\t\t} else {\n'
+            '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
+            '\t\t}\n'
+            '\t\trc = register_kprobe(&nnp_setup_kp);\n'
+            '\t\tif (rc) {\n'
+            '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
+            '\t\t} else {\n'
+            '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
+            '\t\t}\n'
+            '\t}\n'
+            '}'
+        )
+        content = content.replace(init_close, new_init_close, 1)
+        print(f"  KSU-Next: kprobe registration added (pattern match)")
 
-    # Also unregister in exit
-    old_exit = '\tunregister_kprobe(&prctl_kp);\n}'
-    if old_exit in content:
+    # Also unregister in exit - KSU-Next only has unregister_kprobe(&reboot_kp);
+    # Replace the exit function to add our unregisters
+    exit_pat1 = '\tunregister_kprobe(&reboot_kp);\n\tksu_supercall_cleanup_state();\n}'
+    exit_pat2 = '\tunregister_kprobe(&prctl_kp);\n}'
+    if exit_pat1 in content:
         content = content.replace(
-            old_exit,
+            exit_pat1,
+            '\tunregister_kprobe(&reboot_kp);\n'
+            '\tunregister_kprobe(&seccomp_bypass_kp);\n'
+            '\tunregister_kprobe(&nnp_setup_kp);\n'
+            '\tksu_supercall_cleanup_state();\n'
+            '}',
+            1
+        )
+        print("  KSU-Next: unregister added to ksu_supercalls_exit")
+    elif exit_pat2 in content:
+        content = content.replace(
+            exit_pat2,
             '\t/* prctl_kp unregister removed (kprobe not registered) */\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
             '\tunregister_kprobe(&nnp_setup_kp);\n'
             '}',
             1
         )
-    else:
-        # Also try without prctl_kp (some branches don't have it)
-        old_exit2 = '\treturn 0;\n}'
-        if old_exit2 in content:
-            pass  # skip, not needed if prctl_kp not present
 
     with open(path, 'w') as f:
         f.write(content)
@@ -1086,19 +1157,20 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
 	else
 		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
-	/* Make su available via overlay upperdir write (call_usermodehelper disabled).
-	 * Uses kernel VFS directly: filp_open + kernel_write to /mnt/scratch/overlay/odm/upper/bin/su.
-	 * The overlay upperdir (/mnt/scratch, f2fs) persists across reboots.
-	 * On first boot, try /data/local/tmp/su as fallback. */
-	{
-		static const char su_content[] =
-			"#!/system/bin/sh\\n"
-			"exec /data/adb/ksu/bin/ksud debug su -g 2>/dev/null \\n"
-			"|| exec /system/bin/sh \"$@\" \\n";
-		const char *su_paths[] = {
-			"/mnt/scratch/overlay/odm/upper/bin/su",
-			"/data/local/tmp/su",
-		};
+    /* Make su available via overlay upperdir write (call_usermodehelper disabled).
+     * Uses kernel VFS directly: filp_open + kernel_write to /mnt/scratch/overlay/odm/upper/bin/su.
+     * The overlay upperdir (/mnt/scratch, f2fs) persists across reboots.
+     * On first boot, try /data/local/tmp/su as fallback.
+     * /data/adb/ksud is the actual path (defs.rs: DAEMON_PATH). */
+    {
+        static const char su_content[] =
+            "#!/system/bin/sh\\n"
+            "exec /data/adb/ksud debug su \"$@\" 2>/dev/null\\n"
+            "|| exec /system/bin/sh \"$@\"\\n";
+        const char *su_paths[] = {
+            "/mnt/scratch/overlay/odm/upper/bin/su",
+            "/data/local/tmp/su",
+        };
 		int i;
 		for (i = 0; i < 2; i++) {
 			const struct cred *old_cred3 = override_creds(ksu_cred);

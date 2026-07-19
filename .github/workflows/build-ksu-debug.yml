@@ -68,7 +68,8 @@ jobs:
           else
             patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_ksu_install_fd.patch || {
               echo "WARNING: patch failed, applying manually..."
-              sed -i '1s/^/#ifdef CONFIG_KSU\nextern int ksu_install_fd(void);\n#endif\n/' init/main.c
+              # Add extern after last #include, not at top of file
+              sed -i '/^#include.*/a #ifdef CONFIG_KSU\nextern int ksu_install_fd(void);\n#endif' init/main.c
               sed -i '/kernel_init_freeable();/a #ifdef CONFIG_KSU\n\tif (ksu_install_fd() < 0)\n\t\tpr_err("KSU: failed to install KSU fd\\n");\n#endif' init/main.c
             }
             grep -n 'ksu_install_fd' init/main.c
@@ -141,25 +142,25 @@ jobs:
           # Add package-name matching code in throne_tracker.c
           python3 ../scripts/inject-ksu-manager-auto-crown.py .
 
-          # Remove "KernelSU: " prefix from klog.h
-          FILE3="drivers/kernelsu/include/klog.h"
-          if [ -f "$FILE3" ]; then
-            sed -i 's/#define pr_fmt(fmt) "KernelSU: " fmt/#define pr_fmt(fmt) fmt/' "$FILE3"
-            echo "  Removed KernelSU: prefix from klog.h"
-          else
-            echo "  WARNING: $FILE3 not found"
-          fi
+          # Remove "KernelSU: " prefix from klog.h (try multiple paths)
+          for FILE3 in "drivers/kernelsu/include/klog.h" "drivers/kernelsu/../KernelSU-Next/include/klog.h" "KernelSU/kernel/include/klog.h"; do
+            if [ -f "$FILE3" ]; then
+              sed -i 's/#define pr_fmt(fmt) "KernelSU: " fmt/#define pr_fmt(fmt) fmt/' "$FILE3"
+              echo "  Removed KernelSU: prefix from $FILE3"
+              break
+            fi
+          done
 
-          # Remove boot_complete_lock so on_boot_completed can retrigger
-          FILE4="drivers/kernelsu/supercall/dispatch.c"
-          if [ -f "$FILE4" ]; then
-            sed -i 's/static bool boot_complete_lock = false;/\/\/ boot_complete_lock removed/' "$FILE4"
-            sed -i 's/if (!boot_complete_lock) {/{ \/\/ boot_complete_lock removed/' "$FILE4"
-            sed -i 's/boot_complete_lock = true;/\/\/ boot_complete_lock = true; (removed)/' "$FILE4"
-            echo "  Removed boot_complete_lock from dispatch.c"
-          else
-            echo "  WARNING: $FILE4 not found"
-          fi
+          # Remove boot_complete_lock so on_boot_completed can retrigger (try multiple paths)
+          for FILE4 in "drivers/kernelsu/supercall/dispatch.c" "drivers/kernelsu/../KernelSU-Next/kernel/supercall/dispatch.c" "KernelSU/kernel/supercall/dispatch.c"; do
+            if [ -f "$FILE4" ]; then
+              sed -i 's/static bool boot_complete_lock = false;/\/\/ boot_complete_lock removed/' "$FILE4"
+              sed -i 's/if (!boot_complete_lock) {/{ \/\/ boot_complete_lock removed/' "$FILE4"
+              sed -i 's/boot_complete_lock = true;/\/\/ boot_complete_lock = true; (removed)/' "$FILE4"
+              echo "  Removed boot_complete_lock from $FILE4"
+              break
+            fi
+          done
           echo "=== Verification ==="
           grep -c 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
           grep -c 'Auto-crown manager' drivers/kernelsu/manager/throne_tracker.c 2>/dev/null || echo "0"
@@ -194,20 +195,25 @@ jobs:
       - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
         working-directory: kernel
         run: |
-          # Retry SUSFS clone up to 3 times (gitlab.com network is unreliable)
-          for i in 1 2 3; do
-            echo "SUSFS clone attempt $i/3..."
-            rm -rf /tmp/susfs 2>/dev/null || true
-            git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs 2>&1
-            if [ -d "/tmp/susfs/kernel_patches" ]; then
-              echo "SUSFS clone SUCCESS (attempt $i)"
-              break
-            fi
-            if [ "$i" = "3" ]; then
-              echo "ERROR: SUSFS clone failed after 3 attempts!"; exit 1
-            fi
-            sleep 5
+          # Retry SUSFS clone: try gitlab first, then GitHub mirror as fallback
+          SUSFS_CLONED=false
+          for repo in "https://gitlab.com/simonpunk/susfs4ksu.git" "https://github.com/simonpunk/susfs4ksu.git"; do
+            for i in 1 2 3; do
+              echo "SUSFS clone attempt $i/3 from $repo..."
+              rm -rf /tmp/susfs 2>/dev/null || true
+              git clone --depth 1 -b kernel-4.19 "$repo" /tmp/susfs 2>&1
+              if [ -d "/tmp/susfs/kernel_patches" ]; then
+                echo "SUSFS clone SUCCESS from $repo (attempt $i)"
+                SUSFS_CLONED=true
+                break
+              fi
+              sleep 5
+            done
+            $SUSFS_CLONED && break
           done
+          if ! $SUSFS_CLONED; then
+            echo "ERROR: SUSFS clone failed from all mirrors!"; exit 1
+          fi
           # kernel-4.19 branch HEAD = v1.5.5 (verified via include/linux/susfs.h)
           patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || echo "WARNING: 50_add patch failed (may already be applied)"
           cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
@@ -457,6 +463,14 @@ jobs:
             fi
           else
             echo "  WARNING: syscall_hook_manager.c not found"
+          fi
+
+          # TWA_RESUME is not defined in kernel 4.19 (added in 5.9)
+          if grep -q 'TWA_RESUME' drivers/kernelsu/supercall/supercall.c 2>/dev/null; then
+            sed -i 's/TWA_RESUME/0/g' drivers/kernelsu/supercall/supercall.c
+            echo "  TWA_RESUME → 0 (kernel 4.19 compat)"
+          else
+            echo "  TWA_RESUME already fixed in supercall.c"
           fi
 
           echo "=== Compatibility fixes applied ==="
@@ -728,18 +742,21 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustup target add aarch64-linux-android
 
-      - name: Setup Android NDK + SDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r26d
-          add-to-path: true
+      - name: Install Android NDK r26d
+        run: |
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r26d-linux.zip"
+          NDK_ZIP="/tmp/ndk-r26d.zip"
+          curl -fSL -o "$NDK_ZIP" "$NDK_URL"
+          unzip -q "$NDK_ZIP" -d /opt
+          echo "ANDROID_NDK_HOME=/opt/android-ndk-r26d" >> $GITHUB_ENV
+          echo "/opt/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: Build ksud for aarch64-linux-android
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_NDK_ROOT
-          export CC_aarch64_linux_android=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
-          export AR_aarch64_linux_android=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CC_aarch64_linux_android
+          export ANDROID_NDK_HOME=/opt/android-ndk-r26d
+          export CC_aarch64_linux_android="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          export AR_aarch64_linux_android="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           cd ksunext/userspace/ksud
           cargo build --target aarch64-linux-android --release 2>&1
           ls -lh target/aarch64-linux-android/release/ksud
