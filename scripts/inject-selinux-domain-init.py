@@ -723,7 +723,7 @@ static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
 		struct callback_head *work = kzalloc(sizeof(*work), GFP_ATOMIC);
 		if (work) {
 			work->func = nnp_install_seccomp;
-			task_work_add(current, work, TWA_RESUME);
+			task_work_add(current, work, 0);
 		}
 	}
 	return 0;
