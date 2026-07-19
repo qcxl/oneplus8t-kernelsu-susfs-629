@@ -627,7 +627,7 @@ def fix_seccomp_bypass(kernel_root):
     if '#include <linux/seccomp.h>' not in content:
         content = content.replace(
             '#include <linux/slab.h>',
-            '#include <linux/slab.h>\n#include <linux/seccomp.h>'
+            '#include <linux/slab.h>\n#include <linux/seccomp.h>\n#include <linux/filter.h>\n#include <linux/uaccess.h>'
         )
 
     # Add the seccomp kprobe structure before ksu_supercalls_init
@@ -677,31 +677,42 @@ static struct kprobe seccomp_bypass_kp = {
 	.pre_handler = seccomp_bypass_pre,
 };
 
-/* Kprobe on __arm64_sys_prctl: set NO_NEW_PRIVS for KSU manager apps
- * before seccomp installation. This ensures seccomp_set_mode_filter()
- * check passes (requires no_new_privs or CAP_SYS_ADMIN), fixing
- * 'Seccomp: 已禁用' display on the KSU-Next home page.
- * Root cause: LineageOS 20 userdebug does not set no_new_privs for
- * app processes → prctl(PR_SET_SECCOMP) returns EACCES → mode stays 0
- * → prctl(PR_GET_SECCOMP) returns 0 → App shows "已禁用". */
+/* Kprobe on __arm64_sys_prctl: install allow-all seccomp filter for KSU
+ * manager apps. This fixes 'Seccomp: 已禁用' on the KSU-Next home page.
+ *
+ * Root cause: LineageOS 20 Bionic skips prctl(PR_SET_SECCOMP) for regular
+ * app UIDs (NoNewPrivs=0, no CAP_SYS_ADMIN). The app never installs
+ * seccomp → mode stays 0 → prctl(PR_GET_SECCOMP) returns 0 → "已禁用".
+ *
+ * Fix: on the FIRST prctl syscall from a KSU manager app, set NoNewPrivs
+ * and install an allow-all filter via kernel-to-kernel prctl_set_seccomp()
+ * call. Works in kprobe context (process context at syscall entry).
+ * The allow-all filter lets all syscalls through (BPF_RET|K → ALLOW). */
 static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	struct pt_regs *sr = (struct pt_regs *)regs->regs[0];
-	unsigned int option = (unsigned int)sr->regs[0];
 	unsigned int uid, app_uid;
-	if (option != 22)
-		return 0;
-	printk(KERN_INFO "nnp_setup: pid=%d option=%d\\n", current->pid, option);
 	uid = current_uid().val;
 	app_uid = uid % KSU_PER_USER_RANGE;
-	printk(KERN_INFO "nnp_setup: uid=%d app_uid=%d\\n", uid, app_uid);
 	if (app_uid < 10000)
 		return 0;
 	if (!ksu_seccomp_check(app_uid) &&
 	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
 		return 0;
-	printk(KERN_INFO "nnp_setup: setting no_new_privs for pid=%d\\n", current->pid);
+	if (current->seccomp.mode != 0)
+		return 0;
 	task_set_no_new_privs(current);
+	{
+		struct sock_fprog fprog;
+		struct sock_filter bpf_filter[1];
+		mm_segment_t old_fs;
+		bpf_filter[0] = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+		fprog.len = 1;
+		fprog.filter = bpf_filter;
+		old_fs = get_fs();
+		set_fs(KERNEL_DS);
+		prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
+		set_fs(old_fs);
+	}
 	return 0;
 }
 
