@@ -1329,7 +1329,6 @@ def main():
     ok &= fix_allow_uid_zero(root)
     ok &= fix_syscall_hook_reboot(root)
     ok &= fix_seccomp_bypass(root)
-    ok &= fix_sucompat_pdeath(root)
     ok &= fix_kernelsu_init(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)

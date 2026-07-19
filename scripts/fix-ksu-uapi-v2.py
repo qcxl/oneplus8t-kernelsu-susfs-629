@@ -101,44 +101,29 @@ def fix_dispatch_c():
 
     already_full = "uapi_version = KERNEL_SU_UAPI_VERSION" in content
     already_seccomp = "Installed by KSU-Next fix-ksu-uapi" in content
-    if already_full and already_seccomp:
-        print("  dispatch.c: UAPI v2 + seccomp already present, skipping")
+    
+    # Remove previously injected seccomp (empirically proven: Seccomp=2 + NoNewPrivs=1
+    # causes forked processes to become SIGKILL-immune orphans after parent death.
+    # kill -KILL confirmed ineffective via /proc/PID/status + SigPnd test.)
+    if already_seccomp:
+        print("  dispatch.c: removing previously injected seccomp...")
+        marker = "/* Installed by KSU-Next fix-ksu-uapi"
+        idx = content.find(marker)
+        if idx >= 0:
+            features_idx = content.find("cmd.features = KSU_FEATURE_MAX;", idx)
+            if features_idx >= 0:
+                block_start = content.rfind('\n', 0, idx)
+                content = content[:block_start + 1] + content[features_idx:]
+                print("  seccomp block removed from dispatch.c")
+    
+    if already_full:
+        print("  dispatch.c: UAPI v2 present (seccomp permanently disabled)")
+        if already_seccomp:
+            # Write the cleaned content
+            with open(dp_path, 'w') as f:
+                f.write(content)
+            print(f"  dispatch.c: seccomp removal saved to {dp_path}")
         return True
-
-    seccomp_block = (
-        '\n'
-        '\t/* Installed by KSU-Next fix-ksu-uapi — NoNewPrivs + allow-all seccomp */\n'
-        '\tif (current->seccomp.mode == 0) {\n'
-        '\t\tstruct sock_fprog fprog;\n'
-        '\t\tstruct sock_filter bpf_filter[1] = {\n'
-        '\t\t\tBPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)\n'
-        '\t\t};\n'
-        '\t\tmm_segment_t old_fs;\n'
-        '\t\tif (!task_no_new_privs(current))\n'
-        '\t\t\ttask_set_no_new_privs(current);\n'
-        '\t\tfprog.len = 1;\n'
-        '\t\tfprog.filter = bpf_filter;\n'
-        '\t\told_fs = get_fs();\n'
-        '\t\tset_fs(KERNEL_DS);\n'
-        '\t\tprctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);\n'
-        '\t\tset_fs(old_fs);\n'
-        '\t}\n'
-    )
-
-    if not already_seccomp:
-        # Add required includes for seccomp
-        for hdr, marker in [('<linux/seccomp.h>', '#include <linux/seccomp.h>'),
-                            ('<linux/filter.h>', '#include <linux/filter.h>')]:
-            if hdr not in content:
-                content = content.replace(
-                    '#include <linux/uaccess.h>',
-                    '#include <linux/uaccess.h>\n' + marker
-                )
-        print("  dispatch.c: injecting seccomp into do_get_info")
-        content = content.replace(
-            "cmd.features = KSU_FEATURE_MAX;",
-            seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
-        )
 
     if not already_full:
         print("  dispatch.c: injecting UAPI v2 fields")
