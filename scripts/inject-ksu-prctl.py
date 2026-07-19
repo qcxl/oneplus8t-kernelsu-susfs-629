@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>\n#include <linux/filter.h>\n#include <linux/uaccess.h>'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>'
             )
 
             # Fix CPU spinning: add .poll handler to anon_ksu_fops so epoll blocks.
@@ -66,30 +66,37 @@ def main():
 unsigned long ksu_seccomp_bmp[KSU_CMP_WORDS] = { };
 
 /* Per-UID PID tracking: kill old libksud instances on reconnect.
- * Prevents orphaned daemon processes from spinning at 100% CPU.
- * Array size = 256 (covers UIDs 10000-65535 at KSU_PER_USER_RANGE). */
+ * Array stores {uid, pid} pairs; slot = uid % SIZE. Full UID
+ * comparison prevents hash collision from killing wrong processes. */
 #define KSU_PID_MAP_SIZE 256
-static pid_t ksu_active_pid[KSU_PID_MAP_SIZE] = { };
+static struct {
+    uid_t uid;
+    pid_t pid;
+} ksu_active_entries[KSU_PID_MAP_SIZE] = { };
 static DEFINE_SPINLOCK(ksu_pid_lock);
 
 static void ksu_kill_old_instance(uid_t uid)
 {
-	unsigned int slot = uid % KSU_PID_MAP_SIZE;
-	pid_t old_pid;
-	struct task_struct *t;
+    unsigned int slot = uid % KSU_PID_MAP_SIZE;
+    pid_t old_pid;
+    uid_t old_uid;
+    struct task_struct *t;
 
-	spin_lock(&ksu_pid_lock);
-	old_pid = ksu_active_pid[slot];
-	ksu_active_pid[slot] = task_pid_vnr(current);
-	if (old_pid && old_pid != task_pid_vnr(current)) {
-		t = find_task_by_vpid(old_pid);
-		if (t && t->exit_state == 0) {
-			printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
-			       old_pid, uid);
-			send_sig(SIGKILL, t, 0);
-		}
-	}
-	spin_unlock(&ksu_pid_lock);
+    spin_lock(&ksu_pid_lock);
+    old_pid = ksu_active_entries[slot].pid;
+    old_uid = ksu_active_entries[slot].uid;
+    ksu_active_entries[slot].uid = uid;
+    ksu_active_entries[slot].pid = task_pid_vnr(current);
+    spin_unlock(&ksu_pid_lock);
+
+    if (old_pid && old_uid == uid && old_pid != task_pid_vnr(current)) {
+        t = find_task_by_vpid(old_pid);
+        if (t && t->exit_state == 0) {
+            printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
+                   old_pid, uid);
+            send_sig(SIGKILL, t, 0);
+        }
+    }
 }
 
 /* Helper: check if uid is in the seccomp bypass bitmap.
@@ -150,25 +157,10 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                 }
             }
             /* Install seccomp filter if not already enabled.
-             * On LineageOS 20 userdebug, Bionic skips prctl(PR_SET_SECCOMP)
-             * for regular app UIDs (NoNewPrivs=0, no CAP_SYS_ADMIN).
-             * prctl(PR_GET_SECCOMP) returns 0 → KSU-Next shows "已禁用".
-             * Fix: set no_new_privs + install allow-all filter from kernel. */
+             * Kprobe task_work handles this usually, but this is
+             * a fallback for cases where the kprobe doesn't fire. */
             if (current->seccomp.mode == 0) {
-                struct sock_fprog fprog;
-                mm_segment_t old_fs;
-                struct sock_filter bpf_filter[1] = {
-                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
-                };
                 task_set_no_new_privs(current);
-                fprog.len = 1;
-                fprog.filter = bpf_filter;
-                old_fs = get_fs();
-                set_fs(KERNEL_DS);
-                prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
-                set_fs(old_fs);
-                printk(KERN_INFO "ksu_prctl: seccomp installed mode=%d\\n",
-                       current->seccomp.mode);
             }
         }
         return 1;
