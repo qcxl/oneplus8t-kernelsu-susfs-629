@@ -553,6 +553,7 @@ def fix_ksud_postfsdata_noctx(kernel_root):
         print(f"  {path}: replaced u:r:ksu:s0 with exec root --")
     else:
         print(f"  {path}: u:r:ksu:s0 pattern not found (legacy branch uses exec root --)")
+    return True
 
 
 def fix_allow_uid_zero(kernel_root):
