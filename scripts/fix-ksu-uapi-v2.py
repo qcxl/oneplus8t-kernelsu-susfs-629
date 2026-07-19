@@ -128,16 +128,25 @@ def fix_dispatch_c():
     if already_seccomp:
         print("  dispatch.c: seccomp already present")
     else:
+        # Add required includes for seccomp
+        for hdr, marker in [('<linux/seccomp.h>', '#include <linux/seccomp.h>'),
+                            ('<linux/filter.h>', '#include <linux/filter.h>')]:
+            if hdr not in content:
+                content = content.replace(
+                    '#include <linux/uaccess.h>',
+                    '#include <linux/uaccess.h>\n' + marker
+                )
         print("  dispatch.c: injecting seccomp into do_get_info")
         content = content.replace(
             "cmd.features = KSU_FEATURE_MAX;",
             seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
         )
-        # Also add seccomp to do_get_info_legacy if present
+        # Also inject seccomp into do_get_info_legacy (second occurrence)
+        # if the legacy function already exists from previous CI run
         if "static int do_get_info_legacy" in content:
             content = content.replace(
-                "static int do_get_info_legacy",
-                seccomp_block + '\nstatic int do_get_info_legacy'
+                "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version",
+                seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version'
             )
 
     if not already_full:
