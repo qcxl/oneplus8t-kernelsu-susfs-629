@@ -141,13 +141,6 @@ def fix_dispatch_c():
             "cmd.features = KSU_FEATURE_MAX;",
             seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
         )
-        # Also inject seccomp into do_get_info_legacy (second occurrence)
-        # if the legacy function already exists from previous CI run
-        if "static int do_get_info_legacy" in content:
-            content = content.replace(
-                "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version",
-                seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version'
-            )
 
     if not already_full:
         print("  dispatch.c: injecting UAPI v2 fields")
