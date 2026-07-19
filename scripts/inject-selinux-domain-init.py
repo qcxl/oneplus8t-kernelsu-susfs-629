@@ -1053,6 +1053,8 @@ int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out)
 
 extern unsigned long ksu_seccomp_bmp[];
 
+static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
+
 /* Delayed init: SELinux domain + auto-crown manager UID.
  * Runs ~30s after boot (policy fully loaded, /data accessible). */
 static void ksu_delayed_selinux_init(struct work_struct *work)
@@ -1170,8 +1172,8 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
     {
         static const char su_content[] =
             "#!/system/bin/sh\\n"
-            "exec /data/adb/ksud debug su \"$@\" 2>/dev/null\\n"
-            "|| exec /system/bin/sh \"$@\"\\n";
+            "exec /data/adb/ksud debug su \\"$@\\" 2>/dev/null\\n"
+            "|| exec /system/bin/sh \\"$@\\"\\n";
         const char *su_paths[] = {
             "/mnt/scratch/overlay/odm/upper/bin/su",
             "/data/local/tmp/su",
@@ -1213,7 +1215,6 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		}
 	}
 }
-static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
 '''
     # Insert before kernelsu_init definition
     content = content.replace(
