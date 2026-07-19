@@ -733,7 +733,7 @@ jobs:
       - name: Checkout KernelSU-Next source
         uses: actions/checkout@v4
         with:
-          repository: KernelSU-Next/KernelSU-Next
+          repository: rifsxd/KernelSU-Next
           ref: legacy
           path: ksunext
 
