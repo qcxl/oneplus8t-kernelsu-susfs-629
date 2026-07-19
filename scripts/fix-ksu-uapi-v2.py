@@ -88,9 +88,9 @@ struct ksu_get_info_legacy_cmd {
 
 def fix_dispatch_c():
     dp_path = find_file(KSU_ROOT, [
-        "drivers/kernelsu/supercall/dispatch.c",     # via symlink: KernelSU-Next/kernel/supercall/dispatch.c
-        "KernelSU-Next/kernel/supercall/dispatch.c", # direct path
-        "KernelSU/kernel/supercall/dispatch.c",      # fallback
+        "drivers/kernelsu/supercall/dispatch.c",
+        "KernelSU-Next/kernel/supercall/dispatch.c",
+        "KernelSU/kernel/supercall/dispatch.c",
     ])
     if not dp_path:
         print("  ERROR: dispatch.c not found")
@@ -99,18 +99,15 @@ def fix_dispatch_c():
     with open(dp_path) as f:
         content = f.read()
 
-    if "uapi_version = KERNEL_SU_UAPI_VERSION" in content:
-        print("  dispatch.c: UAPI v2 already present")
+    already_full = "uapi_version = KERNEL_SU_UAPI_VERSION" in content
+    already_seccomp = "Installed by KSU-Next fix-ksu-uapi" in content
+    if already_full and already_seccomp:
+        print("  dispatch.c: UAPI v2 + seccomp already present, skipping")
         return True
 
-    # 1. Add cmd.uapi_version + seccomp installation to do_get_info
     seccomp_block = (
         '\n'
-        '\t/* Install NoNewPrivs + allow-all seccomp for this process.\n'
-        '\t * KSU-Next App gets fd from scan_driver_fd(), not sys_reboot,\n'
-        '\t * so the reboot kprobe never fires for the App process.\n'
-        '\t * We install here because do_get_info is the first IOCTL call.\n'
-        '\t * This runs in process context (safe for GFP_KERNEL). */\n'
+        '\t/* Installed by KSU-Next fix-ksu-uapi — NoNewPrivs + allow-all seccomp */\n'
         '\tif (current->seccomp.mode == 0) {\n'
         '\t\tstruct sock_fprog fprog;\n'
         '\t\tstruct sock_filter bpf_filter[1] = {\n'
@@ -127,96 +124,76 @@ def fix_dispatch_c():
         '\t\tset_fs(old_fs);\n'
         '\t}\n'
     )
-    content = content.replace(
-        "cmd.features = KSU_FEATURE_MAX;",
-        seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
-    )
 
-    # 2. Add do_get_info_legacy function before the IOCTL handlers mapping
-    # NOTE: raw string r'''...''' so that \n in C string literals stays literal
-    legacy_fn = r'''
+    if already_seccomp:
+        print("  dispatch.c: seccomp already present")
+    else:
+        print("  dispatch.c: injecting seccomp into do_get_info")
+        content = content.replace(
+            "cmd.features = KSU_FEATURE_MAX;",
+            seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
+        )
+        # Also add seccomp to do_get_info_legacy if present
+        if "static int do_get_info_legacy" in content:
+            content = content.replace(
+                "static int do_get_info_legacy",
+                seccomp_block + '\nstatic int do_get_info_legacy'
+            )
+
+    if not already_full:
+        print("  dispatch.c: injecting UAPI v2 fields")
+        # Add uapi_version to do_get_info (already has seccomp from above)
+        content = content.replace(
+            "cmd.features = KSU_FEATURE_MAX;",
+            "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version = KERNEL_SU_UAPI_VERSION;"
+        )
+
+        # Add do_get_info_legacy function + table entry
+        legacy_fn = r'''
 
 static int do_get_info_legacy(void __user *arg)
 {
 	struct ksu_get_info_legacy_cmd cmd = {.version = KERNEL_SU_VERSION, .flags = 0};
-
-	if (ksuver_override) {
-		cmd.version = ksuver_override;
-	}
-	
+	if (ksuver_override) cmd.version = ksuver_override;
 #ifdef MODULE
 	cmd.flags |= KSU_GET_INFO_FLAG_LKM;
 #endif
-
-	if (is_manager()) {
-		cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;
-	}
-	if (ksu_late_loaded) {
-		cmd.flags |= KSU_GET_INFO_FLAG_LATE_LOAD;
-	}
+	if (is_manager()) cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;
+	if (ksu_late_loaded) cmd.flags |= KSU_GET_INFO_FLAG_LATE_LOAD;
 	cmd.features = KSU_FEATURE_MAX;
 	cmd.uapi_version = KERNEL_SU_UAPI_VERSION;
-
-	/* Install seccomp on first legacy IOCTL call (same reasoning as do_get_info) */
-	if (current->seccomp.mode == 0) {
-		struct sock_fprog fprog;
-		struct sock_filter bpf_filter[1] = {
-			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
-		};
-		mm_segment_t old_fs;
-		if (!task_no_new_privs(current))
-			task_set_no_new_privs(current);
-		fprog.len = 1;
-		fprog.filter = bpf_filter;
-		old_fs = get_fs();
-		set_fs(KERNEL_DS);
-		prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
-		set_fs(old_fs);
-	}
-
 	if (copy_to_user(arg, &cmd, sizeof(cmd))) {
 		pr_err("get_version: copy_to_user failed\n");
 		return -EFAULT;
 	}
-
 	return 0;
 }
 '''
+        marker = '// IOCTL handlers mapping table'
+        pos = content.find(marker)
+        if pos < 0:
+            print("  ERROR: IOCTL handlers marker not found in dispatch.c")
+            return False
+        content = content[:pos] + legacy_fn + content[pos:]
 
-    # Also add cmd.uapi_version to do_get_info if not present
-    content = content.replace(
-        "cmd.features = KSU_FEATURE_MAX;",
-        "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version = KERNEL_SU_UAPI_VERSION;"
-    )
-    marker = '// IOCTL handlers mapping table'
-    pos = content.find(marker)
-    if pos < 0:
-        print("  ERROR: IOCTL handlers marker not found in dispatch.c")
-        return False
-    content = content[:pos] + legacy_fn + content[pos:]
-
-    # 3. Add table entry for KSU_IOCTL_GET_INFO_LEGACY after GET_INFO entry
-    #    Find the closing }, of GET_INFO and insert legacy entry before REPORT_EVENT
-    report_event_pat = re.compile(r'},\s*\{\s*\.cmd\s*=\s*KSU_IOCTL_REPORT_EVENT')
-    match = report_event_pat.search(content, pos)
-    if not match:
-        print("  ERROR: GET_INFO table entry end not found (pattern: KSU_IOCTL_REPORT_EVENT)")
-        return False
-    # Insert right after the }, that closes GET_INFO (skip 2 chars)
-    get_info_entry_end = match.start() + 2
-
-    legacy_entry = '''\n\t{
+        report_event_pat = re.compile(r'},\s*\{\s*\.cmd\s*=\s*KSU_IOCTL_REPORT_EVENT')
+        match = report_event_pat.search(content, pos)
+        if not match:
+            print("  ERROR: GET_INFO table entry end not found")
+            return False
+        get_info_entry_end = match.start() + 2
+        legacy_entry = '''\n\t{
 \t\t.cmd = KSU_IOCTL_GET_INFO_LEGACY,
 \t\t.name = "GET_INFO_LEGACY",
 \t\t.handler = do_get_info_legacy,
 \t\t.perm_check = always_allow
 \t},
 '''
-    content = content[:get_info_entry_end] + legacy_entry + content[get_info_entry_end:]
+        content = content[:get_info_entry_end] + legacy_entry + content[get_info_entry_end:]
 
     with open(dp_path, 'w') as f:
         f.write(content)
-    print(f"  dispatch.c: UAPI v2 added to {dp_path}")
+    print(f"  dispatch.c: updated ({'UAPI v2 + ' if not already_full else ''}seccomp)")
     return True
 
 
