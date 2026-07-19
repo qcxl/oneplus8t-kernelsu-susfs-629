@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>\n#include <linux/filter.h>\n#include <linux/uaccess.h>'
             )
 
             # Fix CPU spinning: add .poll handler to anon_ksu_fops so epoll blocks.
@@ -148,6 +148,26 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
                     set_bit((int)bmp_uid, ksu_seccomp_bmp);
                     printk(KERN_INFO "ksu_prctl: seccomp_bypass uid=%d\\n", bmp_uid);
                 }
+            }
+            /* Install seccomp filter if not already enabled.
+             * On LineageOS 20 userdebug, Bionic skips prctl(PR_SET_SECCOMP)
+             * for regular app UIDs (NoNewPrivs=0, no CAP_SYS_ADMIN).
+             * prctl(PR_GET_SECCOMP) returns 0 → KSU-Next shows "已禁用".
+             * Fix: set no_new_privs + install allow-all filter from kernel. */
+            if (current->seccomp.mode == 0) {
+                struct sock_fprog fprog;
+                struct sock_filter bpf_filter[1];
+                mm_segment_t old_fs;
+                task_set_no_new_privs(current);
+                bpf_filter[0] = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+                fprog.len = 1;
+                fprog.filter = bpf_filter;
+                old_fs = get_fs();
+                set_fs(KERNEL_DS);
+                prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
+                set_fs(old_fs);
+                printk(KERN_INFO "ksu_prctl: seccomp installed mode=%d\\n",
+                       current->seccomp.mode);
             }
         }
         return 1;
