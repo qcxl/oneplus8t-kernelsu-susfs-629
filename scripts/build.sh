@@ -44,9 +44,10 @@ cd kernel
 git checkout "$KERNEL_BRANCH"
 git pull origin "$KERNEL_BRANCH"
 
-# Step 2: Apply KernelSU patch
-log_info "Applying KernelSU patch..."
-curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$KERNELSU_VERSION"
+# Step 2: Apply KernelSU-Next patch
+log_info "Applying KernelSU-Next patch..."
+curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
+  | bash -s "$KERNELSU_VERSION"
 
 # Step 3: Apply SUSFS patch
 log_info "Applying SUSFS patch..."

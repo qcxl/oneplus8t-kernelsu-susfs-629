@@ -29,7 +29,7 @@ def main():
             # Add #include "ksu.h" after the klog.h line
             content = content.replace(
                 '#include "klog.h" // IWYU pragma: keep',
-                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>'
+                '#include "klog.h" // IWYU pragma: keep\n#include "ksu.h"\n#include <linux/sched/signal.h>\n#include <linux/bitops.h>\n#include <linux/cred.h>'
             )
 
             # Fix CPU spinning: add .poll handler to anon_ksu_fops so epoll blocks.
@@ -91,6 +91,16 @@ static void ksu_kill_old_instance(uid_t uid)
         if (t) {
             get_task_struct(t);
             rcu_read_unlock();
+            /* PID reuse safeguard: verify task UID matches */
+            {
+                uid_t t_uid = __kuid_val(task_uid(t));
+                if (t_uid % KSU_PER_USER_RANGE != uid) {
+                    printk(KERN_INFO "ksu_prctl: skip kill pid=%d (uid=%d!=%d)\\n",
+                           old_pid, t_uid % KSU_PER_USER_RANGE, uid);
+                    put_task_struct(t);
+                    goto update_entry;
+                }
+            }
             if (t->exit_state == 0) {
                 printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
                        old_pid, uid);
@@ -101,6 +111,7 @@ static void ksu_kill_old_instance(uid_t uid)
             rcu_read_unlock();
         }
     }
+update_entry:
     ksu_active_entries[slot].uid = uid;
     ksu_active_entries[slot].pid = task_pid_vnr(current);
     spin_unlock(&ksu_pid_lock);
@@ -111,7 +122,7 @@ static void ksu_kill_old_instance(uid_t uid)
 int ksu_seccomp_check(unsigned int uid)
 {
 	if (uid < KSU_BMP_MAX_UID)
-		return test_bit((int)uid, ksu_seccomp_bmp) ? 1 : 0;
+		return test_bit((unsigned int)uid, ksu_seccomp_bmp) ? 1 : 0;
 	return 0;
 }
 
@@ -159,7 +170,7 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
             {
                 uid_t bmp_uid = current_uid().val % KSU_PER_USER_RANGE;
                 if (bmp_uid < KSU_BMP_MAX_UID) {
-                    set_bit((int)bmp_uid, ksu_seccomp_bmp);
+                    set_bit((unsigned int)bmp_uid, ksu_seccomp_bmp);
                     printk(KERN_INFO "ksu_prctl: seccomp_bypass uid=%d\\n", bmp_uid);
                 }
             }
@@ -221,7 +232,7 @@ EXPORT_SYMBOL(ksu_handle_prctl);
                       '\tif (fd >= 0) {\n'
                       '\t\tunsigned int bmp_uid = current_uid().val % KSU_PER_USER_RANGE;\n'
                       '\t\tif (bmp_uid < KSU_BMP_MAX_UID)\n'
-                      '\t\t\tset_bit((int)bmp_uid, ksu_seccomp_bmp);\n'
+                      '\t\t\tset_bit((unsigned int)bmp_uid, ksu_seccomp_bmp);\n'
                       '\t}\n'
                       '\tif (copy_to_user(tw->outp, &fd, sizeof(fd)))')
             if tw_old in content:

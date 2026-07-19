@@ -68,9 +68,10 @@ jobs:
           else
             patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_ksu_install_fd.patch || {
               echo "WARNING: patch failed, applying manually..."
-              # Add extern after last #include, not at top of file
-              sed -i '/^#include.*/a #ifdef CONFIG_KSU\nextern int ksu_install_fd(void);\n#endif' init/main.c
-              sed -i '/kernel_init_freeable();/a #ifdef CONFIG_KSU\n\tif (ksu_install_fd() < 0)\n\t\tpr_err("KSU: failed to install KSU fd\\n");\n#endif' init/main.c
+              # Add extern declaration before kernel_init_freeable (once, not after every #include)
+              sed -i '/^static int __ref kernel_init_freeable/i #ifdef CONFIG_KSU\nextern int ksu_install_fd(void);\n#endif' init/main.c
+              # Add fd install call inside kernel_init_freeable
+              sed -i '/^static int __ref kernel_init_freeable/a #ifdef CONFIG_KSU\n\tif (ksu_install_fd() < 0)\n\t\tpr_err("KSU: failed to install KSU fd\\n");\n#endif' init/main.c
             }
             grep -n 'ksu_install_fd' init/main.c
           fi

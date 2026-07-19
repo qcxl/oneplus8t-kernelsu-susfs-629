@@ -176,63 +176,61 @@ EXPORT_SYMBOL(ipa_stack_to_dts);
 
 #endif /* !CONFIG_KSU_SUSFS */
 
-/* Stub for susfs_is_current_proc_umounted_app - v2.2.0 new, always needed
-   because open_redirect spoof code references it even when SUSFS=y. */
+/* NOTE: The following stubs are guarded by CONFIG_KSU_SUSFS.
+ * When SUSFS=y, the real implementations come from fs/sus_su.c (50_add patch)
+ * or the v2.2.0 inject scripts. The ld.lld --allow-multiple-definition wrapper
+ * handles any remaining duplicate symbols gracefully. */
+
+/* Stub for susfs_is_current_proc_umounted_app - v2.2.0, may not be in v1.5.5.
+ * Needed by open_redirect spoof code. */
+#ifndef CONFIG_KSU_SUSFS
 bool susfs_is_current_proc_umounted_app(void)
 {
     return false;
 }
 EXPORT_SYMBOL(susfs_is_current_proc_umounted_app);
 
-/* Stub for susfs_is_current_proc_umounted - always needed when SUSFS=y
-   because it may not be in v1.5.5 sus_su.c from gitlab. */
+/* Stub for susfs_is_current_proc_umounted - may not be in v1.5.5 sus_su.c */
 bool susfs_is_current_proc_umounted(void)
 {
     return false;
 }
 EXPORT_SYMBOL(susfs_is_current_proc_umounted);
 
-/* Stub for susfs_get_redirected_path - was in old open_redirect section
-   of susfs.c (v1.5.5), which was removed and replaced by enhanced version. */
+/* Stub for susfs_get_redirected_path - removed from enhanced v2.2.0 susfs.c */
 char *susfs_get_redirected_path(struct inode *inode)
 {
     return NULL;
 }
 EXPORT_SYMBOL(susfs_get_redirected_path);
 
-/* The following stubs are always needed (no real implementations exist):
-   - susfs_is_current_ksu_domain, susfs_is_current_zygote_domain
-   - ksu_try_umount, susfs_try_umount_all
-   These are referenced by the KSU dispatch code but defined in the 50_add
-   patch which may not apply cleanly on all kernel versions. */
-
-/* Stub for susfs_is_current_ksu_domain - defined in 10_enable patch */
+/* Stubs for symbols defined in the 50_add/10_enable SUSFS patches.
+ * When SUSFS=y, the real implementations in fs/sus_su.c take precedence.
+ * (The --allow-multiple-definition ld wrapper handles duplicates.) */
 bool susfs_is_current_ksu_domain(void)
 {
     return false;
 }
 EXPORT_SYMBOL(susfs_is_current_ksu_domain);
 
-/* Stub for susfs_is_current_zygote_domain - defined in 10_enable patch */
 bool susfs_is_current_zygote_domain(void)
 {
     return false;
 }
 EXPORT_SYMBOL(susfs_is_current_zygote_domain);
 
-/* Stub for ksu_try_umount - defined in 10_enable patch */
 void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid)
 {
     pr_info("susfs: ksu_try_umount stub (no-op)\n");
 }
 EXPORT_SYMBOL(ksu_try_umount);
 
-/* Stub for susfs_try_umount_all - defined in 10_enable patch */
 void susfs_try_umount_all(uid_t uid)
 {
     pr_info("susfs: susfs_try_umount_all stub (no-op)\n");
 }
 EXPORT_SYMBOL(susfs_try_umount_all);
+#endif /* !CONFIG_KSU_SUSFS */
 
 /* NOTE: No module_init/module_exit — this is compiled as obj-y (built-in),
    not as a module. module_init in built-in code is harmful: it registers a

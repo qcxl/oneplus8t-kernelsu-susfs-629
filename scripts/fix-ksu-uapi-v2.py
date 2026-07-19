@@ -70,6 +70,7 @@ struct ksu_get_info_legacy_cmd {
     __u32 version; /* Output: KERNEL_SU_VERSION */
     __u32 flags; /* Output: KSU_GET_INFO_FLAG_* bits */
     __u32 features; /* Output: max feature ID supported */
+    __u32 uapi_version; /* Output: KERNEL_SU_UAPI_VERSION */
 };'''
     content = content[:old_cmd.start()] + new_cmd + content[old_cmd.end():]
 
@@ -131,6 +132,7 @@ static int do_get_info_legacy(void __user *arg)
 		cmd.flags |= KSU_GET_INFO_FLAG_LATE_LOAD;
 	}
 	cmd.features = KSU_FEATURE_MAX;
+	cmd.uapi_version = KERNEL_SU_UAPI_VERSION;
 
 	if (copy_to_user(arg, &cmd, sizeof(cmd))) {
 		pr_err("get_version: copy_to_user failed\n");
@@ -140,6 +142,12 @@ static int do_get_info_legacy(void __user *arg)
 	return 0;
 }
 '''
+
+    # Also add cmd.uapi_version to do_get_info if not present
+    content = content.replace(
+        "cmd.features = KSU_FEATURE_MAX;",
+        "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version = KERNEL_SU_UAPI_VERSION;"
+    )
     marker = '// IOCTL handlers mapping table'
     pos = content.find(marker)
     if pos < 0:

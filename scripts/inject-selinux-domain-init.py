@@ -521,17 +521,17 @@ def fix_auto_crown_prctl(kernel_root):
 
 
 def fix_ksud_postfsdata_noctx(kernel_root):
-    """Remove u:r:ksu:s0 from post-fs-data exec in KERNEL_SU_RC.
+    """Rewrite u:r:ksu:s0 exec lines in KERNEL_SU_RC to exec root --.
     
-    The ksu SELinux domain isn't created until ~33s after boot (delayed
-    workqueue). But post-fs-data fires at ~10-15s. Using exec u:r:ksu:s0
-    fails because the domain doesn't exist yet. Without this fix, ksud
-    never starts as a system daemon, and su symlink is never installed.
+    The ksu SELinux domain isn't created until delayed workqueue at ~30s.
+    'on nonencrypted' / 'on boot_completed' lines use exec u:r:ksu:s0
+    which fails if triggered before the domain is created.
     
-    Fix: use exec root -- (no SELinux context) for post-fs-data. The
-    init context (u:r:init:s0) has sufficient permissions via KSU rules."""
+    (post-fs-data already uses exec root -- in the legacy branch, so
+     there's nothing to fix there.)"""
     path = find_file(kernel_root, [
         "drivers/kernelsu/runtime/ksud_integration.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/runtime/ksud_integration.c",
         "KernelSU/kernel/runtime/ksud_integration.c",
     ])
     if not path:
@@ -542,17 +542,17 @@ def fix_ksud_postfsdata_noctx(kernel_root):
     if 'NOCTX_FIX' in content:
         print(f"  {path}: already fixed")
         return True
-    # Match: exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data
-    old = 'exec u:r:" KERNEL_SU_DOMAIN ":s0 root -- " KSUD_PATH " post-fs-data'
-    new = 'exec root -- " KSUD_PATH " post-fs-data /* NOCTX_FIX */'
-    if old not in content:
-        print(f"  WARNING: post-fs-data exec pattern not found in {path}")
-        return True
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: removed u:r:ksu:s0 from post-fs-data exec")
-    return True
+    
+    # Replace u:r:ksu:s0 → root -- for nonencrypted and boot-completed lines
+    ksud_ctx_pat = 'exec u:r:" KERNEL_SU_DOMAIN ":s0 root --'
+    ksud_ctx_new = 'exec root -- /* NOCTX_FIX */'
+    if ksud_ctx_pat in content:
+        content = content.replace(ksud_ctx_pat, ksud_ctx_new)
+        with open(path, 'w') as f:
+            f.write(content)
+        print(f"  {path}: replaced u:r:ksu:s0 with exec root --")
+    else:
+        print(f"  {path}: u:r:ksu:s0 pattern not found (legacy branch uses exec root --)")
 
 
 def fix_allow_uid_zero(kernel_root):
@@ -650,7 +650,9 @@ extern int ksu_seccomp_check(unsigned int uid);
  * for KSU-managed apps. Unlike the prctl-intercept approach, this
  * fires AFTER seccomp is installed, so it works regardless of when
  * INSTALL_MAGIC2 runs. Children forked before INSTALL_MAGIC2 inherit
- * Seccomp=2, but their __NR_reboot calls are allowed through here. */
+ * Seccomp=2, but their __NR_reboot calls are allowed through here.
+ * Cold-boot: when manager_appid is not yet set, allow all app UIDs
+ * (10000-19999 range) to establish initial fd connection. */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid, app_uid;
@@ -658,14 +660,11 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 	app_uid = uid % KSU_PER_USER_RANGE;
 	if (app_uid < 10000)
 		return 0;
-	if (!ksu_seccomp_check(app_uid) &&
-	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
-		return 0;
-	/* __secure_computing(const struct seccomp_data *sd):
-	 * x0 = pointer to seccomp_data (may be NULL).
-	 * sd->nr = syscall number (if sd non-NULL).
-	 * We check the actual syscall nr via current_pt_regs.
-	 * Use direct syscall number (142 = __NR_reboot on ARM64). */
+	if (!ksu_seccomp_check(app_uid)) {
+		if (ksu_is_manager_appid_valid() &&
+		    ksu_get_manager_appid() != app_uid)
+			return 0;
+	}
 	{
 		struct pt_regs *uregs = task_pt_regs(current);
 		int sc_nr = uregs->syscallno;
@@ -707,22 +706,27 @@ static void nnp_install_seccomp(struct callback_head *work)
 
 /* Kprobe on __arm64_sys_prctl: schedule seccomp installation for KSU
  * manager apps. This fixes 'Seccomp: 已禁用' on the KSU-Next home page.
- * Root cause: LineageOS 20 Bionic skips prctl(PR_SET_SECCOMP) for
- * regular app UIDs (NoNewPrivs=0, no CAP_SYS_ADMIN).
- * Fix: on first prctl call, schedule task_work to install filter. */
+ * Only fires on KSU-specific prctl(0xDEADBEEF, ...) calls to avoid CPU
+ * overhead from every prctl() call system-wide. */
 static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	unsigned int uid, app_uid;
-	uid = current_uid().val;
-	app_uid = uid % KSU_PER_USER_RANGE;
-	if (app_uid < 10000)
+	int option = (int)regs->regs[0];
+	if (option != 0xDEADBEEF)
 		return 0;
-	if (!ksu_seccomp_check(app_uid) &&
-	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
-		return 0;
+	{
+		unsigned int uid, app_uid;
+		uid = current_uid().val;
+		app_uid = uid % KSU_PER_USER_RANGE;
+		if (app_uid < 10000)
+			return 0;
+		if (!ksu_seccomp_check(app_uid) &&
+		    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
+			return 0;
+	}
 	if (current->seccomp.mode != 0)
 		return 0;
-	task_set_no_new_privs(current);
+	if (!task_no_new_privs(current))
+		task_set_no_new_privs(current);
 	/* Defer seccomp installation: kprobe context cannot call GFP_KERNEL */
 	{
 		struct callback_head *work = kzalloc(sizeof(*work), GFP_ATOMIC);
@@ -1139,7 +1143,7 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 							if (nl) *nl = 0;
 							uid_t pkg_uid = 0;
 							if (ksu_seccomp_pkg_match(line, &pkg_uid) && pkg_uid >= 10000) {
-								set_bit((int)pkg_uid, ksu_seccomp_bmp);
+								set_bit((unsigned int)pkg_uid, ksu_seccomp_bmp);
 								printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", pkg_uid);
 							}
 							if (nl) { *nl = 10; line = nl + 1; }
@@ -1192,6 +1196,21 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 		}
 	}
 	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
+	/* If manager still not set and /data may not be ready yet, retry.
+	 * Limit to 10 retries (10 minutes total) to avoid infinite loop. */
+	{
+		static int retry_count = 0;
+		if (!ksu_is_manager_appid_valid()) {
+			if (++retry_count <= 10) {
+				printk(KERN_INFO "ksu_debug: retry delayed init (%d/10)\\n",
+				       retry_count);
+				schedule_delayed_work(&ksu_delayed_selinux_work,
+				                      60 * HZ);
+			}
+		} else {
+			retry_count = 0;
+		}
+	}
 }
 static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
 '''
