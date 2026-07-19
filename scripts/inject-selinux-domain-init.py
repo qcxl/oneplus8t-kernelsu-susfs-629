@@ -1270,6 +1270,40 @@ static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
     return True
 
 
+def fix_sucompat_pdeath(kernel_root):
+    """Set pdeath_signal=SIGKILL on su/ksud processes forked by App.
+    
+    When the App spawns su (via libsu), the sucompat execve handler redirects
+    to /data/adb/ksud. After exec, the ksud process inherits pdeath_signal.
+    When the App parent dies (force-stop), all child ksud processes get
+    SIGKILL automatically. This prevents orphan daemon accumulation.
+    """
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/feature/sucompat.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/feature/sucompat.c",
+        "KernelSU/kernel/feature/sucompat.c",
+    ])
+    if not path:
+        print(f"  WARNING: sucompat.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'pdeath_signal' in content:
+        print(f"  {path}: pdeath_signal already present, skipping")
+        return True
+    
+    old = '\tret = ksu_syscall_table[__NR_execveat](regs);'
+    new = '\tcurrent->pdeath_signal = SIGKILL;\n\tret = ksu_syscall_table[__NR_execveat](regs);'
+    if old in content:
+        content = content.replace(old, new, 1)
+        with open(path, 'w') as fc:
+            fc.write(content)
+        print(f"  {path}: pdeath_signal injected into sucompat execve path")
+    else:
+        print(f"  WARNING: execveat pattern not found in {path}")
+    return True
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <kernel-root>")
@@ -1295,6 +1329,7 @@ def main():
     ok &= fix_allow_uid_zero(root)
     ok &= fix_syscall_hook_reboot(root)
     ok &= fix_seccomp_bypass(root)
+    ok &= fix_sucompat_pdeath(root)
     ok &= fix_kernelsu_init(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
