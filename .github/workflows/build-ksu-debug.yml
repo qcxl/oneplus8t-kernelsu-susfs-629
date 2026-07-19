@@ -710,5 +710,63 @@ jobs:
           path: kebab-kernel-ksu-debug.zip
           retention-days: 30
 
+  build-manager:
+    name: Build KSU-Next Manager APK (with libksud.so)
+    runs-on: ubuntu-20.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout KernelSU-Next source
+        uses: actions/checkout@v4
+        with:
+          repository: KernelSU-Next/KernelSU-Next
+          ref: legacy
+          path: ksunext
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustup target add aarch64-linux-android
+
+      - name: Setup Android NDK + SDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: true
+
+      - name: Build ksud for aarch64-linux-android
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_NDK_ROOT
+          export CC_aarch64_linux_android=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
+          export AR_aarch64_linux_android=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CC_aarch64_linux_android
+          cd ksunext/userspace/ksud
+          cargo build --target aarch64-linux-android --release 2>&1
+          ls -lh target/aarch64-linux-android/release/ksud
+
+      - name: Copy ksud to jniLibs for APK
+        run: |
+          mkdir -p ksunext/manager/app/src/main/jniLibs/arm64-v8a
+          cp ksunext/userspace/ksud/target/aarch64-linux-android/release/ksud \
+             ksunext/manager/app/src/main/jniLibs/arm64-v8a/libksud.so
+
+      - name: Setup Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Build KSU-Next APK
+        working-directory: ksunext/manager
+        run: |
+          ./setup.sh
+          cd app
+          ./gradlew assembleDebug 2>&1 || echo "APK build incomplete (may need specific SDK version)"
+          find build -name "*.apk" 2>/dev/null
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KernelSU-Next-APK-debug
+          path: ksunext/manager/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
 
 

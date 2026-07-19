@@ -85,18 +85,25 @@ static void ksu_kill_old_instance(uid_t uid)
     spin_lock(&ksu_pid_lock);
     old_pid = ksu_active_entries[slot].pid;
     old_uid = ksu_active_entries[slot].uid;
+    if (old_pid && old_uid == uid && old_pid != task_pid_vnr(current)) {
+        rcu_read_lock();
+        t = find_task_by_vpid(old_pid);
+        if (t) {
+            get_task_struct(t);
+            rcu_read_unlock();
+            if (t->exit_state == 0) {
+                printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
+                       old_pid, uid);
+                send_sig(SIGKILL, t, 0);
+            }
+            put_task_struct(t);
+        } else {
+            rcu_read_unlock();
+        }
+    }
     ksu_active_entries[slot].uid = uid;
     ksu_active_entries[slot].pid = task_pid_vnr(current);
     spin_unlock(&ksu_pid_lock);
-
-    if (old_pid && old_uid == uid && old_pid != task_pid_vnr(current)) {
-        t = find_task_by_vpid(old_pid);
-        if (t && t->exit_state == 0) {
-            printk(KERN_INFO "ksu_prctl: kill old pid=%d uid=%d\\n",
-                   old_pid, uid);
-            send_sig(SIGKILL, t, 0);
-        }
-    }
 }
 
 /* Helper: check if uid is in the seccomp bypass bitmap.

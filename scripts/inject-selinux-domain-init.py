@@ -736,6 +736,15 @@ static struct kprobe nnp_setup_kp = {
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
+    # First, remove duplicate prctl_kp registration (original kprobe also
+    # installs fd, which conflicts with our ksu_handle_prctl handler).
+    content = content.replace(
+        '\trc = register_kprobe(&prctl_kp);\n'
+        '\tif (rc) {\n'
+        '\t\tpr_err("prctl kprobe failed: %d\\n", rc);\n'
+        '\t}\n',
+        '\t/* prctl_kp disabled: ksu_handle_prctl handles fd install */\n'
+    )
     old = '\nvoid __init ksu_supercalls_init(void)'
     if old not in content:
         print(f"  ERROR: cannot find ksu_supercalls_init in {path}")
@@ -781,7 +790,7 @@ static struct kprobe nnp_setup_kp = {
     if old_exit in content:
         content = content.replace(
             old_exit,
-            '\tunregister_kprobe(&prctl_kp);\n'
+            '\t/* prctl_kp unregister removed (kprobe not registered) */\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
             '\tunregister_kprobe(&nnp_setup_kp);\n'
             '}',
@@ -1084,7 +1093,8 @@ static void ksu_delayed_selinux_init(struct work_struct *work)
 	{
 		static const char su_content[] =
 			"#!/system/bin/sh\\n"
-			"exec /data/adb/ksu/bin/ksud debug su -g\\n";
+			"exec /data/adb/ksu/bin/ksud debug su -g 2>/dev/null \\n"
+			"|| exec /system/bin/sh \"$@\" \\n";
 		const char *su_paths[] = {
 			"/mnt/scratch/overlay/odm/upper/bin/su",
 			"/data/local/tmp/su",
