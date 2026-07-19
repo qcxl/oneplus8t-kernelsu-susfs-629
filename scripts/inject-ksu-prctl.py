@@ -156,10 +156,11 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
              * Fix: set no_new_privs + install allow-all filter from kernel. */
             if (current->seccomp.mode == 0) {
                 struct sock_fprog fprog;
-                struct sock_filter bpf_filter[1];
                 mm_segment_t old_fs;
+                struct sock_filter bpf_filter[1] = {
+                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+                };
                 task_set_no_new_privs(current);
-                bpf_filter[0] = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
                 fprog.len = 1;
                 fprog.filter = bpf_filter;
                 old_fs = get_fs();

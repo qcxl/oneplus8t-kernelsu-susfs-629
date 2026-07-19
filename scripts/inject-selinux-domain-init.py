@@ -703,9 +703,11 @@ static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
 	task_set_no_new_privs(current);
 	{
 		struct sock_fprog fprog;
-		struct sock_filter bpf_filter[1];
 		mm_segment_t old_fs;
-		bpf_filter[0] = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+		struct sock_filter bpf_filter[1] = {
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+		};
+		task_set_no_new_privs(current);
 		fprog.len = 1;
 		fprog.filter = bpf_filter;
 		old_fs = get_fs();
