@@ -676,6 +676,36 @@ static struct kprobe seccomp_bypass_kp = {
 	.symbol_name = "__secure_computing",
 	.pre_handler = seccomp_bypass_pre,
 };
+
+/* Kprobe on __arm64_sys_prctl: set NO_NEW_PRIVS for KSU manager apps
+ * before seccomp installation. This ensures seccomp_set_mode_filter()
+ * check passes (requires no_new_privs or CAP_SYS_ADMIN), fixing
+ * 'Seccomp: 已禁用' display on the KSU-Next home page.
+ * Root cause: LineageOS 20 userdebug does not set no_new_privs for
+ * app processes → prctl(PR_SET_SECCOMP) returns EACCES → mode stays 0
+ * → prctl(PR_GET_SECCOMP) returns 0 → App shows "已禁用". */
+static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
+{
+	struct pt_regs *sr = (struct pt_regs *)regs->regs[0];
+	unsigned int option = (unsigned int)sr->regs[0];
+	unsigned int uid, app_uid;
+	if (option != 22)
+		return 0;
+	uid = current_uid().val;
+	app_uid = uid % KSU_PER_USER_RANGE;
+	if (app_uid < 10000)
+		return 0;
+	if (!ksu_seccomp_check(app_uid) &&
+	    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
+		return 0;
+	task_set_no_new_privs(current);
+	return 0;
+}
+
+static struct kprobe nnp_setup_kp = {
+	.symbol_name = "__arm64_sys_prctl",
+	.pre_handler = nnp_setup_pre,
+};
 '''
 
     # Insert kprobe declaration before ksu_supercalls_init
@@ -708,7 +738,12 @@ static struct kprobe seccomp_bypass_kp = {
          '\t\t} else {\n'
          '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
          '\t\t}\n'
-          '\t\t/* Post-fs-data hook populates bitmap via boot_event.c (before 30s). */\n'
+'\t\trc = register_kprobe(&nnp_setup_kp);\n'
+         '\t\tif (rc) {\n'
+         '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
+         '\t\t} else {\n'
+         '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
+         '\t\t}\n'
          '\t}\n'
         '}'
     )
@@ -721,6 +756,7 @@ static struct kprobe seccomp_bypass_kp = {
             old_exit,
             '\tunregister_kprobe(&prctl_kp);\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
+            '\tunregister_kprobe(&nnp_setup_kp);\n'
             '}',
             1
         )
