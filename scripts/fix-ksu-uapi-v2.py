@@ -103,10 +103,33 @@ def fix_dispatch_c():
         print("  dispatch.c: UAPI v2 already present")
         return True
 
-    # 1. Add cmd.uapi_version = KERNEL_SU_UAPI_VERSION to do_get_info
+    # 1. Add cmd.uapi_version + seccomp installation to do_get_info
+    seccomp_block = (
+        '\n'
+        '\t/* Install NoNewPrivs + allow-all seccomp for this process.\n'
+        '\t * KSU-Next App gets fd from scan_driver_fd(), not sys_reboot,\n'
+        '\t * so the reboot kprobe never fires for the App process.\n'
+        '\t * We install here because do_get_info is the first IOCTL call.\n'
+        '\t * This runs in process context (safe for GFP_KERNEL). */\n'
+        '\tif (current->seccomp.mode == 0) {\n'
+        '\t\tstruct sock_fprog fprog;\n'
+        '\t\tstruct sock_filter bpf_filter[1] = {\n'
+        '\t\t\tBPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)\n'
+        '\t\t};\n'
+        '\t\tmm_segment_t old_fs;\n'
+        '\t\tif (!task_no_new_privs(current))\n'
+        '\t\t\ttask_set_no_new_privs(current);\n'
+        '\t\tfprog.len = 1;\n'
+        '\t\tfprog.filter = bpf_filter;\n'
+        '\t\told_fs = get_fs();\n'
+        '\t\tset_fs(KERNEL_DS);\n'
+        '\t\tprctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);\n'
+        '\t\tset_fs(old_fs);\n'
+        '\t}\n'
+    )
     content = content.replace(
         "cmd.features = KSU_FEATURE_MAX;",
-        "cmd.features = KSU_FEATURE_MAX;\n\tcmd.uapi_version = KERNEL_SU_UAPI_VERSION;"
+        seccomp_block + '\tcmd.features = KSU_FEATURE_MAX;'
     )
 
     # 2. Add do_get_info_legacy function before the IOCTL handlers mapping
@@ -133,6 +156,23 @@ static int do_get_info_legacy(void __user *arg)
 	}
 	cmd.features = KSU_FEATURE_MAX;
 	cmd.uapi_version = KERNEL_SU_UAPI_VERSION;
+
+	/* Install seccomp on first legacy IOCTL call (same reasoning as do_get_info) */
+	if (current->seccomp.mode == 0) {
+		struct sock_fprog fprog;
+		struct sock_filter bpf_filter[1] = {
+			BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+		};
+		mm_segment_t old_fs;
+		if (!task_no_new_privs(current))
+			task_set_no_new_privs(current);
+		fprog.len = 1;
+		fprog.filter = bpf_filter;
+		old_fs = get_fs();
+		set_fs(KERNEL_DS);
+		prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
+		set_fs(old_fs);
+	}
 
 	if (copy_to_user(arg, &cmd, sizeof(cmd))) {
 		pr_err("get_version: copy_to_user failed\n");
