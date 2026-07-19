@@ -730,12 +730,10 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Checkout KernelSU-Next source
-        uses: actions/checkout@v4
-        with:
-          repository: rifsxd/KernelSU-Next
-          ref: legacy
-          path: ksunext
+      - name: Clone KernelSU-Next source
+        run: |
+          git clone --depth 1 -b legacy https://github.com/rifsxd/KernelSU-Next.git ksunext
+          ls ksunext/userspace/ksud/src/
 
       - name: Install Rust toolchain
         run: |
@@ -767,6 +765,7 @@ jobs:
           mkdir -p ksunext/manager/app/src/main/jniLibs/arm64-v8a
           cp ksunext/userspace/ksud/target/aarch64-linux-android/release/ksud \
              ksunext/manager/app/src/main/jniLibs/arm64-v8a/libksud.so
+          ls -lh ksunext/manager/app/src/main/jniLibs/arm64-v8a/libksud.so
 
       - name: Setup Android SDK command-line tools
         uses: android-actions/setup-android@v3
@@ -774,6 +773,8 @@ jobs:
       - name: Build KSU-Next APK
         working-directory: ksunext/manager
         run: |
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          ls app/src/main/jniLibs/arm64-v8a/libksud.so
           ./setup.sh
           cd app
           ./gradlew assembleDebug 2>&1 || echo "APK build incomplete (may need specific SDK version)"
