@@ -474,7 +474,7 @@ jobs:
             echo "  TWA_RESUME already fixed in supercall.c"
           fi
 
-          # Ramdisk approach: ksud at /sbin/ksud instead of /data/adb/ksud
+          # Ramdisk approach: ksud at /sbin/ksud (must match ramdisk injection)
           if grep -q '/data/adb/ksud' drivers/kernelsu/runtime/ksud.h 2>/dev/null; then
             sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/sbin/ksud"|' drivers/kernelsu/runtime/ksud.h
             echo "  KSUD_PATH: /data/adb/ksud → /sbin/ksud"
