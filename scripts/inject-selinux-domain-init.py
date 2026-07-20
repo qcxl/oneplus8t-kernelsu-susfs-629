@@ -117,7 +117,7 @@ def fix_rules(kernel_root):
         '    /* ksu exec' + "'" + 's shell (sh, busybox): STAY in ksu domain. */\n'
         '    /* Build: __DATE__ __TIME__ */\n'
         '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
-        '    printk(KERN_ERR "KSU_DIAG: types before=%d\\n", db->p_types.nprim);\n'
+        '    printk(KERN_ERR "KSU_DIAG: copy nprim=%d len=%zu\\n", db->p_types.nprim, db->len);\n'
         '    printk(KERN_ERR "KSU_DIAG: has domain type=%d\\n",\n'
         '        hashtab_search(db->p_types.table, "domain") != NULL);\n'
         '    {\n'
@@ -129,7 +129,7 @@ def fix_rules(kernel_root):
         '        hashtab_search(db->p_types.table, "ksu") != NULL);\n'
         '    printk(KERN_ERR "KSU_DIAG: ksu_type_transition result=%d\\n",\n'
         '        ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL));\n'
-         '    printk(KERN_ERR "KSU_DIAG: ksu_allow shell_exec result=%d\\n",\n'
+        '    printk(KERN_ERR "KSU_DIAG: ksu_allow shell_exec result=%d\\n",\n'
         '        ksu_allow(db, KERNEL_SU_DOMAIN, "shell_exec", "file", "execute"));'
     )
 
@@ -138,6 +138,24 @@ def fix_rules(kernel_root):
         return False
 
     content = content.replace(old, new, 1)
+
+    # DIAG: inject orig nprim before ksu_dup_sepolicy
+    diag_old = (
+        '\tpol = ksu_dup_sepolicy(rcu_dereference_protected(\n'
+        '\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
+    )
+    diag_new = (
+        '\tprintk(KERN_ERR "KSU_DIAG: orig nprim=%d len=%zu\\n",\n'
+        '\t    old_pol->policydb.p_types.nprim,\n'
+        '\t    old_pol->policydb.len);\n'
+        '\tpol = ksu_dup_sepolicy(rcu_dereference_protected(\n'
+        '\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
+    )
+    if diag_old in content:
+        content = content.replace(diag_old, diag_new, 1)
+        print(f"  {path}: orig nprim diag injected before ksu_dup_sepolicy")
+    else:
+        print(f"  WARNING: ksu_dup_sepolicy marker not found in {path}")
 
     # Also replace the apply_kernelsu_rules() #else branch to skip
     # write_lock/stop_machine (GFP_KERNEL fails in atomic context).
