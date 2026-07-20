@@ -692,9 +692,9 @@ jobs:
 
       - name: Inject ksud into ramdisk
         run: |
-            KSUD_BIN="../prebuilt/ksud"
+            KSUD_BIN="prebuilt/ksud"
             if [ ! -f "$KSUD_BIN" ]; then
-                echo "ERROR: prebuilt/ksud not found"
+                echo "ERROR: prebuilt/ksud not found (checked $KSUD_BIN)"
                 echo "SKIP_RAMDISK=1" >> $GITHUB_ENV
                 exit 0
             fi
