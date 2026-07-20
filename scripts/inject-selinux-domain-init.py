@@ -965,6 +965,84 @@ def fix_on_post_fs_data(kernel_root):
     return True
 
 
+def fix_sucompat_multipath(kernel_root):
+    """Extend sucompat.c to recognize /odm/bin/su in addition to /system/bin/su,
+    and override argv[0] to "/system/bin/su" so cli.rs triggers root_shell().
+    
+    On LineageOS 20, /system is read-only ext4 (no overlay), so /system/bin/su
+    cannot be created. /odm has overlay upperdir (persists across reboots).
+    We intercept execve for both paths, redirect to KSUD_PATH, and set
+    argv[0]="/system/bin/su" before execveat so ksud's cli.rs recognizes it.
+    """
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/feature/sucompat.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/feature/sucompat.c",
+        "KernelSU/kernel/feature/sucompat.c",
+    ])
+    if not path:
+        print(f"  WARNING: sucompat.c not found")
+        return True
+    with open(path) as f:
+        content = f.read()
+    if 'SUCOMPAT_MULTIPATH' in content:
+        print(f"  {path}: multipath su already injected, skipping")
+        return True
+
+    # 1. Replace SU_PATH define to add a helper function for multi-path matching
+    old_define = '#define SU_PATH "/system/bin/su"\n'
+    new_define = (
+        '#define SU_PATH "/system/bin/su"\n'
+        '#define SU_PATH_ALT "/odm/bin/su"\n'
+        '\n'
+        '/* SUCOMPAT_MULTIPATH: match /system/bin/su + /odm/bin/su */\n'
+        'static bool is_su_path(const char *path)\n'
+        '{\n'
+        '\treturn !memcmp(path, SU_PATH, sizeof(SU_PATH)) ||\n'
+        '\t       !memcmp(path, SU_PATH_ALT, sizeof(SU_PATH_ALT));\n'
+        '}\n'
+    )
+    content = content.replace(old_define, new_define, 1)
+
+    # 2. Replace all memcmp(path, su_path, sizeof(su_path)) with is_su_path(path)
+    # Pattern: !memcmp(path, su_path, sizeof(su_path)) → is_su_path(path)
+    # Pattern: memcmp(path, su_path, sizeof(su_path)) → !is_su_path(path)
+    content = content.replace(
+        '!memcmp(path, su_path, sizeof(su_path))',
+        'is_su_path(path)'
+    )
+    content = content.replace(
+        'memcmp(path, su_path, sizeof(su_path))',
+        'is_su_path(path)'
+    )
+
+    # 3. Add argv[0] override before execveat in the execve handler.
+    #    Insert before: ret = ksu_syscall_table[__NR_execveat](regs);
+    old_execveat = '\tret = ksu_syscall_table[__NR_execveat](regs);'
+    new_execveat = (
+        '\t/* SUCOMPAT_MULTIPATH: override argv[0] to "/system/bin/su"\n'
+        '\t * so ksud\\x27s cli.rs triggers root_shell().\n'
+        '\t * The actual executable is KSUD_PATH (opened via filp_open).\n'
+        '\t * argv[0] is just a string identifier, not a real file path. */\n'
+        '\t{\n'
+        '\t\tstatic const char fake_argv0[] = "/system/bin/su";\n'
+        '\t\tconst char __user *argv0_ptr;\n'
+        '\t\tconst char __user *const __user *argv;\n'
+        '\t\targv0_ptr = userspace_stack_buffer(fake_argv0, sizeof(fake_argv0));\n'
+        '\t\tif (argv0_ptr) {\n'
+        '\t\t\targv = (const char __user *const __user *)regs->__PT_PARM2_REG;\n'
+        '\t\t\tcopy_to_user((void __user *)&argv[0], &argv0_ptr, sizeof(argv0_ptr));\n'
+        '\t\t}\n'
+        '\t}\n'
+        '\tret = ksu_syscall_table[__NR_execveat](regs);'
+    )
+    content = content.replace(old_execveat, new_execveat, 1)
+
+    with open(path, 'w') as fc:
+        fc.write(content)
+    print(f"  {path}: sucompat multipath + argv[0] override injected")
+    return True
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <kernel-root>")
@@ -992,6 +1070,7 @@ def main():
     ok &= fix_seccomp_bypass(root)
     ok &= fix_kernelsu_init(root)
     ok &= fix_on_post_fs_data(root)
+    ok &= fix_sucompat_multipath(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 
