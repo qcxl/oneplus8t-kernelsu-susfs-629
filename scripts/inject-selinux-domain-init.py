@@ -197,19 +197,19 @@ def fix_ksu_exec_fd_reinstall(kernel_root):
     replacement = (
         marker + '\n'
         '\t/* Reinstall KSU fd after exec (Java ProcessBuilder closes it). */\n'
-        '\t_extern_ksu_install_fd();'
+        '\tksu_install_fd();'
     )
     content = content.replace(marker, replacement, 1)
 
     # Also add the extern declaration
-    if 'extern int _extern_ksu_install_fd' not in content:
+    if 'extern int ksu_install_fd' not in content:
         content = content.replace(
             '#include "selinux/selinux.h"',
             '#include "selinux/selinux.h"\n'
-            'extern int _extern_ksu_install_fd(void);'
+            'extern int ksu_install_fd(void);'
         )
 
-    # Find and rename ksu_install_fd to _extern_ksu_install_fd
+    # Add __visible attribute to ksu_install_fd in supercall.c
     sc_path = find_file(kernel_root, [
         "drivers/kernelsu/supercall/supercall.c",
         "KernelSU/kernel/supercall/supercall.c",
@@ -221,7 +221,7 @@ def fix_ksu_exec_fd_reinstall(kernel_root):
     with open(sc_path) as f:
         sc_content = f.read()
 
-    # Add __visible alias for ksu_install_fd (for extern use by ksud_integration)
+    # Add __visible attribute to ksu_install_fd for cross-file access
     old = 'int ksu_install_fd(void)'
     new = 'int __visible ksu_install_fd(void)'
     sc_content = sc_content.replace(old, new, 1)
