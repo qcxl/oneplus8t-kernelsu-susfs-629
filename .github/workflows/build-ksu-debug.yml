@@ -193,35 +193,17 @@ jobs:
           grep -r 'pr_info(' drivers/kernelsu --include="*.c" | wc -l
           grep -r 'pr_warn(' drivers/kernelsu --include="*.c" | wc -l
 
-      - name: Apply SUSFS v2.2.0 (kernel-4.19 branch port)
+      - name: Apply SUSFS v2.2.0 (kernel-4.19 branch, local copy)
         working-directory: kernel
         run: |
-          # Retry SUSFS clone: try gitlab first, then GitHub mirror as fallback
-          SUSFS_CLONED=false
-          for repo in "https://gitlab.com/simonpunk/susfs4ksu.git" "https://github.com/simonpunk/susfs4ksu.git"; do
-            for i in 1 2 3; do
-              echo "SUSFS clone attempt $i/3 from $repo..."
-              rm -rf /tmp/susfs 2>/dev/null || true
-              git clone --depth 1 -b kernel-4.19 "$repo" /tmp/susfs 2>&1
-              if [ -d "/tmp/susfs/kernel_patches" ]; then
-                echo "SUSFS clone SUCCESS from $repo (attempt $i)"
-                SUSFS_CLONED=true
-                break
-              fi
-              sleep 5
-            done
-            $SUSFS_CLONED && break
-          done
-          if ! $SUSFS_CLONED; then
-            echo "ERROR: SUSFS clone failed from all mirrors!"; exit 1
-          fi
-          # kernel-4.19 branch HEAD = v1.5.5 (verified via include/linux/susfs.h)
-          patch -p1 --forward --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || echo "WARNING: 50_add patch failed (may already be applied)"
-          cp /tmp/susfs/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
-          cp /tmp/susfs/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          # SUSFS source files are committed in ../kernel-patches/ — no network clone needed
+          echo "=== Applying SUSFS 50_add patch ==="
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/50_add_susfs_in_kernel-4.19.patch || echo "WARNING: 50_add patch failed (may already be applied)"
+          cp ../kernel-patches/fs/susfs.c fs/ 2>/dev/null || true
+          cp ../kernel-patches/fs/sus_su.c fs/ 2>/dev/null || true
+          cp ../kernel-patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp ../kernel-patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
+          cp ../kernel-patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
           # Safety: add stub functions for any SUSFS symbols KSUN might reference
           cp ../kernel-patches/susfs_stubs.c fs/ 2>/dev/null || true
           if ! grep -q "susfs_stubs.o" fs/Makefile 2>/dev/null; then
@@ -230,8 +212,8 @@ jobs:
           if ! grep -q "susfs.o" fs/Makefile; then
             echo '' >> fs/Makefile
             echo '# SUSFS' >> fs/Makefile
-            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
-            echo 'obj-$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
+            echo 'obj-\$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
+            echo 'obj-\$(CONFIG_KSU_SUSFS) += sus_su.o' >> fs/Makefile
           fi
           echo "=== SUSFS v1.5.5 applied ==="
           grep "SUSFS_VERSION" include/linux/susfs.h 2>/dev/null || echo "SUSFS_VERSION not found"
@@ -253,9 +235,9 @@ jobs:
             'CMD_SUSFS_SHOW_VERSION 0x1060' \
             'CMD_SUSFS_SHOW_VARIANT 0x1061' \
             'CMD_SUSFS_SHOW_ENABLED_FEATURES 0x1062'; do
-            name="${def%% *}"
-            grep -q "#define $name " include/linux/susfs_def.h || \
-              printf '#define %s\n' "$def" >> include/linux/susfs_def.h
+            name="\${def%% *}"
+            grep -q "#define \$name " include/linux/susfs_def.h || \
+              printf '#define %s\n' "\$def" >> include/linux/susfs_def.h
           done
 
       - name: Register SUSFS Kconfig and dispatch for KernelSU-Next legacy
