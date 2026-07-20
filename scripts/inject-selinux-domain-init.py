@@ -901,7 +901,7 @@ def fix_kernelsu_init(kernel_root):
 def fix_on_post_fs_data(kernel_root):
     """Inject track_throne(false) + overlay su write into boot_event.c
     on_post_fs_data(). With ksud in ramdisk, on_post_fs_data fires
-    reliably because ksud is always available from /sbin/ksud.
+    reliably because ksud is available from KSUD_PATH after post-fs-data
     
     This replaces the removed delayed work (ksu_delayed_selinux_init).
     """
@@ -932,7 +932,7 @@ def fix_on_post_fs_data(kernel_root):
         '\tksu_selinux_hide_handle_post_fs_data();\n'
         '\n'
         '\t/* RDSK_FIX: manager auto-detection + overlay su setup.\n'
-        '\t * With ksud in ramdisk (/sbin/ksud), on_post_fs_data fires\n'
+        '\t * With ksud at KSUD_PATH, on_post_fs_data fires\n'
         '\t * reliably. No need for delayed workqueue. */\n'
         '\t{\n'
         '\t\textern struct cred *ksu_cred;\n'
@@ -945,7 +945,7 @@ def fix_on_post_fs_data(kernel_root):
         '\t{\n'
         '\t\tstatic const char su_content[] =\n'
         '\t\t\t"#!/system/bin/sh\\\\n"\n'
-        '\t\t\t"exec /sbin/ksud \\\\"$@\\\\"\\\\n";\n'
+        '\t\t\t"exec /data/adb/ksud \\\\"$@\\\\"\\\\n";\n'
         '\t\tstruct file *fp;\n'
         '\t\tloff_t pos = 0;\n'
         '\t\tfp = filp_open("/mnt/scratch/overlay/odm/upper/bin/su",\n'
