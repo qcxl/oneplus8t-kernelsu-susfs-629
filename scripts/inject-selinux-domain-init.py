@@ -922,11 +922,16 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         print(f"  {path}: already injected")
         return True
 
-    # Add <linux/workqueue.h> include (needed for DECLARE_WORK, schedule_work)
+    # Add required includes
     if '#include <linux/workqueue.h>' not in content:
         content = content.replace(
             '#include <linux/kprobes.h>',
             '#include <linux/kprobes.h>\n#include <linux/workqueue.h>'
+        )
+    if '#include "selinux/selinux.h"' not in content:
+        content = content.replace(
+            '#include "manager/manager_identity.h"',
+            '#include "manager/manager_identity.h"\n#include "selinux/selinux.h"'
         )
 
     # Inject complete kprobe + work function + diag_log block
@@ -963,12 +968,12 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\n'
         'static DECLARE_WORK(ksu_selinux_policy_work, ksu_selinux_policy_workfn);\n'
         '\n'
-        'static int ksu_selinux_policy_load_post(struct kprobe *p,\n'
-        '\t\t\t\t\t   struct pt_regs *regs)\n'
+        'static void ksu_selinux_policy_load_post(struct kprobe *p,\n'
+        '\t\t\t\t\t   struct pt_regs *regs,\n'
+        '\t\t\t\t\t   unsigned long flags)\n'
         '{\n'
         '\tksu_diag_log("KSU_DIAG: security_load_policy post_handler\\n");\n'
         '\tschedule_work(&ksu_selinux_policy_work);\n'
-        '\treturn 0;\n'
         '}\n'
         '\n'
         'static struct kprobe ksu_selinux_policy_kp = {\n'
