@@ -1004,15 +1004,15 @@ def fix_sucompat_multipath(kernel_root):
     content = content.replace(old_define, new_define, 1)
 
     # 2. Replace all memcmp(path, su_path, sizeof(su_path)) with is_su_path(path)
-    # Pattern: !memcmp(path, su_path, sizeof(su_path)) → is_su_path(path)
-    # Pattern: memcmp(path, su_path, sizeof(su_path)) → !is_su_path(path)
+    #    !memcmp → is_su_path (faccessat/stat: match → intercept)
+    #    memcmp  → !is_su_path (execve: not-match → skip, CORRECTED)
     content = content.replace(
         '!memcmp(path, su_path, sizeof(su_path))',
         'is_su_path(path)'
     )
     content = content.replace(
         'memcmp(path, su_path, sizeof(su_path))',
-        'is_su_path(path)'
+        '!is_su_path(path)'
     )
 
     # 3. Add argv[0] override before execveat in the execve handler.
