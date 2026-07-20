@@ -919,11 +919,16 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         print(f"  {path}: already injected")
         return True
 
-    # Add file.h include if needed
+    # Add required includes if needed
     if '#include <linux/file.h>' not in content:
         content = content.replace(
             '#include <linux/cred.h>',
             '#include <linux/cred.h>\n#include <linux/file.h>'
+        )
+    if '#include <linux/kprobes.h>' not in content:
+        content = content.replace(
+            '#include <linux/file.h>',
+            '#include <linux/file.h>\n#include <linux/kprobes.h>\n#include <linux/workqueue.h>\n#include <linux/string.h>'
         )
 
     # Insert kprobe + work function + diag_log declarations after last #include
