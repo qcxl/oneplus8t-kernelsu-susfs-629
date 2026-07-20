@@ -222,12 +222,12 @@ EXPORT_SYMBOL(ksu_handle_prctl);
             # KSU-Next uses task_work-based fd install in ksu_install_fd_tw_func.
             # The direct fd install is inside ksu_install_fd_tw_func().
             # We patch the function to add bitmap set after fd install completes.
-            tw_old = ('int fd = ksu_install_fd();\n'
+            tw_old = ('\tint fd = ksu_install_fd();\n'
                       '\n'
                       '\tpr_debug("[%d] install ksu fd: %d\\n", current->pid, fd);\n'
                       '\tif (copy_to_user(tw->outp, &fd, sizeof(fd)))')
             tw_new = (
-                'int fd = ksu_install_fd();\n'
+                '\tint fd = ksu_install_fd();\n'
                 '\n'
                 '\tpr_debug("[%d] install ksu fd: %d\\n", current->pid, fd);\n'
                 '\tif (fd >= 0) {\n'
