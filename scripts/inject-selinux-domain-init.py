@@ -892,7 +892,7 @@ def fix_dispatch_get_info(kernel_root):
 
 
 def fix_selinux_load_policy_kprobe(kernel_root):
-    """Kprobe on security_load_policy → apply_kernelsu_rules in builtin mode.
+    """Inject kprobe on security_load_policy → apply_kernelsu_rules in builtin mode.
 
     In builtin mode (CONFIG_KSU=y), kernelsu_init() runs at device_initcall
     level 6, BEFORE security_load_policy() is called by userspace init.
@@ -900,16 +900,19 @@ def fix_selinux_load_policy_kprobe(kernel_root):
     which requires ksud in ramdisk to trigger. With ramdisk injection disabled,
     on_post_fs_data never fires → ksu domain never created.
 
-    Fix: register a kprobe on security_load_policy whose post_handler
-    schedules work that calls apply_kernelsu_rules + cache_sid + setup_ksu_cred
-    right after the SELinux policy is loaded.
-    Diag logs written to /dev/ksu_init_diag.log (devtmpfs, available early)."""
+    Fix: register a kprobe on security_load_policy via late_initcall.
+    Post_handler schedules work that calls apply_kernelsu_rules +
+    cache_sid + setup_ksu_cred right after the SELinux policy is loaded.
+    Diag logs written to /dev/ksu_init_diag.log (devtmpfs, always available).
+
+    Inject into supercall.c (already has <linux/kprobes.h>, <linux/fs.h>,
+    <linux/file.h> included — only need to add <linux/workqueue.h>)."""
     path = find_file(kernel_root, [
-        "drivers/kernelsu/core/init.c",
-        "KernelSU/kernel/core/init.c",
+        "drivers/kernelsu/supercall/supercall.c",
+        "KernelSU/kernel/supercall/supercall.c",
     ])
     if not path:
-        print(f"  WARNING: init.c not found")
+        print(f"  WARNING: supercall.c not found")
         return True
 
     with open(path) as f:
@@ -919,25 +922,21 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         print(f"  {path}: already injected")
         return True
 
-    # Add required includes if not already present
-    needed_includes = ''
-    for hdr in ['<linux/kprobes.h>', '<linux/workqueue.h>',
-                '<linux/string.h>', '<linux/file.h>']:
-        if f'#include {hdr}' not in content:
-            needed_includes += f'#include {hdr}\n'
+    # Add <linux/workqueue.h> include (needed for DECLARE_WORK, schedule_work)
+    if '#include <linux/workqueue.h>' not in content:
+        content = content.replace(
+            '#include <linux/kprobes.h>',
+            '#include <linux/kprobes.h>\n#include <linux/workqueue.h>'
+        )
 
-    # Insert kprobe + work function + diag_log declarations after last #include
-    last_include = content.rfind('#include')
-    last_include_end = content.find('\n', last_include) + 1
-
-    kprobe_block = (
+    # Inject complete kprobe + work function + diag_log block
+    # BEFORE ksu_supercalls_init(). Use the function definition as anchor.
+    kprobe_code = (
         '\n'
-        '/* KSU_SECPOLICY_KPROBE: kprobe on security_load_policy.\n'
-        ' * In builtin mode, apply_kernelsu_rules is only called from\n'
-        ' * on_post_fs_data(), which requires ksud in ramdisk to trigger.\n'
-        ' * This kprobe calls apply_kernelsu_rules as soon as userspace\n'
-        ' * init loads the SELinux policy, ensuring the ksu domain exists\n'
-        ' * regardless of ramdisk injection status. */\n'
+        '/* KSU_SECPOLICY_KPROBE: late_initcall kprobe on security_load_policy.\n'
+        ' * In builtin mode, on_post_fs_data never fires (ksud not in ramdisk).\n'
+        ' * This kprobe ensures apply_kernelsu_rules is called as soon as\n'
+        ' * userspace init loads the SELinux policy, creating the ksu domain. */\n'
         '\n'
         'static void ksu_diag_log(const char *msg)\n'
         '{\n'
@@ -976,37 +975,33 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\t.symbol_name = "security_load_policy",\n'
         '\t.post_handler = ksu_selinux_policy_load_post,\n'
         '};\n'
-    )
-    content = content[:last_include_end] + needed_includes + kprobe_block + content[last_include_end:]
-
-    # Inject kprobe registration before return 0 in kernelsu_init
-    old = '\treturn 0;\n}\n\nvoid __exit kernelsu_exit(void)'
-    new = (
-        '\t/* KSU_SECPOLICY_KPROBE: register on security_load_policy */\n'
-        '\t{\n'
-        '\t\tint _rc = register_kprobe(&ksu_selinux_policy_kp);\n'
-        '\t\tif (_rc) {\n'
-        '\t\t\tpr_err("KSU: security_load_policy kprobe failed: %d\\n", _rc);\n'
-        '\t\t} else {\n'
-        '\t\t\tpr_info("KSU: security_load_policy kprobe registered\\n");\n'
-        '\t\t\tksu_diag_log("KSU_DIAG: secpol kprobe registered\\n");\n'
-        '\t\t}\n'
+        '\n'
+        'static int __init ksu_selinux_policy_kprobe_init(void)\n'
+        '{\n'
+        '\tint rc = register_kprobe(&ksu_selinux_policy_kp);\n'
+        '\tif (rc) {\n'
+        '\t\tpr_err("KSU: security_load_policy kprobe failed: %d\\n", rc);\n'
+        '\t} else {\n'
+        '\t\tpr_info("KSU: security_load_policy kprobe registered\\n");\n'
+        '\t\tksu_diag_log("KSU_DIAG: secpol kprobe registered\\n");\n'
         '\t}\n'
         '\treturn 0;\n'
         '}\n'
-        '\n'
-        'void __exit kernelsu_exit(void)'
+        'late_initcall(ksu_selinux_policy_kprobe_init);\n'
     )
+
+    old = '\nvoid __init ksu_supercalls_init(void)'
     if old not in content:
-        print(f"  WARNING: kernelsu_init return marker not found in {path}")
+        print(f"  WARNING: ksu_supercalls_init marker not found in {path}")
         return True
 
-    content = content.replace(old, new, 1)
+    content = content.replace(
+        old, kprobe_code + '\nvoid __init ksu_supercalls_init(void)', 1)
 
     with open(path, 'w') as f:
         f.write(content)
 
-    print(f"  {path}: security_load_policy kprobe + diag_log injected")
+    print(f"  {path}: security_load_policy kprobe injected (via late_initcall)")
     return True
 
 
