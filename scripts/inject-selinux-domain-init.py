@@ -117,19 +117,19 @@ def fix_rules(kernel_root):
         '    /* ksu exec' + "'" + 's shell (sh, busybox): STAY in ksu domain. */\n'
         '    /* Build: __DATE__ __TIME__ */\n'
         '    /* Without this, stock type_transition domain->shell fires, losing perms. */\n'
-        '    printk(KERN_INFO "ksu_debug: types before=%d\\n", db->p_types.nprim);\n'
-        '    printk(KERN_INFO "ksu_debug: has domain type=%d\\n",\n'
+        '    printk(KERN_ERR "KSU_DIAG: types before=%d\\n", db->p_types.nprim);\n'
+        '    printk(KERN_ERR "KSU_DIAG: has domain type=%d\\n",\n'
         '        hashtab_search(db->p_types.table, "domain") != NULL);\n'
         '    {\n'
         '        bool _r = ksu_type(db, KERNEL_SU_DOMAIN, "domain");\n'
-        '        printk(KERN_INFO "ksu_debug: ksu_type result=%d\\n", _r);\n'
+        '        printk(KERN_ERR "KSU_DIAG: ksu_type result=%d\\n", _r);\n'
         '    }\n'
-        '    printk(KERN_INFO "ksu_debug: types after=%d\\n", db->p_types.nprim);\n'
-        '    printk(KERN_INFO "ksu_debug: has ksu type=%d\\n",\n'
+        '    printk(KERN_ERR "KSU_DIAG: types after=%d\\n", db->p_types.nprim);\n'
+        '    printk(KERN_ERR "KSU_DIAG: has ksu type=%d\\n",\n'
         '        hashtab_search(db->p_types.table, "ksu") != NULL);\n'
-        '    printk(KERN_INFO "ksu_debug: ksu_type_transition result=%d\\n",\n'
+        '    printk(KERN_ERR "KSU_DIAG: ksu_type_transition result=%d\\n",\n'
         '        ksu_type_transition(db, KERNEL_SU_DOMAIN, "shell_exec", "process", KERNEL_SU_DOMAIN, ALL));\n'
-        '    printk(KERN_INFO "ksu_debug: ksu_allow shell_exec result=%d\\n",\n'
+         '    printk(KERN_ERR "KSU_DIAG: ksu_allow shell_exec result=%d\\n",\n'
         '        ksu_allow(db, KERNEL_SU_DOMAIN, "shell_exec", "file", "execute"));'
     )
 
@@ -891,6 +891,125 @@ def fix_dispatch_get_info(kernel_root):
     return True
 
 
+def fix_selinux_load_policy_kprobe(kernel_root):
+    """Kprobe on security_load_policy → apply_kernelsu_rules in builtin mode.
+
+    In builtin mode (CONFIG_KSU=y), kernelsu_init() runs at device_initcall
+    level 6, BEFORE security_load_policy() is called by userspace init.
+    The only code path that calls apply_kernelsu_rules() is on_post_fs_data(),
+    which requires ksud in ramdisk to trigger. With ramdisk injection disabled,
+    on_post_fs_data never fires → ksu domain never created.
+
+    Fix: register a kprobe on security_load_policy whose post_handler
+    schedules work that calls apply_kernelsu_rules + cache_sid + setup_ksu_cred
+    right after the SELinux policy is loaded.
+    Diag logs written to /dev/ksu_init_diag.log (devtmpfs, available early)."""
+    path = find_file(kernel_root, [
+        "drivers/kernelsu/core/init.c",
+        "KernelSU/kernel/core/init.c",
+    ])
+    if not path:
+        print(f"  WARNING: init.c not found")
+        return True
+
+    with open(path) as f:
+        content = f.read()
+
+    if 'KSU_SECPOLICY_KPROBE' in content:
+        print(f"  {path}: already injected")
+        return True
+
+    # Add file.h include if needed
+    if '#include <linux/file.h>' not in content:
+        content = content.replace(
+            '#include <linux/cred.h>',
+            '#include <linux/cred.h>\n#include <linux/file.h>'
+        )
+
+    # Insert kprobe + work function + diag_log declarations after last #include
+    last_include = content.rfind('#include')
+    last_include_end = content.find('\n', last_include) + 1
+
+    kprobe_block = (
+        '\n'
+        '/* KSU_SECPOLICY_KPROBE: kprobe on security_load_policy.\n'
+        ' * In builtin mode, apply_kernelsu_rules is only called from\n'
+        ' * on_post_fs_data(), which requires ksud in ramdisk to trigger.\n'
+        ' * This kprobe calls apply_kernelsu_rules as soon as userspace\n'
+        ' * init loads the SELinux policy, ensuring the ksu domain exists\n'
+        ' * regardless of ramdisk injection status. */\n'
+        '\n'
+        'static void ksu_diag_log(const char *msg)\n'
+        '{\n'
+        '\tstruct file *fp;\n'
+        '\tloff_t pos = 0;\n'
+        '\tfp = filp_open("/dev/ksu_init_diag.log",\n'
+        '\t\t\tO_WRONLY | O_CREAT | O_APPEND, 0644);\n'
+        '\tif (!IS_ERR(fp)) {\n'
+        '\t\tkernel_write(fp, msg, strlen(msg), &pos);\n'
+        '\t\tfilp_close(fp, NULL);\n'
+        '\t}\n'
+        '}\n'
+        '\n'
+        'static void ksu_selinux_policy_workfn(struct work_struct *work)\n'
+        '{\n'
+        '\tksu_diag_log("KSU_DIAG: policy workfn start\\n");\n'
+        '\tapply_kernelsu_rules();\n'
+        '\tksu_diag_log("KSU_DIAG: apply_kernelsu_rules done\\n");\n'
+        '\tcache_sid();\n'
+        '\tksu_diag_log("KSU_DIAG: cache_sid done\\n");\n'
+        '\tsetup_ksu_cred();\n'
+        '\tksu_diag_log("KSU_DIAG: setup_ksu_cred done\\n");\n'
+        '}\n'
+        '\n'
+        'static DECLARE_WORK(ksu_selinux_policy_work, ksu_selinux_policy_workfn);\n'
+        '\n'
+        'static int ksu_selinux_policy_load_post(struct kprobe *p,\n'
+        '\t\t\t\t\t   struct pt_regs *regs)\n'
+        '{\n'
+        '\tksu_diag_log("KSU_DIAG: security_load_policy post_handler\\n");\n'
+        '\tschedule_work(&ksu_selinux_policy_work);\n'
+        '\treturn 0;\n'
+        '}\n'
+        '\n'
+        'static struct kprobe ksu_selinux_policy_kp = {\n'
+        '\t.symbol_name = "security_load_policy",\n'
+        '\t.post_handler = ksu_selinux_policy_load_post,\n'
+        '};\n'
+    )
+    content = content[:last_include_end] + kprobe_block + content[last_include_end:]
+
+    # Inject kprobe registration before return 0 in kernelsu_init
+    old = '\treturn 0;\n}\n\nvoid __exit kernelsu_exit(void)'
+    new = (
+        '\t/* KSU_SECPOLICY_KPROBE: register on security_load_policy */\n'
+        '\t{\n'
+        '\t\tint _rc = register_kprobe(&ksu_selinux_policy_kp);\n'
+        '\t\tif (_rc) {\n'
+        '\t\t\tpr_err("KSU: security_load_policy kprobe failed: %d\\n", _rc);\n'
+        '\t\t} else {\n'
+        '\t\t\tpr_info("KSU: security_load_policy kprobe registered\\n");\n'
+        '\t\t\tksu_diag_log("KSU_DIAG: secpol kprobe registered\\n");\n'
+        '\t\t}\n'
+        '\t}\n'
+        '\treturn 0;\n'
+        '}\n'
+        '\n'
+        'void __exit kernelsu_exit(void)'
+    )
+    if old not in content:
+        print(f"  WARNING: kernelsu_init return marker not found in {path}")
+        return True
+
+    content = content.replace(old, new, 1)
+
+    with open(path, 'w') as f:
+        f.write(content)
+
+    print(f"  {path}: security_load_policy kprobe + diag_log injected")
+    return True
+
+
 def fix_kernelsu_init(kernel_root):
     """Ramdisk ksud approach: SELinux domain is initialized via
     on_post_fs_data (boot_event.c). Manager detection is handled by
@@ -953,7 +1072,7 @@ def fix_on_post_fs_data(kernel_root):
         '\t\tif (!IS_ERR(fp)) {\n'
         '\t\t\tkernel_write(fp, su_content, strlen(su_content), &pos);\n'
         '\t\t\tfilp_close(fp, NULL);\n'
-        '\t\t\tprintk(KERN_INFO "RDSK_FIX: su written to overlay (%lldb)\\n", pos);\n'
+        '\t\t\tprintk(KERN_ERR "KSU_DIAG: su written to overlay (%lldb)\\n", pos);\n'
         '\t\t}\n'
         '\t}\n'
         '\t/* Fix /data/adb/ permissions (non-root su access).\n'
@@ -966,7 +1085,7 @@ def fix_on_post_fs_data(kernel_root):
         '\t\t\tadb_inode->i_mode |= 0755;\n'
         '\t\t\tmark_inode_dirty(adb_inode);\n'
         '\t\t\tpath_put(&adb_path);\n'
-        '\t\t\tprintk(KERN_INFO "RDSK_FIX: /data/adb perms fixed\\n");\n'
+        '\t\t\tprintk(KERN_ERR "KSU_DIAG: /data/adb perms fixed\\n");\n'
         '\t\t}\n'
         '\t}\n'
         '}'
@@ -1083,6 +1202,7 @@ def main():
     ok &= fix_syscall_hook_reboot(root)
     ok &= fix_seccomp_bypass(root)
     ok &= fix_kernelsu_init(root)
+    ok &= fix_selinux_load_policy_kprobe(root)
     ok &= fix_on_post_fs_data(root)
     ok &= fix_sucompat_multipath(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
