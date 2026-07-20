@@ -28,3 +28,4 @@ output/
 prebuilts-master/
 scripts/__pycache__/
 tools/
+__pycache__/

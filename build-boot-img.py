@@ -4,13 +4,14 @@ Create custom boot.img by replacing kernel in original boot.img.
 Usage:
   python3 build-boot-img.py <original_boot.img> <new_kernel> <output_boot.img>
     [--append-cmdline "extra kernel cmdline flags"]
+    [--ramdisk-file <prebuilt_ramdisk>]
 """
 
 import struct
 import sys
 import argparse
 
-def make_boot_img(original_boot, new_kernel, output_boot, extra_cmdline=""):
+def make_boot_img(original_boot, new_kernel, output_boot, extra_cmdline="", ramdisk_file=""):
     with open(original_boot, 'rb') as f:
         original_data = f.read()
 
@@ -65,9 +66,16 @@ def make_boot_img(original_boot, new_kernel, output_boot, extra_cmdline=""):
     print(f"  Second: 0x{second_start:x}")
 
     # ---- Read ramdisk from ORIGINAL boot.img (using orig_kernel_size) ----
-    orig_ramdisk_start = ((page_size + orig_kernel_size + page_size - 1) // page_size) * page_size
-    ramdisk_from_original = original_data[orig_ramdisk_start:orig_ramdisk_start + ramdisk_size]
-    print(f"  Ramdisk read from original at: 0x{orig_ramdisk_start:x}")
+    if ramdisk_file:
+        with open(ramdisk_file, 'rb') as rf:
+            ramdisk_from_original = rf.read()
+        ramdisk_size = len(ramdisk_from_original)
+        print(f"Ramdisk from custom file: {ramdisk_file} ({ramdisk_size} bytes)")
+        struct.pack_into('<I', header_data, 16, ramdisk_size)
+    else:
+        orig_ramdisk_start = ((page_size + orig_kernel_size + page_size - 1) // page_size) * page_size
+        ramdisk_from_original = original_data[orig_ramdisk_start:orig_ramdisk_start + ramdisk_size]
+        print(f"  Ramdisk read from original at: 0x{orig_ramdisk_start:x}")
 
     # ---- Read DTB from ORIGINAL boot.img ----
     DTB_MAGIC = b'\xd0\x0d\xfe\xed'
@@ -162,6 +170,7 @@ if __name__ == '__main__':
     parser.add_argument('new_kernel', help='New kernel Image file')
     parser.add_argument('output_boot', help='Output boot.img file')
     parser.add_argument('--append-cmdline', help='Extra kernel cmdline flags to append (e.g. "initcall_debug log_buf_len=16M")')
+    parser.add_argument('--ramdisk-file', help='Pre-built LZ4-compressed ramdisk file (overrides original)')
     args = parser.parse_args()
 
-    make_boot_img(args.original_boot, args.new_kernel, args.output_boot, args.append_cmdline or "")
+    make_boot_img(args.original_boot, args.new_kernel, args.output_boot, args.append_cmdline or "", args.ramdisk_file or "")

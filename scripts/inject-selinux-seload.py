@@ -99,8 +99,8 @@ static int __init ksu_sel_write_load_init(void)
  * The kprobe handler is only invoked when sel_write_load is called
  * (policy reload), which typically does NOT happen during boot on
  * LineageOS. When/if it does, the handler re-applies KSU rules.
- * This is a safety net; the primary init happens via delayed workqueue
- * in core/init.c.
+ * This is a safety net; the primary init happens via on_post_fs_data
+ * event (boot_event.c), triggered by ksud from ramdisk (/sbin/ksud).
  *
  * NOTE: In builtin mode (CONFIG_KSU=y), module_init is equivalent to
  * the device_initcall level. The INIT_WORK + register_kprobe calls

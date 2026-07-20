@@ -987,320 +987,77 @@ def fix_dispatch_get_info(kernel_root):
 
 
 def fix_kernelsu_init(kernel_root):
-    """Add apply_kernelsu_rules + cache_sid + setup_ksu_cred directly in
-    kernelsu_init(), before the final 'return 0;'. This runs at
-    device_initcall level, after SELinux is fully initialized."""
-    path = find_file(kernel_root, [
-        "drivers/kernelsu/core/init.c",
-        "KernelSU/kernel/core/init.c",
-    ])
-    if not path:
-        print(f"  ERROR: core/init.c not found")
-        return False
-
-    with open(path) as f:
-        content = f.read()
-
-    # Check if our injection already exists (the comment is unique to our code)
-    if 'KSU SELinux domain (SELinux is fully initialized at this point)' in content:
-        print(f"  {path}: already injected, skipping")
-        return True
-
-    # Add includes if not present
-    if '#include "selinux/selinux.h"' not in content:
-        content = content.replace(
-            '#include "klog.h"',
-            '#include "klog.h"\n#include "selinux/selinux.h"'
-        )
-    if '#include <linux/workqueue.h>' not in content:
-        content = content.replace(
-            '#include <linux/export.h>',
-            '#include <linux/export.h>\n#include <linux/workqueue.h>'
-        )
-    if '#include <linux/delay.h>' not in content:
-        content = content.replace(
-            '#include <linux/export.h>',
-            '#include <linux/export.h>\n#include <linux/delay.h>'
-        )
-    if '#include <linux/kmod.h>' not in content:
-        content = content.replace(
-            '#include <linux/export.h>',
-            '#include <linux/export.h>\n#include <linux/kmod.h>'
-        )
-    if '#include "manager/manager_identity.h"' not in content:
-        content = content.replace(
-            '#include "klog.h"',
-            '#include "klog.h"\n#include "manager/manager_identity.h"\n#include "manager/throne_tracker.h"'
-        )
-
-    # Add DECLARE_DELAYED_WORK + work function BEFORE kernelsu_init
-    # (must be declared before the function that uses it)
-    work_decl = '''
-
-/* Seccomp bypass package list (comma-separated, module parameter).
- * Runtime update: echo "pkg1,pkg2" > /sys/module/kernelsu/parameters/seccomp_pkglist */
-static char ksu_seccomp_pkglist[256] = "com.rifsxd.ksunext";
-module_param_string(seccomp_pkglist, ksu_seccomp_pkglist, sizeof(ksu_seccomp_pkglist), 0644);
-
-/* Check if a package name line from packages.list matches our seccomp list. */
-int ksu_seccomp_pkg_match(const char *line, uid_t *uid_out)
-{
-	const char *list = ksu_seccomp_pkglist;
-	int nlen = 0;
-	/* Extract package name length (up to space, newline, tab) */
-	while (line[nlen] && line[nlen] != 32 && line[nlen] != 9 && line[nlen] != 10)
-		nlen++;
-	if (!nlen) return 0;
-	while (*list) {
-		const char *comma = strchr(list, ',');
-		int llen = comma ? (int)(comma - list) : (int)strlen(list);
-		if (nlen == llen && strncmp(list, line, llen) == 0) {
-			/* Package matched, extract UID from line (2nd field) */
-			const char *sp = line + nlen;
-			while (*sp == 32 || *sp == 9) sp++;
-			if (*sp >= 48 && *sp <= 57) {
-				*uid_out = (uid_t)simple_strtoul(sp, NULL, 10);
-				return 1;
-			}
-			return 0; /* Found package but no valid UID */
-		}
-		if (!comma) break;
-		list = comma + 1;
-	}
-	return 0;
-}
-
-extern unsigned long ksu_seccomp_bmp[];
-
-/* Delayed init: SELinux domain + auto-crown manager UID.
- * Runs ~30s after boot (policy fully loaded, /data accessible). */
-static void ksu_delayed_selinux_init(struct work_struct *work)
-{
-		printk(KERN_INFO "ksu_debug: delayed init executing\\n");
-	apply_kernelsu_rules();
-	cache_sid();
-	setup_ksu_cred();
-	/* Fix cold boot grant root: set manager UID before app starts. */
-	{
-		const struct cred *old_cred2 = override_creds(ksu_cred);
-		/* Call track_throne() first (it may already set manager_appid) */
-		track_throne(false);
-		/* If track_throne() failed (e.g. due to is_lock_held race), */
-		/* scan packages.list directly via kernel_read */
-		if (!ksu_is_manager_appid_valid()) {
-			struct file *f2 = filp_open("/data/system/packages.list",
-				O_RDONLY, 0);
-			printk(KERN_INFO "ksu_dbg: open=%ld\\n",
-				IS_ERR(f2) ? PTR_ERR(f2) : 0L);
-			if (!IS_ERR(f2)) {
-				loff_t sz2 = i_size_read(file_inode(f2));
-				printk(KERN_INFO "ksu_dbg: plist sz=%lld\\n", sz2);
-				if (sz2 > 0 && sz2 < 131072) {
-					char *bf = kvmalloc((size_t)sz2 + 1,
-						GFP_KERNEL);
-					printk(KERN_INFO "ksu_dbg: alloc=%s\\n",
-						bf ? "ok" : "fail");
-					if (bf) {
-						loff_t rp2 = 0;
-						ssize_t nr2 = kernel_read(f2, bf,
-							(size_t)sz2, &rp2);
-						printk(KERN_INFO "ksu_dbg: read=%zd/%lld\\n",
-							nr2, sz2);
-						if (nr2 == (ssize_t)sz2) {
-							char *hit2 = strstr(bf,
-								KSU_MANAGER_PACKAGE);
-							printk(KERN_INFO "ksu_dbg: strstr=%s\\n",
-								hit2 ? "found" : "miss");
-							if (hit2) {
-								hit2 +=
-									strlen(
-									KSU_MANAGER_PACKAGE);
-								while (*hit2 == 32)
-									hit2++;
-								if (*hit2 >= 48
-									&& *hit2 <= 57) {
-									uid_t vu2 =
-									simple_strtoul(
-									hit2, NULL, 10);
-									ksu_set_manager_appid(
-										vu2);
-									printk(KERN_INFO
-										"ksu_dbg: set UID=%d\\n",
-										vu2);
-								} else {
-									printk(KERN_INFO
-									"ksu_dbg: no digit\\n");
-								}
-							} else {
-								printk(KERN_INFO
-									"ksu_dbg: miss\\n");
-							}
-						}
-						kvfree(bf);
-					}
-				}
-				filp_close(f2, NULL);
-			}
-		}
-		/* Populate seccomp bypass bitmap from packages.list.
-		 * Runs regardless of manager state to cover both KSU apps. */
-		{
-			struct file *f2 = filp_open("/data/system/packages.list",
-				O_RDONLY, 0);
-			if (!IS_ERR(f2)) {
-				loff_t fsize = i_size_read(file_inode(f2));
-			if (fsize > 65536) fsize = 65536;
-			char *bf = kvmalloc((size_t)fsize + 1, GFP_KERNEL);
-				if (bf) {
-					loff_t rp2 = 0;
-					ssize_t nr2 = kernel_read(f2, bf, (size_t)fsize, &rp2);
-					if (nr2 > 0) {
-						bf[nr2] = 0;
-						/* Iterate each line, match against ksu_seccomp_pkglist */
-						char *line = bf;
-						while (line && *line) {
-							char *nl = strchr(line, 10);
-							if (nl) *nl = 0;
-							uid_t pkg_uid = 0;
-							if (ksu_seccomp_pkg_match(line, &pkg_uid) && pkg_uid >= 10000) {
-								set_bit((unsigned int)pkg_uid, ksu_seccomp_bmp);
-								printk(KERN_INFO "ksu_dbg: bmp add uid=%d\\n", pkg_uid);
-							}
-							if (nl) { *nl = 10; line = nl + 1; }
-							else break;
-						}
-					}
-					kvfree(bf);
-				}
-				filp_close(f2, NULL);
-			}
-		}
-		revert_creds(old_cred2);
-	}
-	if (ksu_manager_appid != -1)
-		printk(KERN_INFO "ksu_debug: mgr=%d fallback\\n", ksu_manager_appid);
-	else
-		printk(KERN_INFO "ksu_debug: mgr still INVALID\\n");
-    /* Make su available via overlay upperdir write (call_usermodehelper disabled).
-     * Uses kernel VFS directly: filp_open + kernel_write to /mnt/scratch/overlay/odm/upper/bin/su.
-     * The overlay upperdir (/mnt/scratch, f2fs) persists across reboots.
-     * On first boot, try /data/local/tmp/su as fallback.
-     * /data/adb/ksud is the actual path (defs.rs: DAEMON_PATH). */
-    {
-        static const char su_content[] =
-            "#!/system/bin/sh\\n"
-            "exec /data/adb/ksud debug su \\"$@\\" 2>/dev/null\\n"
-            "|| exec /system/bin/sh \\"$@\\"\\n";
-        const char *su_paths[] = {
-            "/mnt/scratch/overlay/odm/upper/bin/su",
-            "/data/local/tmp/su",
-        };
-		int i;
-		for (i = 0; i < 2; i++) {
-			const struct cred *old_cred3 = override_creds(ksu_cred);
-			struct file *fp_su;
-			loff_t pos_su = 0;
-			fp_su = filp_open(su_paths[i],
-					  O_WRONLY | O_CREAT | O_TRUNC, 0755);
-			if (IS_ERR(fp_su)) {
-				printk(KERN_INFO "ksu_diag: su@%s=%ld\\n",
-				       su_paths[i], PTR_ERR(fp_su));
-			} else {
-				kernel_write(fp_su, su_content,
-					     strlen(su_content), &pos_su);
-				filp_close(fp_su, NULL);
-				printk(KERN_INFO "ksu_diag: su@%s (%lldb)\\n",
-				       su_paths[i], pos_su);
-			}
-			revert_creds(old_cred3);
-		}
-	}
-	printk(KERN_INFO "ksu_debug: delayed init complete\\n");
-	/* If manager still not set and /data may not be ready yet, retry.
-	 * Limit to 10 retries (10 minutes total) to avoid infinite loop. */
-	{
-		static int retry_count = 0;
-		if (!ksu_is_manager_appid_valid()) {
-			if (++retry_count <= 10) {
-				printk(KERN_INFO "ksu_debug: retry delayed init (%d/10)\\n",
-				       retry_count);
-				{
-					struct delayed_work *dw = to_delayed_work(work);
-					schedule_delayed_work(dw, 60 * HZ);
-				}
-			}
-		} else {
-			retry_count = 0;
-		}
-	}
-}
-static DECLARE_DELAYED_WORK(ksu_delayed_selinux_work, ksu_delayed_selinux_init);
-'''
-    # Insert before kernelsu_init definition
-    content = content.replace(
-        'int __init kernelsu_init(void)',
-        work_decl + '\nint __init kernelsu_init(void)',
-        1
-    )
-
-    # Find the final return 0; in kernelsu_init() and insert before it.
-    # Using str.replace() to avoid Python re.sub's backslash interpretation
-    # (re.sub converts \\n in replacement to actual newline chars).
-    old_tail = '\treturn 0;\n}\n\nvoid __exit kernelsu_exit'
-    if old_tail not in content:
-        print(f"  ERROR: cannot find kernelsu_init() end marker in {path}")
-        return False
-
-    new_tail = (
-        '\t/* Defer SELinux domain init: policydb not ready at device_initcall. */\n'
-        '\t/* Schedule delayed work to run ~30s after boot (policy fully loaded). */\n'
-        '\tprintk(KERN_INFO "ksu_debug: scheduling delayed ksu domain init\\n");\n'
-        '\tschedule_delayed_work(&ksu_delayed_selinux_work, 30 * HZ);\n'
-        '\n'
-        '\treturn 0;\n'
-        '}\n'
-        '\n'
-        'void __exit kernelsu_exit'
-    )
-    content = content.replace(old_tail, new_tail, 1)
-
-    with open(path, 'w') as f:
-        f.write(content)
-    print(f"  {path}: added calls to kernelsu_init()")
+    """Ramdisk ksud approach: SELinux domain is initialized via
+    on_post_fs_data (boot_event.c). Manager detection is handled by
+    track_throne() injected into on_post_fs_data + pkg_observer + INSTALL_MAGIC2.
+    No delayed work needed — ksud is always available from ramdisk."""
     return True
 
 
-def fix_sucompat_pdeath(kernel_root):
-    """Set pdeath_signal=SIGKILL on su/ksud processes forked by App.
+def fix_on_post_fs_data(kernel_root):
+    """Inject track_throne(false) + overlay su write into boot_event.c
+    on_post_fs_data(). With ksud in ramdisk, on_post_fs_data fires
+    reliably because ksud is always available from /sbin/ksud.
     
-    When the App spawns su (via libsu), the sucompat execve handler redirects
-    to /data/adb/ksud. After exec, the ksud process inherits pdeath_signal.
-    When the App parent dies (force-stop), all child ksud processes get
-    SIGKILL automatically. This prevents orphan daemon accumulation.
+    This replaces the removed delayed work (ksu_delayed_selinux_init).
     """
     path = find_file(kernel_root, [
-        "drivers/kernelsu/feature/sucompat.c",
-        "drivers/kernelsu/../KernelSU-Next/kernel/feature/sucompat.c",
-        "KernelSU/kernel/feature/sucompat.c",
+        "drivers/kernelsu/runtime/boot_event.c",
+        "drivers/kernelsu/../KernelSU-Next/kernel/runtime/boot_event.c",
+        "KernelSU/kernel/runtime/boot_event.c",
     ])
     if not path:
-        print(f"  WARNING: sucompat.c not found")
+        print(f"  WARNING: boot_event.c not found")
         return True
     with open(path) as f:
         content = f.read()
-    if 'pdeath_signal' in content:
-        print(f"  {path}: pdeath_signal already present, skipping")
+    if 'RDSK_FIX' in content:
+        print(f"  {path}: already injected, skipping")
         return True
-    
-    old = '\tret = ksu_syscall_table[__NR_execveat](regs);'
-    new = '\tcurrent->pdeath_signal = SIGKILL;\n\tret = ksu_syscall_table[__NR_execveat](regs);'
-    if old in content:
-        content = content.replace(old, new, 1)
-        with open(path, 'w') as fc:
-            fc.write(content)
-        print(f"  {path}: pdeath_signal injected into sucompat execve path")
-    else:
-        print(f"  WARNING: execveat pattern not found in {path}")
+
+    # Find the closing } of on_post_fs_data and inject before it
+    # The function ends with:
+    #   ksu_selinux_hide_handle_post_fs_data();
+    # }
+    old = '\tksu_selinux_hide_handle_post_fs_data();\n}'
+    if old not in content:
+        print(f"  WARNING: on_post_fs_data closing pattern not found in {path}")
+        return True
+
+    inject = (
+        '\tksu_selinux_hide_handle_post_fs_data();\n'
+        '\n'
+        '\t/* RDSK_FIX: manager auto-detection + overlay su setup.\n'
+        '\t * With ksud in ramdisk (/sbin/ksud), on_post_fs_data fires\n'
+        '\t * reliably. No need for delayed workqueue. */\n'
+        '\t{\n'
+        '\t\textern struct cred *ksu_cred;\n'
+        '\t\tconst struct cred *old_cred = override_creds(ksu_cred);\n'
+        '\t\ttrack_throne(false);\n'
+        '\t\trevert_creds(old_cred);\n'
+        '\t}\n'
+        '\t/* Write su to overlay upperdir (one-shot, persists reboots).\n'
+        '\t * O_CREAT|O_EXCL silently fails if file already exists. */\n'
+        '\t{\n'
+        '\t\tstatic const char su_content[] =\n'
+        '\t\t\t"#!/system/bin/sh\\\\n"\n'
+        '\t\t\t"exec /sbin/ksud \\\\"$@\\\\"\\\\n";\n'
+        '\t\tstruct file *fp;\n'
+        '\t\tloff_t pos = 0;\n'
+        '\t\tfp = filp_open("/mnt/scratch/overlay/odm/upper/bin/su",\n'
+        '\t\t\t       O_WRONLY | O_CREAT | O_EXCL, 0755);\n'
+        '\t\tif (!IS_ERR(fp)) {\n'
+        '\t\t\tkernel_write(fp, su_content, strlen(su_content), &pos);\n'
+        '\t\t\tfilp_close(fp, NULL);\n'
+        '\t\t\tprintk(KERN_INFO "RDSK_FIX: su written to overlay (%lldb)\\\\n", pos);\n'
+        '\t\t}\n'
+        '\t}\n'
+        '}'
+    )
+    content = content.replace(old, inject, 1)
+    with open(path, 'w') as fc:
+        fc.write(content)
+    print(f"  {path}: track_throne + overlay su injected into on_post_fs_data")
     return True
 
 
@@ -1330,6 +1087,7 @@ def main():
     ok &= fix_syscall_hook_reboot(root)
     ok &= fix_seccomp_bypass(root)
     ok &= fix_kernelsu_init(root)
+    ok &= fix_on_post_fs_data(root)
     print(f"  CCACHE_BUSTER=1: Result: {'ALL OK' if ok else 'SOME FAILURES'}")
     sys.exit(0 if ok else 1)
 

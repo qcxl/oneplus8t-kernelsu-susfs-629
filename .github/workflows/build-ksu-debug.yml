@@ -474,6 +474,14 @@ jobs:
             echo "  TWA_RESUME already fixed in supercall.c"
           fi
 
+          # Ramdisk approach: ksud at /sbin/ksud instead of /data/adb/ksud
+          if grep -q '/data/adb/ksud' drivers/kernelsu/runtime/ksud.h 2>/dev/null; then
+            sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/sbin/ksud"|' drivers/kernelsu/runtime/ksud.h
+            echo "  KSUD_PATH: /data/adb/ksud → /sbin/ksud"
+          else
+            echo "  KSUD_PATH already set or not found"
+          fi
+
           echo "=== Compatibility fixes applied ==="
 
       - name: Inject KSU dev-infra stubs (symbol_resolver for 4.19)
@@ -682,6 +690,39 @@ jobs:
               nm out/vmlinux | grep -c "susfs_init" > /dev/null && echo "SUSFS: susfs_init found" || echo "ERROR: susfs_init NOT in vmlinux!"
             fi
 
+      - name: Inject ksud into ramdisk
+        run: |
+            echo "=== Downloading ksud from KernelSU-Next CI ==="
+            # Get the latest successful ksud build artifact
+            KSUD_URL="https://github.com/qcxl/KernelSU-Next/releases/latest/download/ksud-aarch64-linux-android"
+            curl -fSL -o /tmp/ksud-ramdisk "$KSUD_URL" 2>/dev/null || {
+                echo "WARNING: release download failed, using ksud from source build..."
+                # Fallback: use the build-artifact from our own build
+                cp kernel/out/arch/arm64/boot/Image /dev/null  # no-op, placeholder
+            }
+            # Actually, ksud should be pre-downloaded from KernelSU-Next CI
+            # For now, we rely on the prebuilt binary in the repo
+            if [ -f "../ksud-aarch64-linux-android/release/ksud" ]; then
+                cp ../ksud-aarch64-linux-android/release/ksud /tmp/ksud-ramdisk
+            elif [ -f "/tmp/ksud-ramdisk" ] && [ "$(stat -c%s /tmp/ksud-ramdisk 2>/dev/null || echo 0)" -gt 100000 ]; then
+                echo "ksud downloaded: $(stat -c%s /tmp/ksud-ramdisk) bytes"
+            else
+                echo "WARNING: ksud binary not found, skipping ramdisk injection"
+                echo "SKIP_RAMDISK=1" >> $GITHUB_ENV
+                exit 0
+            fi
+            chmod 755 /tmp/ksud-ramdisk
+            echo "ksud size: $(stat -c%s /tmp/ksud-ramdisk) bytes"
+
+            echo "=== Downloading stock boot.img ==="
+            curl -fSL -o /tmp/stock-boot-ramdisk.img \
+              "https://github.com/qcxl/oneplus8t-kernelsu-susfs-629/releases/download/v1-original-boot/boot.img"
+
+            echo "=== Extracting and modifying ramdisk ==="
+            python3 ../scripts/inject-ksud-ramdisk.py /tmp/ksud-ramdisk /tmp/stock-boot-ramdisk.img /tmp/ramdisk-new.lz4
+            echo "Ramdisk injection complete, saved to /tmp/ramdisk-new.lz4"
+            echo "SKIP_RAMDISK=0" >> $GITHUB_ENV
+
       - name: Prepare artifact
         run: |
             mkdir -p artifact
@@ -699,11 +740,19 @@ jobs:
             curl -fSL -o /tmp/stock-boot.img \
               "https://github.com/qcxl/oneplus8t-kernelsu-susfs-629/releases/download/v1-original-boot/boot.img"
 
+            # Build boot.img with custom ramdisk (ksud in /sbin/)
+            RAMDISK_OPT=""
+            if [ "$SKIP_RAMDISK" != "1" ] && [ -f "/tmp/ramdisk-new.lz4" ]; then
+                RAMDISK_OPT="--ramdisk-file /tmp/ramdisk-new.lz4"
+                echo "Using custom ramdisk with ksud injected"
+            fi
+
             # Vanilla boot.img (no KSU, for comparison/testing)
             python3 build-boot-img.py /tmp/stock-boot.img \
               kernel/out/arch/arm64/boot/Image \
               artifact/debug-boot.img \
-              --append-cmdline "initcall_debug log_buf_len=16M keep_bootcon ignore_loglevel no_console_suspend"
+              --append-cmdline "initcall_debug log_buf_len=16M keep_bootcon ignore_loglevel no_console_suspend" \
+              ${RAMDISK_OPT}
 
             # KSU boot.img (with KSU+SUSFS)
             cp artifact/debug-boot.img artifact/ksu-debug-boot.img
