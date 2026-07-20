@@ -691,6 +691,17 @@ jobs:
             echo "=== Extracting and modifying ramdisk ==="
             python3 scripts/inject-ksud-ramdisk.py /tmp/ksud-ramdisk /tmp/stock-boot-ramdisk.img /tmp/ramdisk-new.lz4
             echo "Ramdisk injection complete, saved to /tmp/ramdisk-new.lz4"
+
+            echo "=== Verifying ksud in ramdisk ==="
+            # Decompress and check /ksud exists with correct size
+            lz4 -d /tmp/ramdisk-new.lz4 /tmp/ramdisk-verify.raw 2>/dev/null
+            KSIZE=$(cpio -it -F /tmp/ramdisk-verify.raw 2>/dev/null | grep -E '^ksud$')
+            if [ -n "$KSIZE" ]; then
+                echo "  ✅ /ksud found in ramdisk"
+            else
+                echo "  ❌ /ksud NOT in ramdisk — build will fail!"
+                exit 1
+            fi
             echo "SKIP_RAMDISK=0" >> $GITHUB_ENV
 
       - name: Prepare artifact
