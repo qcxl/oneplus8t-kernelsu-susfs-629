@@ -692,27 +692,15 @@ jobs:
 
       - name: Inject ksud into ramdisk
         run: |
-            echo "=== Downloading ksud from KernelSU-Next CI ==="
-            # Get the latest successful ksud build artifact
-            KSUD_URL="https://github.com/qcxl/KernelSU-Next/releases/latest/download/ksud-aarch64-linux-android"
-            curl -fSL -o /tmp/ksud-ramdisk "$KSUD_URL" 2>/dev/null || {
-                echo "WARNING: release download failed, using ksud from source build..."
-                # Fallback: use the build-artifact from our own build
-                cp kernel/out/arch/arm64/boot/Image /dev/null  # no-op, placeholder
-            }
-            # Actually, ksud should be pre-downloaded from KernelSU-Next CI
-            # For now, we rely on the prebuilt binary in the repo
-            if [ -f "../ksud-aarch64-linux-android/release/ksud" ]; then
-                cp ../ksud-aarch64-linux-android/release/ksud /tmp/ksud-ramdisk
-            elif [ -f "/tmp/ksud-ramdisk" ] && [ "$(stat -c%s /tmp/ksud-ramdisk 2>/dev/null || echo 0)" -gt 100000 ]; then
-                echo "ksud downloaded: $(stat -c%s /tmp/ksud-ramdisk) bytes"
-            else
-                echo "WARNING: ksud binary not found, skipping ramdisk injection"
+            KSUD_BIN="../prebuilt/ksud"
+            if [ ! -f "$KSUD_BIN" ]; then
+                echo "ERROR: prebuilt/ksud not found"
                 echo "SKIP_RAMDISK=1" >> $GITHUB_ENV
                 exit 0
             fi
+            cp "$KSUD_BIN" /tmp/ksud-ramdisk
             chmod 755 /tmp/ksud-ramdisk
-            echo "ksud size: $(stat -c%s /tmp/ksud-ramdisk) bytes"
+            echo "ksud binary: $(stat -c%s /tmp/ksud-ramdisk) bytes"
 
             echo "=== Downloading stock boot.img ==="
             curl -fSL -o /tmp/stock-boot-ramdisk.img \
