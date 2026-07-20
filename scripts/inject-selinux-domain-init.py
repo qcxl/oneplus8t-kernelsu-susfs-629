@@ -946,7 +946,7 @@ def fix_on_post_fs_data(kernel_root):
         '\t{\n'
         '\t\tstatic const char su_content[] =\n'
         '\t\t\t"#!/system/bin/sh\\n"\n'
-        '\t\t\t"exec /ksud \\"$@\\"\\n";\n'
+        '\t\t\t"exec /data/adb/ksud \\"$@\\"\\n";\n'
         '\t\tstruct file *fp;\n'
         '\t\tloff_t pos = 0;\n'
         '\t\tfp = filp_open("/mnt/scratch/overlay/odm/upper/bin/su",\n'
