@@ -55,17 +55,12 @@ def main():
     orig_count = len(os.listdir(extract_dir))
     print(f"Extracted {orig_count} entries")
 
-    # Create /sbin/ and add ksud
-    os.makedirs('sbin', exist_ok=True)
-    shutil.copy2(ksud_bin, 'sbin/ksud')
-    os.chmod('sbin/ksud', 0o755)
-    print(f"Added sbin/ksud ({os.path.getsize('sbin/ksud')} bytes)")
+    # Copy ksud to ramdisk root (NOT /sbin/ — conflicts with Android symlink)
+    shutil.copy2(ksud_bin, 'ksud')
+    os.chmod('ksud', 0o755)
+    print(f"Added ksud ({os.path.getsize('ksud')} bytes) at ramdisk root")
 
-    # Create su symlink -> /sbin/ksud
-    if os.path.exists('sbin/su'):
-        os.unlink('sbin/su')
-    os.symlink('/sbin/ksud', 'sbin/su')
-    print("Added sbin/su -> /sbin/ksud symlink")
+    # No su symlink needed — su is handled by overlay /odm/bin/su
 
     # Repack cpio
     ramdisk_new_cpio = '/tmp/ramdisk-new.cpio'

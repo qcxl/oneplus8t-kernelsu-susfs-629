@@ -456,8 +456,13 @@ jobs:
             echo "  TWA_RESUME already fixed in supercall.c"
           fi
 
-          # Ramdisk: KSUD_PATH stays at /data/adb/ksud until ramdisk injection works
-          echo "  KSUD_PATH: /data/adb/ksud (ramdisk injection disabled for now)"
+          # Ramdisk approach: ksud at /ksud in ramdisk root
+          if grep -q '/data/adb/ksud' drivers/kernelsu/runtime/ksud.h 2>/dev/null; then
+            sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/ksud"|' drivers/kernelsu/runtime/ksud.h
+            echo "  KSUD_PATH: /data/adb/ksud → /ksud"
+          else
+            echo "  KSUD_PATH already set or not found"
+          fi
 
           echo "=== Compatibility fixes applied ==="
 
@@ -705,17 +710,19 @@ jobs:
             curl -fSL -o /tmp/stock-boot.img \
               "https://github.com/qcxl/oneplus8t-kernelsu-susfs-629/releases/download/v1-original-boot/boot.img"
 
-            # Build boot.img (ramdisk injection disabled — /sbin conflicts with Android)
-            # RAMDISK_ARG=""
-            # if [ "$SKIP_RAMDISK" != "1" ] && [ -f "/tmp/ramdisk-new.lz4" ]; then
-            #     RAMDISK_ARG="--ramdisk-file /tmp/ramdisk-new.lz4"
-            # fi
+            # Build boot.img with custom ramdisk (ksud at /ksud in ramdisk root)
+            RAMDISK_OPT=""
+            if [ "$SKIP_RAMDISK" != "1" ] && [ -f "/tmp/ramdisk-new.lz4" ]; then
+                RAMDISK_OPT="--ramdisk-file /tmp/ramdisk-new.lz4"
+                echo "Using custom ramdisk with /ksud injected"
+            fi
 
             # Vanilla boot.img (no KSU, for comparison/testing)
             python3 build-boot-img.py /tmp/stock-boot.img \
               kernel/out/arch/arm64/boot/Image \
               artifact/debug-boot.img \
-              --append-cmdline "initcall_debug log_buf_len=16M keep_bootcon ignore_loglevel no_console_suspend"
+              --append-cmdline "initcall_debug log_buf_len=16M keep_bootcon ignore_loglevel no_console_suspend" \
+              ${RAMDISK_OPT}
 
             # KSU boot.img (with KSU+SUSFS)
             cp artifact/debug-boot.img artifact/ksu-debug-boot.img
