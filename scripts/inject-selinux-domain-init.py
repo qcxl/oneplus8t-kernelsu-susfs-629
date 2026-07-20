@@ -142,14 +142,14 @@ def fix_rules(kernel_root):
     # DIAG: inject orig nprim before ksu_dup_sepolicy
     diag_old = (
         '\tpol = ksu_dup_sepolicy(rcu_dereference_protected(\n'
-        '\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
+        '\t\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
     )
     diag_new = (
         '\tprintk(KERN_ERR "KSU_DIAG: orig nprim=%d len=%zu\\n",\n'
         '\t    old_pol->policydb.p_types.nprim,\n'
         '\t    old_pol->policydb.len);\n'
         '\tpol = ksu_dup_sepolicy(rcu_dereference_protected(\n'
-        '\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
+        '\t\t    old_pol, lockdep_is_held(&selinux_state.policy_mutex)));'
     )
     if diag_old in content:
         content = content.replace(diag_old, diag_new, 1)
