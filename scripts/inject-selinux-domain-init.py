@@ -639,25 +639,20 @@ def fix_seccomp_bypass(kernel_root):
     # Add the seccomp kprobe structure before ksu_supercalls_init
     kprobe_decl = '''
 
-/* seccomp_bypass: bypass seccomp for KSU SYS_reboot magic, then install fd.
+/* seccomp_bypass: bypass seccomp for KSU SYS_reboot magic.
  * Android seccomp blocks __NR_reboot (142). libksud.so calls:
  *   syscall(SYS_reboot, KSU_INSTALL_MAGIC1=0xDEADBEEF, KSU_INSTALL_MAGIC2=0xCAFEBABE, 0, &fd)
- * We intercept secure_computing(), skip it for KSU magic, AND install the fd
- * via a second kprobe on __arm64_sys_reboot (always registered, not guarded by KSU_KPROBES_HOOK). */
+ * We intercept secure_computing(), skip it for KSU magic.
+ *
+ * Seccomp is disabled by default (mode=0) on LineageOS 20 because
+ * Bionic skips PR_SET_SECCOMP for regular app UIDs. This kprobe is a
+ * cross-device safety net for devices where seccomp IS enabled. */
 
 extern int ksu_seccomp_check(unsigned int uid);
 
-static void nnp_install_seccomp(struct callback_head *work);
-
 /* Seccomp bypass: intercept __secure_computing and allow __NR_reboot
- * for KSU-managed apps. Unlike the prctl-intercept approach, this
- * fires AFTER seccomp is installed, so it works regardless of when
- * INSTALL_MAGIC2 runs. Children forked before INSTALL_MAGIC2 inherit
- * Seccomp=2, but their __NR_reboot calls are allowed through here.
- * Cold-boot: when manager_appid is not yet set, allow all app UIDs
- * (10000-19999 range) to establish initial fd connection.
- * Also installs NoNewPrivs + allow-all seccomp filter on first bypass
- * (fixes "Seccomp: 已禁用" on KSU-Next home page). */
+ * for KSU-managed apps. This fires when seccomp.mode != 0 (i.e. only
+ * on devices that actually install seccomp filters on apps). */
 static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	unsigned int uid, app_uid;
@@ -674,21 +669,6 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 		struct pt_regs *uregs = task_pt_regs(current);
 		int sc_nr = uregs->syscallno;
 		if (sc_nr == 142) {
-			/* Install NoNewPrivs + seccomp for KSU app processes.
-			 * The App uses sys_reboot, not prctl, to install fd,
-			 * so the nnp_setup kprobe on prctl never fires. */
-			if (current->seccomp.mode == 0) {
-				if (!task_no_new_privs(current))
-					task_set_no_new_privs(current);
-				{
-					struct callback_head *w;
-					w = kzalloc(sizeof(*w), GFP_ATOMIC);
-					if (w) {
-						w->func = nnp_install_seccomp;
-						task_work_add(current, w, 0);
-					}
-				}
-			}
 			regs->regs[0] = 0;
 			return 1;
 		}
@@ -699,68 +679,6 @@ static int seccomp_bypass_pre(struct kprobe *p, struct pt_regs *regs)
 static struct kprobe seccomp_bypass_kp = {
 	.symbol_name = "__secure_computing",
 	.pre_handler = seccomp_bypass_pre,
-};
-
-/* Task work: install allow-all seccomp filter in process context.
- * kprobe context cannot call prctl_set_seccomp (uses GFP_KERNEL),
- * so defer to task_work which runs when the task returns to userspace. */
-static void nnp_install_seccomp(struct callback_head *work)
-{
-	struct sock_fprog fprog;
-	struct sock_filter bpf_filter[1] = {
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
-	};
-	mm_segment_t old_fs;
-	kfree(work);
-	if (current->seccomp.mode != 0)
-		return;
-	if (!task_no_new_privs(current))
-		task_set_no_new_privs(current);
-	fprog.len = 1;
-	fprog.filter = bpf_filter;
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-	prctl_set_seccomp(SECCOMP_MODE_FILTER, (char __user *)&fprog);
-	set_fs(old_fs);
-}
-
-/* Kprobe on __arm64_sys_prctl: schedule seccomp installation for KSU
- * manager apps. This fixes 'Seccomp: 已禁用' on the KSU-Next home page.
- * Only fires on KSU-specific prctl(0xDEADBEEF, ...) calls to avoid CPU
- * overhead from every prctl() call system-wide. */
-static int nnp_setup_pre(struct kprobe *p, struct pt_regs *regs)
-{
-	int option = (int)regs->regs[0];
-	if (option != 0xDEADBEEF)
-		return 0;
-	{
-		unsigned int uid, app_uid;
-		uid = current_uid().val;
-		app_uid = uid % KSU_PER_USER_RANGE;
-		if (app_uid < 10000)
-			return 0;
-		if (!ksu_seccomp_check(app_uid) &&
-		    !(ksu_is_manager_appid_valid() && ksu_get_manager_appid() == app_uid))
-			return 0;
-	}
-	if (current->seccomp.mode != 0)
-		return 0;
-	if (!task_no_new_privs(current))
-		task_set_no_new_privs(current);
-	/* Defer seccomp installation: kprobe context cannot call GFP_KERNEL */
-	{
-		struct callback_head *work = kzalloc(sizeof(*work), GFP_ATOMIC);
-		if (work) {
-			work->func = nnp_install_seccomp;
-			task_work_add(current, work, 0);
-		}
-	}
-	return 0;
-}
-
-static struct kprobe nnp_setup_kp = {
-	.symbol_name = "__arm64_sys_prctl",
-	.pre_handler = nnp_setup_pre,
 };
 '''
 
@@ -830,12 +748,6 @@ static struct kprobe nnp_setup_kp = {
                             '\t\t} else {\n'
                             '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
                             '\t\t}\n'
-                            '\t\trc = register_kprobe(&nnp_setup_kp);\n'
-                            '\t\tif (rc) {\n'
-                            '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
-                            '\t\t} else {\n'
-                            '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
-                            '\t\t}\n'
                             '\t}\n'
                             '}'
                         )
@@ -860,12 +772,6 @@ static struct kprobe nnp_setup_kp = {
             '\t\t} else {\n'
             '\t\t\tprintk(KERN_INFO "ksu_seccomp_bypass: kprobe registered\\n");\n'
             '\t\t}\n'
-            '\t\trc = register_kprobe(&nnp_setup_kp);\n'
-            '\t\tif (rc) {\n'
-            '\t\t\tpr_err("nnp_setup kprobe failed: %d\\n", rc);\n'
-            '\t\t} else {\n'
-            '\t\t\tprintk(KERN_INFO "ksu_nnp_setup: kprobe registered\\n");\n'
-            '\t\t}\n'
             '\t}\n'
             '}'
         )
@@ -881,7 +787,6 @@ static struct kprobe nnp_setup_kp = {
             exit_pat1,
             '\tunregister_kprobe(&reboot_kp);\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
-            '\tunregister_kprobe(&nnp_setup_kp);\n'
             '\tksu_supercall_cleanup_state();\n'
             '}',
             1
@@ -892,7 +797,6 @@ static struct kprobe nnp_setup_kp = {
             exit_pat2,
             '\t/* prctl_kp unregister removed (kprobe not registered) */\n'
             '\tunregister_kprobe(&seccomp_bypass_kp);\n'
-            '\tunregister_kprobe(&nnp_setup_kp);\n'
             '}',
             1
         )
