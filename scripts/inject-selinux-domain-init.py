@@ -919,17 +919,12 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         print(f"  {path}: already injected")
         return True
 
-    # Add required includes if needed
-    if '#include <linux/file.h>' not in content:
-        content = content.replace(
-            '#include <linux/cred.h>',
-            '#include <linux/cred.h>\n#include <linux/file.h>'
-        )
-    if '#include <linux/kprobes.h>' not in content:
-        content = content.replace(
-            '#include <linux/file.h>',
-            '#include <linux/file.h>\n#include <linux/kprobes.h>\n#include <linux/workqueue.h>\n#include <linux/string.h>'
-        )
+    # Add required includes if not already present
+    needed_includes = ''
+    for hdr in ['<linux/kprobes.h>', '<linux/workqueue.h>',
+                '<linux/string.h>', '<linux/file.h>']:
+        if f'#include {hdr}' not in content:
+            needed_includes += f'#include {hdr}\n'
 
     # Insert kprobe + work function + diag_log declarations after last #include
     last_include = content.rfind('#include')
@@ -982,7 +977,7 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\t.post_handler = ksu_selinux_policy_load_post,\n'
         '};\n'
     )
-    content = content[:last_include_end] + kprobe_block + content[last_include_end:]
+    content = content[:last_include_end] + needed_includes + kprobe_block + content[last_include_end:]
 
     # Inject kprobe registration before return 0 in kernelsu_init
     old = '\treturn 0;\n}\n\nvoid __exit kernelsu_exit(void)'
