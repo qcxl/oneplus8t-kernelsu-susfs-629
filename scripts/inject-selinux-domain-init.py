@@ -725,6 +725,7 @@ static struct kprobe seccomp_bypass_kp = {
         # Fallback: match "}\n*/\n}" or similar ending
         print(f"  WARNING: ksu_supercalls_init closing not found, scanning for function end")
         idx = content.find('void __init ksu_supercalls_init')
+        init_close_found = False
         if idx >= 0:
             # Find the first "}\n" after ksu_supercalls_exit or EOF, whichever comes first
             # This only works if ksu_supercalls_init is the last function before exit
@@ -944,8 +945,8 @@ def fix_on_post_fs_data(kernel_root):
         '\t * O_CREAT|O_EXCL silently fails if file already exists. */\n'
         '\t{\n'
         '\t\tstatic const char su_content[] =\n'
-        '\t\t\t"#!/system/bin/sh\\\\n"\n'
-        '\t\t\t"exec /data/adb/ksud \\\\"$@\\\\"\\\\n";\n'
+        '\t\t\t"#!/system/bin/sh\\n"\n'
+        '\t\t\t"exec /data/adb/ksud \\"$@\\"\\n";\n'
         '\t\tstruct file *fp;\n'
         '\t\tloff_t pos = 0;\n'
         '\t\tfp = filp_open("/mnt/scratch/overlay/odm/upper/bin/su",\n'
@@ -953,7 +954,7 @@ def fix_on_post_fs_data(kernel_root):
         '\t\tif (!IS_ERR(fp)) {\n'
         '\t\t\tkernel_write(fp, su_content, strlen(su_content), &pos);\n'
         '\t\t\tfilp_close(fp, NULL);\n'
-        '\t\t\tprintk(KERN_INFO "RDSK_FIX: su written to overlay (%lldb)\\\\n", pos);\n'
+        '\t\t\tprintk(KERN_INFO "RDSK_FIX: su written to overlay (%lldb)\\n", pos);\n'
         '\t\t}\n'
         '\t}\n'
         '}'
@@ -1059,6 +1060,7 @@ def main():
     ok &= fix_selinux_clear_exec_sid(root)
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
+    ok &= fix_ksu_exec_fd_reinstall(root)
     ok &= fix_ksud_postfsdata_noctx(root)
     ok &= fix_throne_deferred_cred(root)
     ok &= fix_throne_lock(root)
