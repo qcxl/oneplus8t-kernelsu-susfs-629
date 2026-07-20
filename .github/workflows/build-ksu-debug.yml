@@ -684,7 +684,7 @@ jobs:
               "https://github.com/qcxl/oneplus8t-kernelsu-susfs-629/releases/download/v1-original-boot/boot.img"
 
             echo "=== Extracting and modifying ramdisk ==="
-            python3 ../scripts/inject-ksud-ramdisk.py /tmp/ksud-ramdisk /tmp/stock-boot-ramdisk.img /tmp/ramdisk-new.lz4
+            python3 scripts/inject-ksud-ramdisk.py /tmp/ksud-ramdisk /tmp/stock-boot-ramdisk.img /tmp/ramdisk-new.lz4
             echo "Ramdisk injection complete, saved to /tmp/ramdisk-new.lz4"
             echo "SKIP_RAMDISK=0" >> $GITHUB_ENV
 
