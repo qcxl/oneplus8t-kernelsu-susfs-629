@@ -186,6 +186,48 @@ def fix_rules(kernel_root):
     return True
 
 
+def fix_services_secload_diag(kernel_root):
+    """Inject printk into security_load_policy() in services.c to log
+    every successful policy load with len, pid, and jiffies.
+
+    This bypasses kprobe limitations on ARM64 4.19, where kprobes
+    cannot reliably capture the successful security_load_policy call
+    during boot. Direct source injection is 100% reliable."""
+    path = find_file(kernel_root, [
+        "security/selinux/ss/services.c",
+    ])
+    if not path:
+        print(f"  WARNING: services.c not found")
+        return True
+
+    with open(path) as f:
+        content = f.read()
+
+    if 'KSU_DIAG: secpol SUCCESS' in content:
+        print(f"  {path}: already injected")
+        return True
+
+    # Inject after policydb->len = len; in the !state->initialized branch
+    old = '\t\tpolicydb->len = len;'
+    new = (
+        '\t\tpolicydb->len = len;\n'
+        '\t\tprintk(KERN_ERR "KSU_DIAG: secpol SUCCESS len=%zu pid=%d jiffies=%lu\\n",\n'
+        '\t\t    len, current->pid, jiffies);'
+    )
+
+    if old not in content:
+        print(f"  WARNING: policydb->len marker not found in {path}")
+        return True
+
+    content = content.replace(old, new, 1)
+
+    with open(path, 'w') as f:
+        f.write(content)
+
+    print(f"  {path}: secpol diag injected after policydb->len = len")
+    return True
+
+
 def fix_ksu_exec_fd_reinstall(kernel_root):
     """In the execve handler, reinstall the KSU driver fd for the new process.
     Java's ProcessBuilder closes all non-std fds before exec, so even with
@@ -1257,6 +1299,7 @@ def main():
     ok &= fix_selinux_clear_exec_sid(root)
     ok &= fix_app_profile(root)
     ok &= fix_rules(root)
+    ok &= fix_services_secload_diag(root)
     ok &= fix_ksu_exec_fd_reinstall(root)
     ok &= fix_ksud_postfsdata_noctx(root)
     ok &= fix_throne_deferred_cred(root)
