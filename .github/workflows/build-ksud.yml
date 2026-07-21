@@ -36,14 +36,17 @@ jobs:
           wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
           unzip -q android-ndk-r25c-linux.zip
           echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
+          echo "NDK_TOOLCHAIN=$GITHUB_WORKSPACE/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64" >> "$GITHUB_ENV"
 
       - name: Build ksud
-        working-directory: ksu-src/userspace/ksud
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_NDK_HOME"
-          export CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang"
-          export AR="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-          export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/usr/include"
+          set -e
+          export CC="$NDK_TOOLCHAIN/bin/aarch64-linux-android31-clang"
+          export AR="$NDK_TOOLCHAIN/bin/llvm-ar"
+          export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$NDK_TOOLCHAIN/sysroot -I/usr/include"
+          cd "$GITHUB_WORKSPACE/ksu-src/userspace/ksud"
+          echo "Building in $(pwd)"
+          ls -la src/susfsd.rs src/ksucalls.rs 2>/dev/null || echo "WARNING: source files not found"
           cargo build --target aarch64-linux-android --release
 
       - name: Upload ksud artifact
@@ -53,4 +56,3 @@ jobs:
           name: ksud
           path: ksu-src/userspace/ksud/target/aarch64-linux-android/release/ksud
           retention-days: 7
-# trigger rebuild - 1784633438
