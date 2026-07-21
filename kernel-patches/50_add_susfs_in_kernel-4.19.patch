@@ -1329,6 +1329,27 @@ index 909045dc07cd..9c10189f0dac 100644
 +#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 +	susfs_spoof_uname(&tmp);
 +#endif
- 	up_read(&uts_sem);
- 	if (copy_to_user(name, &tmp, sizeof(tmp)))
- 		return -EFAULT;
+  	up_read(&uts_sem);
+  	if (copy_to_user(name, &tmp, sizeof(tmp)))
+  		return -EFAULT;
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 98363cb3d4b1..dafafce397fd 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -97,6 +97,9 @@
+ #include <linux/scs.h>
++#ifdef CONFIG_KSU_SUSFS_SUS_PATH
++#include <linux/susfs_def.h>
++#endif
+ 
+ #include <asm/pgtable.h>
+@@ -1911,7 +1914,10 @@ static __latent_entropy struct task_struct *copy_process(
+ 	p = dup_task_struct(current, node);
+ 	if (!p)
+ 		goto fork_out;
+-
++#ifdef CONFIG_KSU_SUSFS_SUS_PATH
++	p->susfs_task_state |= TASK_STRUCT_NON_ROOT_USER_APP_PROC;
++#endif
++
+ 	cpufreq_task_times_init(p);

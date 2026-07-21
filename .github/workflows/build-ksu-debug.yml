@@ -384,6 +384,15 @@ jobs:
           echo "=== Verification ==="
           grep -rn "ksu_handle_faccessat\|ksu_handle_execveat\|ksu_handle_vfs_read\|ksu_handle_sys_reboot" fs/ kernel/ 2>/dev/null
 
+      - name: Fix SUSFS task state flag for path hiding
+        working-directory: kernel
+        run: |
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_susfs_task_state.patch \
+            || echo "WARNING: fix_susfs_task_state.patch failed (may already be applied)"
+          echo "=== Verify app_profile.c ==="
+          grep -c 'susfs_task_state = 0' drivers/kernelsu/policy/app_profile.c 2>/dev/null \
+            && echo "OK" || echo "MISSING"
+
 
       - name: Apply 4.19 compatibility fixes
         working-directory: kernel
