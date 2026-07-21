@@ -53,3 +53,4 @@ jobs:
           name: ksud
           path: ksu-src/userspace/ksud/target/aarch64-linux-android/release/ksud
           retention-days: 7
+# trigger rebuild - 1784633438
