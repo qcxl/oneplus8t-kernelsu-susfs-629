@@ -187,8 +187,10 @@ def fix_rules(kernel_root):
 
 
 def fix_services_secload_diag(kernel_root):
-    """Inject printk into security_load_policy() in services.c to log
-    every successful policy load with len, pid, and jiffies.
+    """Inject into security_load_policy() in services.c:
+    1. extern declaration for ksu_selinux_policy_work (cross-file access)
+    2. printk to log every successful policy load (len, pid, jiffies)
+    3. schedule_delayed_work to trigger apply_kernelsu_rules immediately
 
     This bypasses kprobe limitations on ARM64 4.19, where kprobes
     cannot reliably capture the successful security_load_policy call
@@ -203,16 +205,29 @@ def fix_services_secload_diag(kernel_root):
     with open(path) as f:
         content = f.read()
 
-    if 'KSU_DIAG: secpol SUCCESS' in content:
+    if 'KSU_DIAG: secpol TRIGGER' in content:
         print(f"  {path}: already injected")
         return True
+
+    # Inject extern declaration before security_load_policy
+    extern_old = '\nint security_load_policy(struct selinux_state *state, void *data, size_t len)'
+    extern_new = (
+        '\nextern struct delayed_work ksu_selinux_policy_work;\n'
+        '\nint security_load_policy(struct selinux_state *state, void *data, size_t len)'
+    )
+    if extern_old in content:
+        content = content.replace(extern_old, extern_new, 1)
+        print(f"  {path}: extern ksu_selinux_policy_work added")
+    else:
+        print(f"  WARNING: security_load_policy marker not found in {path}")
 
     # Inject after policydb->len = len; in the !state->initialized branch
     old = '\t\tpolicydb->len = len;'
     new = (
         '\t\tpolicydb->len = len;\n'
-        '\t\tprintk(KERN_ERR "KSU_DIAG: secpol SUCCESS len=%zu pid=%d jiffies=%lu\\n",\n'
-        '\t\t    len, current->pid, jiffies);'
+        '\t\tprintk(KERN_ERR "KSU_DIAG: secpol TRIGGER len=%zu pid=%d jiffies=%lu\\n",\n'
+        '\t\t    len, current->pid, jiffies);\n'
+        '\t\tschedule_delayed_work(&ksu_selinux_policy_work, 0);'
     )
 
     if old not in content:
@@ -224,7 +239,7 @@ def fix_services_secload_diag(kernel_root):
     with open(path, 'w') as f:
         f.write(content)
 
-    print(f"  {path}: secpol diag injected after policydb->len = len")
+    print(f"  {path}: secpol trigger injected (extern + printk + schedule)")
     return True
 
 
@@ -1017,17 +1032,6 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\n'
         'static void ksu_selinux_policy_workfn(struct work_struct *work)\n'
         '{\n'
-        '\t/* Retry if real policy not loaded yet. */\n'
-        '\tif (selinux_state.ss->policydb.len == 0) {\n'
-        '\t\tstatic int retry = 0;\n'
-        '\t\tif (++retry <= 30) {\n'
-        '\t\t\tschedule_delayed_work(to_delayed_work(work),\n'
-        '\t\t\t\t\tmsecs_to_jiffies(1000));\n'
-        '\t\t\treturn;\n'
-        '\t\t}\n'
-        '\t\tksu_diag_log("KSU_DIAG: RETRY EXHAUSTED, giving up\\n");\n'
-        '\t\treturn;\n'
-        '\t}\n'
         '\tprintk(KERN_ERR "KSU_DIAG: BEFORE nprim=%d len=%zu jiffies=%lu\\n",\n'
         '\t    selinux_state.ss->policydb.p_types.nprim,\n'
         '\t    selinux_state.ss->policydb.len, jiffies);\n'
@@ -1043,7 +1047,8 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\tksu_diag_log("KSU_DIAG: setup_ksu_cred done\\n");\n'
         '}\n'
         '\n'
-        'static DECLARE_DELAYED_WORK(ksu_selinux_policy_work, ksu_selinux_policy_workfn);\n'
+        '/* Non-static: services.c injection also schedules this work. */\n'
+        'struct delayed_work ksu_selinux_policy_work;\n'
         '\n'
         'static int ksu_security_load_policy_pre(struct kprobe *p,\n'
         '\t\t\t\t    struct pt_regs *regs)\n'
@@ -1088,7 +1093,8 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\t\tpr_info("KSU: security_load_policy kprobe registered\\n");\n'
         '\t\tksu_diag_log("KSU_DIAG: secpol kprobe registered\\n");\n'
         '\t}\n'
-        '\tksu_diag_log("KSU_DIAG: initcall, always schedule work\\n");\n'
+        '\tksu_diag_log("KSU_DIAG: initcall, INIT + schedule work\\n");\n'
+        '\tINIT_DELAYED_WORK(&ksu_selinux_policy_work, ksu_selinux_policy_workfn);\n'
         '\tschedule_delayed_work(&ksu_selinux_policy_work, 0);\n'
         '\treturn 0;\n'
         '}\n'
