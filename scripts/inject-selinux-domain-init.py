@@ -999,7 +999,7 @@ def fix_selinux_load_policy_kprobe(kernel_root):
         '\tunsigned long p1 = PT_REGS_PARM1(real_regs);\n'
         '\tunsigned long p2 = PT_REGS_PARM2(real_regs);\n'
         '\tunsigned long p3 = PT_REGS_PARM3(real_regs);\n'
-        '\tunsigned long p4 = PT_REGS_PARM4(real_regs);\n'
+        '\tunsigned long p4 = real_regs->regs[3];\n'
         '\tchar buf[128];\n'
         '\tsnprintf(buf, sizeof(buf),\n'
         '\t\t "KSU_DIAG: sel_load pre p1=%lx p2=%lx p3=%lx p4=%lx\\n",\n'
