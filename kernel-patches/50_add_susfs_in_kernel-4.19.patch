@@ -1336,20 +1336,22 @@ diff --git a/kernel/fork.c b/kernel/fork.c
 index 98363cb3d4b1..dafafce397fd 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -97,6 +97,9 @@
+@@ -95,6 +95,9 @@
+ #include <linux/thread_info.h>
+ #include <linux/cpufreq_times.h>
  #include <linux/scs.h>
 +#ifdef CONFIG_KSU_SUSFS_SUS_PATH
 +#include <linux/susfs_def.h>
 +#endif
  
  #include <asm/pgtable.h>
-@@ -1911,7 +1914,10 @@ static __latent_entropy struct task_struct *copy_process(
+ #include <asm/pgalloc.h>
+@@ -1911,6 +1914,9 @@
  	p = dup_task_struct(current, node);
  	if (!p)
  		goto fork_out;
--
 +#ifdef CONFIG_KSU_SUSFS_SUS_PATH
 +	p->susfs_task_state |= TASK_STRUCT_NON_ROOT_USER_APP_PROC;
 +#endif
-+
+ 
  	cpufreq_task_times_init(p);

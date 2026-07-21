@@ -1,23 +1,21 @@
 diff --git a/drivers/kernelsu/policy/app_profile.c b/drivers/kernelsu/policy/app_profile.c
 --- a/drivers/kernelsu/policy/app_profile.c
 +++ b/drivers/kernelsu/policy/app_profile.c
-@@ -188,6 +188,10 @@ int escape_with_root_profile(void)
+@@ -216,6 +216,9 @@
+     setup_selinux(profile.selinux_domain, cred);
  
  	commit_creds(cred);
- 
 +#ifdef CONFIG_KSU_SUSFS
 +	current->susfs_task_state = 0;
 +#endif
-+
+ 
  	disable_seccomp();
  
- 	if (profile->flags & FLAG_KSU_NO_NEW_PRIVS) {
-@@ -220,4 +224,8 @@ void escape_to_root_for_init(void)
+@@ -248,4 +251,7 @@
  
- 	setup_selinux(KERNEL_SU_CONTEXT, cred);
- 	commit_creds(cred);
-+
+     setup_selinux(KERNEL_SU_CONTEXT, cred);
+     commit_creds(cred);
 +#ifdef CONFIG_KSU_SUSFS
-+	current->susfs_task_state = 0;
++    current->susfs_task_state = 0;
 +#endif
  }
