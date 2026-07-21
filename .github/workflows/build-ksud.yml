@@ -1,4 +1,4 @@
-name: Build ksud (debug host)
+name: Build ksud (SUSFS ioctl)
 
 on:
   workflow_dispatch:
@@ -8,19 +8,21 @@ on:
       - '.github/workflows/build-ksud.yml'
 
 jobs:
-  build-ksud-host:
-    name: Build ksud for host (debug)
+  build-ksud:
+    name: Build ksud for aarch64-linux-android
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libclang-dev clang
+          sudo apt-get install -y clang-14 libclang-14-dev llvm-14 llvm-14-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
 
       - name: Checkout KernelSU-Next source
         uses: actions/checkout@v4
@@ -28,14 +30,33 @@ jobs:
           repository: qcxl/KernelSU-Next
           ref: dev
 
-      - name: Verify source
+      - name: Setup Android NDK
         run: |
-          echo "=== pwd ===" && pwd
-          echo "=== files ===" && ls userspace/ksud/src/susfsd.rs userspace/ksud/src/ksucalls.rs 2>/dev/null || echo "FILES NOT FOUND"
-          echo "=== susfsd imports ===" && head -5 userspace/ksud/src/susfsd.rs 2>/dev/null || true
-          echo "=== ksucalls susfs_ioctl ===" && grep -A5 "susfs_ioctl" userspace/ksud/src/ksucalls.rs 2>/dev/null || true
+          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          unzip -q android-ndk-r25c-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
 
-      - name: Build ksud (host, no bindgen)
+      - name: Build ksud
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-14/lib
         run: |
+          set -e
+          export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+          NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDKBIN/aarch64-linux-android31-clang"
+          export AR_aarch64_linux_android="$NDKBIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           cd userspace/ksud
-          cargo check 2>&1
+          echo "=== toolchain check ==="
+          which clang-14 2>/dev/null && clang-14 --version || true
+          ls -la "$CC_aarch64_linux_android" 2>/dev/null || echo "NDK clang NOT FOUND"
+          cargo build --target aarch64-linux-android --release
+
+      - name: Upload ksud artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ksud
+          path: userspace/ksud/target/aarch64-linux-android/release/ksud
+          retention-days: 7
