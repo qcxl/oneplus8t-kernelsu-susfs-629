@@ -1,4 +1,4 @@
-name: Build ksud (SUSFS ioctl)
+name: Build ksud (debug host)
 
 on:
   workflow_dispatch:
@@ -8,51 +8,34 @@ on:
       - '.github/workflows/build-ksud.yml'
 
 jobs:
-  build-ksud:
-    name: Build ksud for aarch64-linux-android
+  build-ksud-host:
+    name: Build ksud for host (debug)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm llvm-dev
+          sudo apt-get install -y libclang-dev clang
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
 
       - name: Checkout KernelSU-Next source
         uses: actions/checkout@v4
         with:
           repository: qcxl/KernelSU-Next
           ref: dev
-          path: ksu-src
 
-      - name: Setup Android NDK
+      - name: Verify source
         run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
-          unzip -q android-ndk-r25c-linux.zip
-          echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
-          echo "NDK_TOOLCHAIN=$GITHUB_WORKSPACE/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64" >> "$GITHUB_ENV"
+          echo "=== pwd ===" && pwd
+          echo "=== files ===" && ls userspace/ksud/src/susfsd.rs userspace/ksud/src/ksucalls.rs 2>/dev/null || echo "FILES NOT FOUND"
+          echo "=== susfsd imports ===" && head -5 userspace/ksud/src/susfsd.rs 2>/dev/null || true
+          echo "=== ksucalls susfs_ioctl ===" && grep -A5 "susfs_ioctl" userspace/ksud/src/ksucalls.rs 2>/dev/null || true
 
-      - name: Build ksud
+      - name: Build ksud (host, no bindgen)
         run: |
-          set -e
-          export CC="$NDK_TOOLCHAIN/bin/aarch64-linux-android31-clang"
-          export AR="$NDK_TOOLCHAIN/bin/llvm-ar"
-          export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$NDK_TOOLCHAIN/sysroot -I/usr/include"
-          cd "$GITHUB_WORKSPACE/ksu-src/userspace/ksud"
-          echo "Building in $(pwd)"
-          ls -la src/susfsd.rs src/ksucalls.rs 2>/dev/null || echo "WARNING: source files not found"
-          cargo build --target aarch64-linux-android --release
-
-      - name: Upload ksud artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ksud
-          path: ksu-src/userspace/ksud/target/aarch64-linux-android/release/ksud
-          retention-days: 7
+          cd userspace/ksud
+          cargo check 2>&1
