@@ -52,3 +52,4 @@ jobs:
           name: ksud
           path: userspace/ksud/target/aarch64-linux-android/release/ksud
           retention-days: 7
+# retrigger - 1784635188
