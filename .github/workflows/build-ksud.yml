@@ -27,19 +27,22 @@ jobs:
 
       - name: Setup Android NDK
         run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
-          unzip -q android-ndk-r25c-linux.zip
-          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r25c" >> "$GITHUB_ENV"
+          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux.zip -O /tmp/ndk.zip
+          unzip -q /tmp/ndk.zip -d /tmp
+          echo "ANDROID_NDK_HOME=/tmp/android-ndk-r25c" >> "$GITHUB_ENV"
 
       - name: Build ksud
         run: |
           set -e
-          export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
           NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$NDKBIN/aarch64-linux-android31-clang"
           export AR_aarch64_linux_android="$NDKBIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          echo "NDK: $ANDROID_NDK_HOME"
+          ls -la "$CC_aarch64_linux_android" 2>/dev/null || echo "ERROR: NDK clang not found"
           cd userspace/ksud
+          echo "Build dir: $(pwd)"
+          ls src/susfsd.rs src/bindings_prebuilt.rs 2>/dev/null || echo "WARN: missing source files"
           cargo build --target aarch64-linux-android --release
 
       - name: Upload ksud artifact
