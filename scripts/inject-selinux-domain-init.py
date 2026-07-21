@@ -949,7 +949,7 @@ def fix_selinux_load_policy_kprobe(kernel_root):
     if '#include "selinux/selinux.h"' not in content:
         content = content.replace(
             '#include "manager/manager_identity.h"',
-            '#include "manager/manager_identity.h"\n#include "selinux/selinux.h"'
+            '#include "manager/manager_identity.h"\n#include "selinux/selinux.h"\n#include "ss/services.h"'
         )
 
     # Inject complete kprobe + work function + diag_log block
