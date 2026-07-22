@@ -53,3 +53,4 @@ jobs:
           path: userspace/ksud/target/aarch64-linux-android/release/ksud
           retention-days: 7
 # trigger - 1784635788
+# trigger ksud
