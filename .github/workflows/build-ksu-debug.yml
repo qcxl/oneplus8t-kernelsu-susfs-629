@@ -39,13 +39,29 @@ jobs:
             binutils
           pip3 install pyelftools
 
+      - name: Cache Android clang toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: /tmp/clang-r450784d
+          key: clang-r450784d-001
+
       - name: Clone Android clang r450784d toolchain
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/TheBizarreAbhishek/clang-r450784d.git /tmp/clang-r450784d
           ls -lh /tmp/clang-r450784d/bin/clang
           /tmp/clang-r450784d/bin/clang --version
 
+      - name: Cache LineageOS kernel source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: kernel
+          key: lineage-kernel-5dea892fe7e4-001
+
       - name: Clone LineageOS 20 kernel source (device exact commit)
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           git clone --depth 500 --branch lineage-20 \
             https://github.com/LineageOS/android_kernel_oneplus_sm8250.git kernel
