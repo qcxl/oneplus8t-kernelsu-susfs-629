@@ -35,7 +35,7 @@ bool susfs_is_log_enabled __read_mostly = true;
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 static DEFINE_HASHTABLE(SUS_PATH_HLIST, 10);
-static int susfs_update_sus_path_inode(char *target_pathname) {
+static int susfs_update_sus_path_inode(char *target_pathname, unsigned long *target_ino_out) {
 	struct path p;
 	struct inode *inode = NULL;
 	const char *dev_type;
@@ -68,6 +68,8 @@ static int susfs_update_sus_path_inode(char *target_pathname) {
 		path_put(&p);
 		return 1;
 	}
+	if (target_ino_out)
+		*target_ino_out = inode->i_ino;
 
 	if (!(inode->i_state & INODE_STATE_SUS_PATH)) {
 		spin_lock(&inode->i_lock);
@@ -109,12 +111,12 @@ int susfs_add_sus_path(struct st_susfs_sus_path* __user user_info) {
 
 	new_entry->target_ino = info.target_ino;
 	strncpy(new_entry->target_pathname, info.target_pathname, SUSFS_MAX_LEN_PATHNAME-1);
-	if (susfs_update_sus_path_inode(new_entry->target_pathname)) {
+	if (susfs_update_sus_path_inode(new_entry->target_pathname, &new_entry->target_ino)) {
 		kfree(new_entry);
 		return 1;
 	}
 	spin_lock(&susfs_spin_lock);
-	hash_add(SUS_PATH_HLIST, &new_entry->node, info.target_ino);
+	hash_add(SUS_PATH_HLIST, &new_entry->node, new_entry->target_ino);
 	if (update_hlist) {
 		SUSFS_LOGI("target_ino: '%lu', target_pathname: '%s' is successfully updated to SUS_PATH_HLIST\n",
 				new_entry->target_ino, new_entry->target_pathname);	
