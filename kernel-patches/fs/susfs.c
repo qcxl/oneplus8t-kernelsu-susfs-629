@@ -166,8 +166,8 @@ static void susfs_update_sus_mount_inode(char *target_pathname) {
 	mnt = real_mount(p.mnt);
 	if (mnt->mnt_group_id > 0 && // 0 means no peer group
 		mnt->mnt_group_id < DEFAULT_SUS_MNT_GROUP_ID) {
-		SUSFS_LOGE("skip setting SUS_MOUNT inode state for path '%s' since its source mount has a legit peer group id\n", target_pathname);
-		return;
+		SUSFS_LOGI("setting SUS_MOUNT inode state for shared mount '%s' (group_id=%d)\n",
+				target_pathname, mnt->mnt_group_id);
 	}
 
 	inode = d_inode(p.dentry);
