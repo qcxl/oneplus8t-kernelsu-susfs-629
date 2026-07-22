@@ -977,32 +977,7 @@ int susfs_add_sus_mount_kernel(const char *path)
 }
 #endif
 
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-#ifndef INODE_STATE_SUS_MAP
-#define INODE_STATE_SUS_MAP BIT(28)
-#endif
-int susfs_add_sus_map_kernel(const char *path)
-{
-	struct path p;
-	struct inode *inode;
-	int err;
 
-	err = kern_path(path, 0, &p);
-	if (err) {
-		SUSFS_LOGE("boot restore: sus_map path '%s' not found\n", path);
-		return err;
-	}
-
-	inode = d_inode(p.dentry);
-	spin_lock(&inode->i_lock);
-	inode->i_state |= INODE_STATE_SUS_MAP;
-	spin_unlock(&inode->i_lock);
-	path_put(&p);
-
-	SUSFS_LOGI("boot restore: added sus_map '%s'\n", path);
-	return 0;
-}
-#endif
 
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 int susfs_set_uname_kernel(const char *release, const char *version)

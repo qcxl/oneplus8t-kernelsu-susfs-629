@@ -197,9 +197,6 @@ int susfs_update_sus_path_inode(char *target_pathname, unsigned long *target_ino
 int susfs_add_sus_mount_kernel(const char *path);
 void susfs_update_sus_mount_inode(char *target_pathname);
 #endif
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-int susfs_add_sus_map_kernel(const char *path);
-#endif
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 int susfs_set_uname_kernel(const char *release, const char *version);
 #endif
