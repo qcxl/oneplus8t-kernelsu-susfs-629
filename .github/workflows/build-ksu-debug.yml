@@ -36,7 +36,7 @@ jobs:
             device-tree-compiler lz4 zstd flex bison libelf-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi \
-            lld llvm binutils
+            binutils
           pip3 install pyelftools
 
       - name: Clone Android clang r450784d toolchain
