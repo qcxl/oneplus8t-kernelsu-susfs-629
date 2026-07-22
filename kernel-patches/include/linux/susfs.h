@@ -183,4 +183,36 @@ int susfs_sus_su(struct st_sus_su* __user user_info);
 /* susfs_init */
 void susfs_init(void);
 
+/********************************/
+/* KERNEL-SAFE BOOT RESTORE API */
+/********************************/
+/* These functions take kernel-space strings (no __user pointers).
+ * Intended for use from boot_event.c on_post_fs_data().
+ * All functions are idempotent — safe to call multiple times. */
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+int susfs_add_sus_path_kernel(const char *path);
+int susfs_update_sus_path_inode(char *target_pathname, unsigned long *target_ino_out);
 #endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+int susfs_add_sus_mount_kernel(const char *path);
+void susfs_update_sus_mount_inode(char *target_pathname);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+int susfs_add_sus_map_kernel(const char *path);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+int susfs_set_uname_kernel(const char *release, const char *version);
+#endif
+
+/* Query: has kernel boot restore already run this boot? (defined in boot_event.c) */
+int susfs_is_boot_restored(void);
+
+/* Backing variables for toggles (defined in susfs.c by inject scripts) */
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern bool susfs_hide_sus_mnts_for_all_procs __read_mostly;
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_AVC_LOG_SPOOFING
+extern bool susfs_is_avc_log_spoofing_enabled __read_mostly;
+#endif
+
+#endif /* KSU_SUSFS_H */

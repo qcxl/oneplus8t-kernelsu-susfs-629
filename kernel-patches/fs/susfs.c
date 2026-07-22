@@ -35,7 +35,7 @@ bool susfs_is_log_enabled __read_mostly = true;
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 static DEFINE_HASHTABLE(SUS_PATH_HLIST, 10);
-static int susfs_update_sus_path_inode(char *target_pathname, unsigned long *target_ino_out) {
+int susfs_update_sus_path_inode(char *target_pathname, unsigned long *target_ino_out) {
 	struct path p;
 	struct inode *inode = NULL;
 	const char *dev_type;
@@ -146,7 +146,7 @@ int susfs_sus_ino_for_filldir64(unsigned long ino) {
 /* sus_mount */
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 static LIST_HEAD(LH_SUS_MOUNT);
-static void susfs_update_sus_mount_inode(char *target_pathname) {
+void susfs_update_sus_mount_inode(char *target_pathname) {
 	struct mount *mnt = NULL;
 	struct path p;
 	struct inode *inode = NULL;
@@ -906,6 +906,117 @@ out:
 	return 1;
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_SU
+
+/* ── Kernel-safe boot restore wrappers ────────────────────────── */
+/* These functions take kernel-space strings (no __user points).
+ * Used by boot_event.c on_post_fs_data() to restore rules at boot. */
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+int susfs_add_sus_path_kernel(const char *path)
+{
+	struct st_susfs_sus_path_hlist *new_entry, *tmp_entry;
+	struct hlist_node *tmp_node;
+	int bkt;
+
+	new_entry = kmalloc(sizeof(struct st_susfs_sus_path_hlist), GFP_KERNEL);
+	if (!new_entry)
+		return -ENOMEM;
+
+	strncpy(new_entry->target_pathname, path, SUSFS_MAX_LEN_PATHNAME - 1);
+	new_entry->target_pathname[SUSFS_MAX_LEN_PATHNAME - 1] = '\0';
+
+	if (susfs_update_sus_path_inode(new_entry->target_pathname, &new_entry->target_ino)) {
+		kfree(new_entry);
+		return -ENOENT;
+	}
+
+	spin_lock(&susfs_spin_lock);
+	hash_for_each_safe(SUS_PATH_HLIST, bkt, tmp_node, tmp_entry, node) {
+		if (!strcmp(tmp_entry->target_pathname, new_entry->target_pathname)) {
+			hash_del(&tmp_entry->node);
+			kfree(tmp_entry);
+			break;
+		}
+	}
+	hash_add(SUS_PATH_HLIST, &new_entry->node, new_entry->target_ino);
+	spin_unlock(&susfs_spin_lock);
+
+	SUSFS_LOGI("boot restore: added sus_path '%s' (ino=%lu)\n",
+		   new_entry->target_pathname, new_entry->target_ino);
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+int susfs_add_sus_mount_kernel(const char *path)
+{
+	struct st_susfs_sus_mount_list *cursor, *temp;
+	struct st_susfs_sus_mount_list *new_list;
+
+	list_for_each_entry_safe(cursor, temp, &LH_SUS_MOUNT, list) {
+		if (!strcmp(cursor->info.target_pathname, path))
+			return 0;
+	}
+
+	new_list = kmalloc(sizeof(struct st_susfs_sus_mount_list), GFP_KERNEL);
+	if (!new_list)
+		return -ENOMEM;
+
+	strncpy(new_list->info.target_pathname, path, SUSFS_MAX_LEN_PATHNAME - 1);
+	new_list->info.target_pathname[SUSFS_MAX_LEN_PATHNAME - 1] = '\0';
+	new_list->info.target_dev = 0;
+	susfs_update_sus_mount_inode(new_list->info.target_pathname);
+
+	INIT_LIST_HEAD(&new_list->list);
+	spin_lock(&susfs_spin_lock);
+	list_add_tail(&new_list->list, &LH_SUS_MOUNT);
+	spin_unlock(&susfs_spin_lock);
+
+	SUSFS_LOGI("boot restore: added sus_mount '%s'\n", path);
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+#ifndef INODE_STATE_SUS_MAP
+#define INODE_STATE_SUS_MAP BIT(28)
+#endif
+int susfs_add_sus_map_kernel(const char *path)
+{
+	struct path p;
+	struct inode *inode;
+	int err;
+
+	err = kern_path(path, 0, &p);
+	if (err) {
+		SUSFS_LOGE("boot restore: sus_map path '%s' not found\n", path);
+		return err;
+	}
+
+	inode = d_inode(p.dentry);
+	spin_lock(&inode->i_lock);
+	inode->i_state |= INODE_STATE_SUS_MAP;
+	spin_unlock(&inode->i_lock);
+	path_put(&p);
+
+	SUSFS_LOGI("boot restore: added sus_map '%s'\n", path);
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+int susfs_set_uname_kernel(const char *release, const char *version)
+{
+	spin_lock(&susfs_uname_spin_lock);
+	strncpy(my_uname.release, release, __NEW_UTS_LEN);
+	strncpy(my_uname.version, version, __NEW_UTS_LEN);
+	spin_unlock(&susfs_uname_spin_lock);
+
+	SUSFS_LOGI("boot restore: uname release='%s' version='%s'\n",
+		   release, version);
+	return 0;
+}
+#endif
 
 /* susfs_init */
 void susfs_init(void) {
