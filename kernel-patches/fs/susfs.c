@@ -40,7 +40,7 @@ static int susfs_update_sus_path_inode(char *target_pathname, unsigned long *tar
 	struct inode *inode = NULL;
 	const char *dev_type;
 
-	if (kern_path(target_pathname, LOOKUP_FOLLOW, &p)) {
+	if (kern_path(target_pathname, 0, &p)) {
 		SUSFS_LOGE("Failed opening file '%s'\n", target_pathname);
 		return 1;
 	}
@@ -86,6 +86,7 @@ int susfs_add_sus_path(struct st_susfs_sus_path* __user user_info) {
 	struct hlist_node *tmp_node;
 	int bkt;
 	bool update_hlist = false;
+	unsigned long saved_ino = 0;
 
 	if (copy_from_user(&info, user_info, sizeof(info))) {
 		SUSFS_LOGE("failed copying from userspace\n");
@@ -94,24 +95,27 @@ int susfs_add_sus_path(struct st_susfs_sus_path* __user user_info) {
 
 	spin_lock(&susfs_spin_lock);
 	hash_for_each_safe(SUS_PATH_HLIST, bkt, tmp_node, tmp_entry, node) {
-	if (!strcmp(tmp_entry->target_pathname, info.target_pathname)) {
-			hash_del(&tmp_entry->node);
-			kfree(tmp_entry);
-			update_hlist = true;
-			break;
-		}
-	}
-	spin_unlock(&susfs_spin_lock);
+ 	if (!strcmp(tmp_entry->target_pathname, info.target_pathname)) {
+ 			saved_ino = tmp_entry->target_ino;
+ 			hash_del(&tmp_entry->node);
+ 			kfree(tmp_entry);
+ 			update_hlist = true;
+ 			break;
+ 		}
+ 	}
+ 	spin_unlock(&susfs_spin_lock);
 
-	new_entry = kmalloc(sizeof(struct st_susfs_sus_path_hlist), GFP_KERNEL);
-	if (!new_entry) {
+ 	new_entry = kmalloc(sizeof(struct st_susfs_sus_path_hlist), GFP_KERNEL);
+ 	if (!new_entry) {
 		SUSFS_LOGE("no enough memory\n");
 		return 1;
 	}
 
 	new_entry->target_ino = info.target_ino;
 	strncpy(new_entry->target_pathname, info.target_pathname, SUSFS_MAX_LEN_PATHNAME-1);
-	if (susfs_update_sus_path_inode(new_entry->target_pathname, &new_entry->target_ino)) {
+	if (saved_ino) {
+		new_entry->target_ino = saved_ino;
+	} else if (susfs_update_sus_path_inode(new_entry->target_pathname, &new_entry->target_ino)) {
 		kfree(new_entry);
 		return 1;
 	}
@@ -793,10 +797,10 @@ int susfs_add_open_redirect(struct st_susfs_open_redirect* __user user_info) {
 
 	spin_lock(&susfs_spin_lock);
 	hash_for_each_safe(OPEN_REDIRECT_HLIST, bkt, tmp_node, tmp_entry, node) {
-		if (!strcmp(tmp_entry->target_pathname, info.target_pathname)) {
-			hash_del(&tmp_entry->node);
-			kfree(tmp_entry);
-			update_hlist = true;
+ 	if (!strcmp(tmp_entry->target_pathname, info.target_pathname)) {
+ 			hash_del(&tmp_entry->node);
+ 			kfree(tmp_entry);
+ 			update_hlist = true;
 			break;
 		}
 	}
