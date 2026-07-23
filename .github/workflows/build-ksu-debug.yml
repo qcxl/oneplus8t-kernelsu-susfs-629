@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: kernel
-          key: lineage-kernel-5dea892fe7e4-003
+          key: lineage-kernel-5dea892fe7e4-004
 
       - name: Clone LineageOS 20 kernel source (device exact commit)
         if: steps.cache-kernel.outputs.cache-hit != 'true'
@@ -115,6 +115,12 @@ jobs:
         working-directory: kernel
         run: |
           patch -p0 --forward -t < ../kernel-patches/fix_boot_event_properties.patch || echo "WARNING: boot restore patch failed (may already be applied)"
+          # Copy properties.c separately (new file, not in upstream)
+          cp ../kernel-patches/properties.c drivers/kernelsu/runtime/properties.c
+          # Add properties.o to Kbuild
+          if ! grep -q 'runtime/properties.o' drivers/kernelsu/Kbuild; then
+            sed -i '/runtime\/ksud_integration\.o/a kernelsu-objs += runtime/properties.o' drivers/kernelsu/Kbuild
+          fi
           echo "=== Boot restore files ==="
           grep -c 'susfs_restore_boot' drivers/kernelsu/runtime/boot_event.c 2>/dev/null || echo "0"
           test -f drivers/kernelsu/runtime/properties.c && echo "properties.c: YES" || echo "properties.c: NO"
