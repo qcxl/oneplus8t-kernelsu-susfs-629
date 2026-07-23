@@ -1,5 +1,5 @@
---- drivers/kernelsu/Kbuild
-+++ drivers/kernelsu/Kbuild
+--- a/drivers/kernelsu/Kbuild
++++ b/drivers/kernelsu/Kbuild
 @@ -42,6 +42,7 @@ kernelsu-objs += policy/feature.o
  
  kernelsu-objs += runtime/boot_event.o
@@ -8,43 +8,51 @@
  
  kernelsu-objs += selinux/selinux.o
  kernelsu-objs += selinux/rules.o
-
---- drivers/kernelsu/runtime/boot_event.c
-+++ drivers/kernelsu/runtime/boot_event.c
-@@ -10,6 +10,12 @@
+--- a/drivers/kernelsu/runtime/boot_event.c
++++ b/drivers/kernelsu/runtime/boot_event.c
+@@ -12,11 +12,16 @@
  #include "manager/manager_observer.h"
  #include "manager/throne_tracker.h"
- #include "selinux/selinux.h"
+ 
++extern void ksu_avc_spoof_late_init(void);
++
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +extern void susfs_restore_properties(void);
-+static void susfs_restore_boot(void);
-+static int susfs_mark_inode_sus_map(const char *path);
 +#endif
- 
++
  bool ksu_module_mounted __read_mostly = false;
  bool ksu_boot_completed __read_mostly = false;
-@@ -31,6 +37,9 @@
- 	ksu_observer_init();
- 	// sanity check, this may influence the performance
- 	stop_input_hook();
+ 
+-extern void ksu_avc_spoof_late_init(void);
+-
+ void on_post_fs_data(void)
+ {
+ 	static bool done = false;
+@@ -38,6 +43,10 @@ void on_post_fs_data(void)
+ 	// Sanity check for safe mode only needs early-boot input samples.
+ 	ksu_stop_input_hook_runtime();
+ 	ksu_selinux_hide_handle_post_fs_data();
++
 +#ifdef CONFIG_KSU_SUSFS
 +	susfs_restore_boot();
 +#endif
  }
  
  extern void ext4_unregister_sysfs(struct super_block *sb);
-@@ -70,3 +79,77 @@
-     track_throne(true);
-     ksu_avc_spoof_late_init();
+@@ -77,3 +86,83 @@ void on_boot_completed(void)
+ 	ksu_selinux_hide_drop_backup_if_unused();
+ 	ksu_avc_spoof_late_init();
  }
 +
 +#ifdef CONFIG_KSU_SUSFS
 +static bool susfs_boot_restored __read_mostly = false;
 +
++/* ── SUSFS boot restore: apply built-in default rules ────────── */
 +static void susfs_restore_boot(void)
 +{
 +	int i;
++
 +	{
 +		static const char * const paths[] = {
 +			"/system/bin/su",
@@ -88,6 +96,7 @@
 +#endif
 +
 +	susfs_restore_properties();
++
 +	susfs_boot_restored = true;
 +	pr_info("susfs: boot restore complete\n");
 +}
@@ -97,13 +106,16 @@
 +	return susfs_boot_restored ? 1 : 0;
 +}
 +
++/* Mark an inode as SUS_MAP (kernel-safe, no __user) */
 +static int susfs_mark_inode_sus_map(const char *path)
 +{
 +	struct path p;
 +	struct inode *inode;
 +	int err;
++
 +	err = kern_path(path, 0, &p);
-+	if (err) return err;
++	if (err)
++		return err;
 +	inode = d_inode(p.dentry);
 +	spin_lock(&inode->i_lock);
 +	inode->i_state |= INODE_STATE_SUS_MAP;
@@ -112,11 +124,9 @@
 +	return 0;
 +}
 +#endif /* CONFIG_KSU_SUSFS */
-
-new file mode 100644
 --- /dev/null
-+++ drivers/kernelsu/runtime/properties.c
-@@ -0,0 +1,331 @@
++++ b/drivers/kernelsu/runtime/properties.c
+@@ -0,0 +1,318 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * properties.c - Direct Android property shared memory manipulation
@@ -239,42 +249,29 @@ new file mode 100644
 +}
 +
 +/* ── Find the property area file ────────────────────────────── */
-+/* Locate init's property area shared memory by scanning /proc/1/fd/
-+ * for a file whose path contains "__properties__". */
++/* Open the default property context file directly.
++ * All our target properties (ro.build.*, ro.debuggable, ro.lineage.*)
++ * fall under the default_prop SELinux context (plat_property_contexts
++ * wildcard rule: "* u:object_r:default_prop:s0"). */
 +static struct file *find_prop_area_file(void)
 +{
-+	struct task_struct *tsk;
-+	struct file *result = NULL;
-+	int fd;
++	static const char *paths[] = {
++		"/dev/__properties__/u:object_r:default_prop:s0",
++		NULL,
++	};
++	struct file *fp;
++	int i;
 +
-+	tsk = get_pid_task(find_get_pid(1), PIDTYPE_PID);
-+	if (!tsk)
-+		return NULL;
-+
-+	task_lock(tsk);
-+	if (tsk->files) {
-+		spin_lock(&tsk->files->file_lock);
-+		for (fd = 0; fd < files_fdtable(tsk->files)->max_fds; fd++) {
-+			struct file *f = files_fdtable(tsk->files)->fd[fd];
-+			char path_buf[256];
-+			char *path;
-+
-+			if (!f)
-+				continue;
-+			path = d_path(&f->f_path, path_buf,
-+				      sizeof(path_buf));
-+			if (!IS_ERR(path) &&
-+			    strstr(path, "__properties__")) {
-+				get_file(f);
-+				result = f;
-+				break;
-+			}
-+		}
-+		spin_unlock(&tsk->files->file_lock);
++	for (i = 0; paths[i]; i++) {
++		fp = filp_open(paths[i], O_RDWR, 0);
++		if (!IS_ERR(fp))
++			return fp;
++		pr_debug("susfs: property area '%s' open failed (%ld)\n",
++			 paths[i], PTR_ERR(fp));
 +	}
-+	task_unlock(tsk);
-+	put_task_struct(tsk);
-+	return result;
++
++	pr_warn("susfs: no property area found\n");
++	return NULL;
 +}
 +
 +/* ── Property set / delete ──────────────────────────────────── */
