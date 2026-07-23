@@ -120,6 +120,43 @@ jobs:
           test -f drivers/kernelsu/runtime/properties.c && echo "properties.c: YES" || echo "properties.c: NO"
           grep -c 'runtime/properties.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
+      - name: Add missing ksu_handle_execveat wrapper (bridges fs/exec.c hook)
+        working-directory: kernel
+        run: |
+          # ksu_handle_execveat() is called from fs/exec.c via apply-ksu-hooks.py
+          # but the function body is never defined. Add the bridge here.
+          cat >> drivers/kernelsu/runtime/ksud_integration.c << 'WRAPPER_EOF'
+
+/* ksu_handle_execveat wrapper - bridges fs/exec.c to ksu_handle_execveat_ksud */
+void ksu_handle_execveat(int *fd, const char __user **filename,
+                          void *argv, void *envp, int *flags)
+{
+        struct filename f;
+        struct filename *fp;
+        char path[32];
+        long len;
+
+        if (!filename || !*filename)
+                return;
+
+        len = strncpy_from_user_nofault(path, *filename, sizeof(path));
+        if (len <= 0)
+                return;
+        path[sizeof(path) - 1] = '\0';
+
+        f.name = path;
+        fp = &f;
+
+        pr_info("ksu: execve hook path='%s' pid=%d\n", path, current->pid);
+
+        ksu_handle_execveat_ksud(fd, &fp,
+                (struct user_arg_ptr *)argv,
+                (struct user_arg_ptr *)envp,
+                flags);
+}
+WRAPPER_EOF
+          echo "ksu_handle_execveat: wrapper added"
+
       - name: Inject KSU prctl handler (for Manager APK fd)
         working-directory: kernel
         run: |

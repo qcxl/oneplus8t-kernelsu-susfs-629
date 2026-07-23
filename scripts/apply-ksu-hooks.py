@@ -26,7 +26,7 @@ HOOKS = [
     {
         "file": "fs/exec.c",
         "func_pattern": r"^static int __do_execve_file\(int fd",
-        "code": '\tksu_handle_execveat(&fd, &filename, NULL, NULL, &flags);\n',
+        "code": '\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n',
     },
     {
         "file": "fs/read_write.c",
