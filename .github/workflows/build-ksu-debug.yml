@@ -92,12 +92,17 @@ jobs:
             grep -n 'ksu_install_fd' init/main.c
           fi
 
-      - name: Integrate KernelSU-Next (legacy branch - non-GKI 4.19)
+      - name: Integrate KernelSU-Next (our fork - dev branch)
         working-directory: kernel
         run: |
-          # KernelSU-Next legacy: designed for non-GKI, default y if !KPROBES
+          # Clone our fork first so setup.sh skips cloning the upstream
+          git clone --depth 1 --branch dev \
+            https://github.com/qcxl/KernelSU-Next.git KernelSU-Next
+          # setup.sh sees KernelSU-Next/ exists → skips git clone → uses our fork
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
             | bash -s legacy
+          # Ensure we're on our dev branch (setup.sh may have switched branches)
+          cd KernelSU-Next && git checkout dev && cd ..
           # Force KSU_VERSION to match app requirement (>=33188)
           # The legacy branch has fewer git commits than dev, so auto-detected
           # version (33133) is lower than the app's MINIMAL_SUPPORTED_KERNEL (33188).
