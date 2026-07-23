@@ -1,5 +1,5 @@
---- a/drivers/kernelsu/Kbuild
-+++ b/drivers/kernelsu/Kbuild
+--- drivers/kernelsu/Kbuild
++++ drivers/kernelsu/Kbuild
 @@ -42,6 +42,7 @@ kernelsu-objs += policy/feature.o
  
  kernelsu-objs += runtime/boot_event.o
@@ -8,8 +8,8 @@
  
  kernelsu-objs += selinux/selinux.o
  kernelsu-objs += selinux/rules.o
---- a/drivers/kernelsu/runtime/boot_event.c
-+++ b/drivers/kernelsu/runtime/boot_event.c
+--- drivers/kernelsu/runtime/boot_event.c
++++ drivers/kernelsu/runtime/boot_event.c
 @@ -12,11 +12,16 @@
  #include "manager/manager_observer.h"
  #include "manager/throne_tracker.h"
@@ -125,7 +125,7 @@
 +}
 +#endif /* CONFIG_KSU_SUSFS */
 --- /dev/null
-+++ b/drivers/kernelsu/runtime/properties.c
++++ drivers/kernelsu/runtime/properties.c
 @@ -0,0 +1,318 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
