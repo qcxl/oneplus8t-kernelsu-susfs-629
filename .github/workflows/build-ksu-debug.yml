@@ -92,17 +92,12 @@ jobs:
             grep -n 'ksu_install_fd' init/main.c
           fi
 
-      - name: Integrate KernelSU-Next (our fork - dev branch)
+      - name: Integrate KernelSU-Next (legacy branch)
         working-directory: kernel
         run: |
-          # Clone our fork first so setup.sh skips cloning the upstream
-          git clone --depth 1 --branch dev \
-            https://github.com/qcxl/KernelSU-Next.git KernelSU-Next
-          # setup.sh sees KernelSU-Next/ exists → skips git clone → uses our fork
+          # Use upstream legacy branch (space indent matches inject scripts)
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/legacy/kernel/setup.sh" \
             | bash -s legacy
-          # Ensure we're on our dev branch (setup.sh may have switched branches)
-          cd KernelSU-Next && git checkout dev && cd ..
           # Force KSU_VERSION to match app requirement (>=33188)
           # The legacy branch has fewer git commits than dev, so auto-detected
           # version (33133) is lower than the app's MINIMAL_SUPPORTED_KERNEL (33188).
@@ -115,6 +110,15 @@ jobs:
           # Verify
           echo "Makefile KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Makefile 2>/dev/null | head -1)"
           echo "Kbuild KSU_VERSION: $(grep 'DKSU_VERSION' drivers/kernelsu/Kbuild 2>/dev/null | head -1)"
+
+      - name: Apply our boot_event.c + properties.c patch
+        working-directory: kernel
+        run: |
+          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_boot_event_properties.patch || echo "WARNING: boot restore patch failed (may already be applied)"
+          echo "=== Boot restore files ==="
+          grep -c 'susfs_restore_boot' drivers/kernelsu/runtime/boot_event.c 2>/dev/null || echo "0"
+          test -f drivers/kernelsu/runtime/properties.c && echo "properties.c: YES" || echo "properties.c: NO"
+          grep -c 'runtime/properties.o' drivers/kernelsu/Kbuild 2>/dev/null || echo "0"
 
       - name: Inject KSU prctl handler (for Manager APK fd)
         working-directory: kernel
