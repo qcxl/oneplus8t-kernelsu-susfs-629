@@ -114,7 +114,7 @@ jobs:
       - name: Apply our boot_event.c + properties.c patch
         working-directory: kernel
         run: |
-          patch -p1 --forward --fuzz=3 < ../kernel-patches/fix_boot_event_properties.patch || echo "WARNING: boot restore patch failed (may already be applied)"
+          patch -p0 --forward -t < ../kernel-patches/fix_boot_event_properties.patch || echo "WARNING: boot restore patch failed (may already be applied)"
           echo "=== Boot restore files ==="
           grep -c 'susfs_restore_boot' drivers/kernelsu/runtime/boot_event.c 2>/dev/null || echo "0"
           test -f drivers/kernelsu/runtime/properties.c && echo "properties.c: YES" || echo "properties.c: NO"
