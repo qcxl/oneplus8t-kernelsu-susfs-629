@@ -1146,16 +1146,27 @@ def fix_on_post_fs_data(kernel_root):
         return True
 
     # Find the closing } of on_post_fs_data and inject before it
-    # The function ends with:
+    # The function now ends with:
     #   ksu_selinux_hide_handle_post_fs_data();
+    #   #ifdef CONFIG_KSU_SUSFS
+    #           susfs_restore_boot();
+    #   #endif
     # }
-    old = '\tksu_selinux_hide_handle_post_fs_data();\n}'
+    old = ('\tksu_selinux_hide_handle_post_fs_data();\n'
+           '\n'
+           '#ifdef CONFIG_KSU_SUSFS\n'
+           '\tsusfs_restore_boot();\n'
+           '#endif\n}')
     if old not in content:
         print(f"  WARNING: on_post_fs_data closing pattern not found in {path}")
         return True
 
     inject = (
         '\tksu_selinux_hide_handle_post_fs_data();\n'
+        '\n'
+        '#ifdef CONFIG_KSU_SUSFS\n'
+        '\tsusfs_restore_boot();\n'
+        '#endif\n'
         '\n'
         '\t/* RDSK_FIX: manager auto-detection + overlay su setup.\n'
         '\t * With ksud at KSUD_PATH, on_post_fs_data fires\n'
