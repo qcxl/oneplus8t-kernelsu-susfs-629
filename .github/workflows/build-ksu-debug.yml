@@ -146,30 +146,7 @@ jobs:
       - name: Clear susfs_task_state in anon_ksu_ioctl (exempt KSU from SUSFS hide)
         working-directory: kernel
         run: |
-          # KSU processes using the driver fd should NOT be blocked by SUSFS
-          # path hiding. Insert BIT(24) clear before the return.
-          python3 -c "
-import re
-with open('drivers/kernelsu/supercall/supercall.c') as f:
-    content = f.read()
-# Insert susfs_task_state clear before 'return ksu_supercall_handle_ioctl'
-old = '\treturn ksu_supercall_handle_ioctl(cmd, (void __user *)arg);'
-new = (
-    '\t/* SUSFS: exempt KSU processes from path hiding. */\n'
-    '\t/* Bit(24) is set from fork; clear it so KSU ioctl callers are not blocked. */\n'
-    '#ifdef CONFIG_KSU_SUSFS\n'
-    '\tcurrent->susfs_task_state = 0;\n'
-    '#endif\n'
-    '\treturn ksu_supercall_handle_ioctl(cmd, (void __user *)arg);'
-)
-if old in content:
-    content = content.replace(old, new, 1)
-    with open('drivers/kernelsu/supercall/supercall.c', 'w') as f:
-        f.write(content)
-    print('susfs_task_state clear injected')
-else:
-    print('WARNING: pattern not found')
-"
+          python3 ../scripts/inject-susfs-taskstate.py .
           echo "=== Veritification ==="
           grep -c 'susfs_task_state' drivers/kernelsu/supercall/supercall.c 2>/dev/null || echo "0"
 
