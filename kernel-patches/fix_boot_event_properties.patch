@@ -9,8 +9,8 @@
  kernelsu-objs += selinux/selinux.o
  kernelsu-objs += selinux/rules.o
 
---- drivers/kernelsu/runtime/boot_event.c
-+++ drivers/kernelsu/runtime/boot_event.c
+--- drivers/kernelsu/runtime/boot_event.c	2026-07-23 13:38:21
++++ drivers/kernelsu/runtime/boot_event.c	2026-07-23 17:12:49
 @@ -10,6 +10,12 @@
  #include "manager/manager_observer.h"
  #include "manager/throne_tracker.h"
@@ -34,7 +34,7 @@
  }
  
  extern void ext4_unregister_sysfs(struct super_block *sb);
-@@ -70,3 +79,78 @@
+@@ -70,3 +79,73 @@
      track_throne(true);
      ksu_avc_spoof_late_init();
  }
@@ -53,27 +53,22 @@
 +			"/system/addon.d",
 +			"/system/build.prop",
 +			"/data/adb/modules",
++			"/data/adb/modules_update",
++			"/data/adb/ksu-pdeath",
++			"/data/adb/ksu/.allowlist",
++			"/data/adb/ksu/.feature_config",
 +			NULL,
 +		};
 +		for (i = 0; paths[i]; i++)
 +			susfs_add_sus_path_kernel(paths[i]);
 +	}
 +	{
-+		static const char * const maps[] = {
-+			"/data/adb/",
-+			NULL,
-+		};
-+		for (i = 0; maps[i]; i++)
-+			susfs_mark_inode_sus_map(maps[i]);
++		static const char * const maps[] = { "/data/adb/", NULL };
++		for (i = 0; maps[i]; i++) susfs_mark_inode_sus_map(maps[i]);
 +	}
 +	{
-+		static const char * const mounts[] = {
-+			"/vendor",
-+			"/odm",
-+			NULL,
-+		};
-+		for (i = 0; mounts[i]; i++)
-+			susfs_add_sus_mount_kernel(mounts[i]);
++		static const char * const mounts[] = { "/vendor", "/odm", NULL };
++		for (i = 0; mounts[i]; i++) susfs_add_sus_mount_kernel(mounts[i]);
 +	}
 +
 +	susfs_set_uname_kernel("4.19.304", "Default/4.19");
