@@ -1,7 +1,5 @@
-diff --git a/drivers/kernelsu/Kbuild b/drivers/kernelsu/Kbuild
-index e49fe1eb..ce90c51b 100644
---- a/drivers/kernelsu/Kbuild
-+++ b/drivers/kernelsu/Kbuild
+--- drivers/kernelsu/Kbuild
++++ drivers/kernelsu/Kbuild
 @@ -42,6 +42,7 @@ kernelsu-objs += policy/feature.o
  
  kernelsu-objs += runtime/boot_event.o
@@ -10,53 +8,43 @@ index e49fe1eb..ce90c51b 100644
  
  kernelsu-objs += selinux/selinux.o
  kernelsu-objs += selinux/rules.o
-diff --git a/drivers/kernelsu/runtime/boot_event.c b/drivers/kernelsu/runtime/boot_event.c
-index b52fbf99..be77c739 100644
---- a/drivers/kernelsu/runtime/boot_event.c
-+++ b/drivers/kernelsu/runtime/boot_event.c
-@@ -12,11 +12,16 @@
+
+--- drivers/kernelsu/runtime/boot_event.c
++++ drivers/kernelsu/runtime/boot_event.c
+@@ -10,6 +10,12 @@
  #include "manager/manager_observer.h"
  #include "manager/throne_tracker.h"
- 
-+extern void ksu_avc_spoof_late_init(void);
-+
+ #include "selinux/selinux.h"
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +extern void susfs_restore_properties(void);
++static void susfs_restore_boot(void);
++static int susfs_mark_inode_sus_map(const char *path);
 +#endif
-+
+ 
  bool ksu_module_mounted __read_mostly = false;
  bool ksu_boot_completed __read_mostly = false;
- 
--extern void ksu_avc_spoof_late_init(void);
--
- void on_post_fs_data(void)
- {
- 	static bool done = false;
-@@ -38,6 +43,10 @@ void on_post_fs_data(void)
- 	// Sanity check for safe mode only needs early-boot input samples.
- 	ksu_stop_input_hook_runtime();
- 	ksu_selinux_hide_handle_post_fs_data();
-+
+@@ -31,6 +37,9 @@
+ 	ksu_observer_init();
+ 	// sanity check, this may influence the performance
+ 	stop_input_hook();
 +#ifdef CONFIG_KSU_SUSFS
 +	susfs_restore_boot();
 +#endif
  }
  
  extern void ext4_unregister_sysfs(struct super_block *sb);
-@@ -77,3 +86,83 @@ void on_boot_completed(void)
- 	ksu_selinux_hide_drop_backup_if_unused();
- 	ksu_avc_spoof_late_init();
+@@ -70,3 +79,77 @@
+     track_throne(true);
+     ksu_avc_spoof_late_init();
  }
 +
 +#ifdef CONFIG_KSU_SUSFS
 +static bool susfs_boot_restored __read_mostly = false;
 +
-+/* ── SUSFS boot restore: apply built-in default rules ────────── */
 +static void susfs_restore_boot(void)
 +{
 +	int i;
-+
 +	{
 +		static const char * const paths[] = {
 +			"/system/bin/su",
@@ -100,7 +88,6 @@ index b52fbf99..be77c739 100644
 +#endif
 +
 +	susfs_restore_properties();
-+
 +	susfs_boot_restored = true;
 +	pr_info("susfs: boot restore complete\n");
 +}
@@ -110,16 +97,13 @@ index b52fbf99..be77c739 100644
 +	return susfs_boot_restored ? 1 : 0;
 +}
 +
-+/* Mark an inode as SUS_MAP (kernel-safe, no __user) */
 +static int susfs_mark_inode_sus_map(const char *path)
 +{
 +	struct path p;
 +	struct inode *inode;
 +	int err;
-+
 +	err = kern_path(path, 0, &p);
-+	if (err)
-+		return err;
++	if (err) return err;
 +	inode = d_inode(p.dentry);
 +	spin_lock(&inode->i_lock);
 +	inode->i_state |= INODE_STATE_SUS_MAP;
@@ -128,11 +112,10 @@ index b52fbf99..be77c739 100644
 +	return 0;
 +}
 +#endif /* CONFIG_KSU_SUSFS */
-diff --git a/drivers/kernelsu/runtime/properties.c b/drivers/kernelsu/runtime/properties.c
+
 new file mode 100644
-index 00000000..da7f23d4
 --- /dev/null
-+++ b/drivers/kernelsu/runtime/properties.c
++++ drivers/kernelsu/runtime/properties.c
 @@ -0,0 +1,331 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
