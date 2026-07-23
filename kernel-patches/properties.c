@@ -208,24 +208,20 @@ int property_set(const char *key, const char *value)
 
 	/* Write new value into shared memory.
 	 * info_off is relative to data[] (after 128-byte header).
-	 * Convert to file offset: hdr_sz + info_off. */
+	 * Convert to file offset: hdr_sz + info_off.
+	 * Then update serial length bits (31-24) to match new value length,
+	 * preserving serial counter (bits 23-0). */
 	{
 		loff_t file_off = (loff_t)PROP_AREA_HEADER_SZ + info_off;
+		uint32_t serial;
 		loff_t pos;
 
 		pos = file_off + offsetof(struct prop_info_rec, value);
 		kernel_write(fp, value, vlen, &pos);
 		pos = file_off + offsetof(struct prop_info_rec, value) + vlen;
 		kernel_write(fp, "\0", 1, &pos);
-	}
 
-	/* Update serial length bits (31-24) to match new value length.
-	 * Preserve serial counter (bits 23-0) so Hunter's "Abnormal prop serial"
-	 * detection does not trigger—counter remains unchanged, only the
-	 * length field is corrected for the shorter value. */
-	{
-		uint32_t serial;
-		loff_t pos = file_off + offsetof(struct prop_info_rec, serial);
+		pos = file_off + offsetof(struct prop_info_rec, serial);
 		kernel_read(fp, &serial, sizeof(serial), &pos);
 		serial = (serial & 0x00FFFFFF) | ((vlen & 0xFF) << 24);
 		pos = file_off + offsetof(struct prop_info_rec, serial);
