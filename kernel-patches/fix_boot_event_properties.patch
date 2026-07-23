@@ -34,7 +34,7 @@
  }
  
  extern void ext4_unregister_sysfs(struct super_block *sb);
-@@ -70,3 +79,77 @@
+@@ -70,3 +79,78 @@
      track_throne(true);
      ksu_avc_spoof_late_init();
  }
@@ -52,6 +52,7 @@
 +			"/data/adb/ksu/su",
 +			"/system/addon.d",
 +			"/system/build.prop",
++			"/data/adb/modules",
 +			NULL,
 +		};
 +		for (i = 0; paths[i]; i++)
