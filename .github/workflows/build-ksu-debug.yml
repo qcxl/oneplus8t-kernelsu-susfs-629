@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/clang-r450784d
-          key: clang-r450784d-001
+          key: clang-r450784d-002
 
       - name: Clone Android clang r450784d toolchain
         if: steps.cache-clang.outputs.cache-hit != 'true'
@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: kernel
-          key: lineage-kernel-5dea892fe7e4-001
+          key: lineage-kernel-5dea892fe7e4-002
 
       - name: Clone LineageOS 20 kernel source (device exact commit)
         if: steps.cache-kernel.outputs.cache-hit != 'true'
