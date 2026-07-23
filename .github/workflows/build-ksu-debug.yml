@@ -236,6 +236,16 @@ jobs:
         working-directory: kernel
         run: |
           # SUSFS source files are committed in ../kernel-patches/ — no network clone needed
+          echo "=== Reverting SUSFS-patched files to pristine state (avoid cache duplicates) ==="
+          # The kernel source cache may have these files already patched. Revert before
+          # re-applying to avoid "redefinition of susfs_mnt_id_ida" errors.
+          for f in fs/namespace.c fs/dcache.c fs/namei.c fs/readdir.c fs/stat.c fs/statfs.c \
+                   fs/proc_namespace.c fs/proc/cmdline.c fs/proc/fd.c fs/proc/task_mmu.c \
+                   fs/overlayfs/inode.c fs/overlayfs/readdir.c fs/overlayfs/super.c \
+                   fs/notify/fdinfo.c kernel/fork.c kernel/kallsyms.c kernel/sys.c \
+                   include/linux/mount.h include/linux/sched.h fs/Makefile; do
+            git checkout -- "$f" 2>/dev/null || true
+          done
           echo "=== Applying SUSFS 50_add patch ==="
           patch -p1 --forward --fuzz=3 < ../kernel-patches/50_add_susfs_in_kernel-4.19.patch || echo "WARNING: 50_add patch failed (may already be applied)"
           cp ../kernel-patches/fs/susfs.c fs/ 2>/dev/null || true
