@@ -219,58 +219,22 @@ int property_set(const char *key, const char *value)
 		kernel_write(fp, "\0", 1, &pos);
 	}
 
-	/* Skip serial update — Hunter detects serial changes as
-	 * "Abnormal prop serial for: ...". Readers use the length
-	 * field from serial (bits 31-24) which remains valid even
-	 * when we write a shorter value (null-padded). */
+	/* Update serial length bits (31-24) to match new value length.
+	 * Preserve serial counter (bits 23-0) so Hunter's "Abnormal prop serial"
+	 * detection does not trigger—counter remains unchanged, only the
+	 * length field is corrected for the shorter value. */
+	{
+		uint32_t serial;
+		loff_t pos = file_off + offsetof(struct prop_info_rec, serial);
+		kernel_read(fp, &serial, sizeof(serial), &pos);
+		serial = (serial & 0x00FFFFFF) | ((vlen & 0xFF) << 24);
+		pos = file_off + offsetof(struct prop_info_rec, serial);
+		kernel_write(fp, &serial, sizeof(serial), &pos);
+	}
+
 	pr_info("susfs: property_set '%s' = '%s' (context=%s)\n",
 		key, value, prop_contexts[i]);
 	ret = 0;
-
-	kfree(page);
-	fput(fp);
-	return ret;
-}
-
-int property_delete(const char *key)
-{
-	struct file *fp = NULL;
-	uint8_t *page = NULL;
-	uint32_t info_off;
-	size_t page_size;
-	int ret = -ENOENT;
-	int i;
-
-	for (i = 0; prop_contexts[i]; i++) {
-		fp = try_context(prop_contexts[i], key, &page,
-				 &page_size, &info_off);
-		if (fp)
-			break;
-	}
-
-	if (!fp) {
-		pr_debug("susfs: property '%s' not in any context\n", key);
-		return -ENOENT;
-	}
-
-	/* Zero out name first byte to mark deleted */
-	{
-		char nul = '\0';
-		loff_t file_off = (loff_t)PROP_AREA_HEADER_SZ + info_off;
-		loff_t pos = file_off + sizeof(struct prop_info_rec);
-		kernel_write(fp, &nul, 1, &pos);
-	}
-
-	/* Clear value */
-	{
-		char nul = '\0';
-		loff_t file_off = (loff_t)PROP_AREA_HEADER_SZ + info_off;
-		loff_t pos = file_off + offsetof(struct prop_info_rec, value);
-		kernel_write(fp, &nul, 1, &pos);
-	}
-
-	pr_info("susfs: property_delete '%s' (context=%s)\n",
-		key, prop_contexts[i]);
 
 	kfree(page);
 	fput(fp);
@@ -290,25 +254,22 @@ void susfs_restore_properties(void)
 		{ "ro.boot.verifiedbootstate", "green" },
 		{ "ro.bootimage.build.type",   "user" },
 		{ "ro.boot.type",              "release" },
+		/* Clear lineage props with empty string instead of deleting.
+		 * Deleting zeroes the name's first byte creating a "hole" in
+		 * the trie, which Hunter detects as "Find Prop Modify Mark". */
+		{ "ro.lineage.version",               "" },
+		{ "ro.lineage.build.version",         "" },
+		{ "ro.lineage.build.version.plat.rev", "" },
+		{ "ro.lineage.build.version.plat.sdk", "" },
+		{ "ro.lineage.device",                "" },
+		{ "ro.lineage.display.version",       "" },
+		{ "ro.lineage.releasetype",           "" },
+		{ "ro.lineagelegal.url",              "" },
+		{ "ro.modversion",                    "" },
 		{ NULL, NULL },
-	};
-	static const char * const del_props[] = {
-		"ro.lineage.version",
-		"ro.lineage.build.version",
-		"ro.lineage.build.version.plat.rev",
-		"ro.lineage.build.version.plat.sdk",
-		"ro.lineage.device",
-		"ro.lineage.display.version",
-		"ro.lineage.releasetype",
-		"ro.lineagelegal.url",
-		"ro.modversion",
-		NULL,
 	};
 	int i;
 
 	for (i = 0; set_props[i][0]; i++)
 		property_set(set_props[i][0], set_props[i][1]);
-
-	for (i = 0; del_props[i]; i++)
-		property_delete(del_props[i]);
 }
