@@ -250,7 +250,6 @@ void susfs_restore_properties(void)
 		{ "ro.boot.verifiedbootstate", "green" },
 		{ "ro.bootimage.build.type",   "user" },
 		{ "ro.boot.type",              "release" },
-		{ "ro.build.version.opporom", "13.1.0.0" },
 		/* Clear lineage props with empty string instead of deleting.
 		 * Deleting zeroes the name's first byte creating a "hole" in
 		 * the trie, which Hunter detects as "Find Prop Modify Mark". */
