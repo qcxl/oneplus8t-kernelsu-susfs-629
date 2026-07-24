@@ -223,7 +223,7 @@ int property_set(const char *key, const char *value)
 
 		pos = file_off + offsetof(struct prop_info_rec, serial);
 		kernel_read(fp, &serial, sizeof(serial), &pos);
-		serial = (serial & 0x00FFFFFF) | ((vlen & 0xFF) << 24);
+		serial = ((vlen & 0xFF) << 24) | ((serial & 0x00FFFFFF) + 1);
 		pos = file_off + offsetof(struct prop_info_rec, serial);
 		kernel_write(fp, &serial, sizeof(serial), &pos);
 	}
@@ -250,18 +250,6 @@ void susfs_restore_properties(void)
 		{ "ro.boot.verifiedbootstate", "green" },
 		{ "ro.bootimage.build.type",   "user" },
 		{ "ro.boot.type",              "release" },
-		/* Clear lineage props with empty string instead of deleting.
-		 * Deleting zeroes the name's first byte creating a "hole" in
-		 * the trie, which Hunter detects as "Find Prop Modify Mark". */
-		{ "ro.lineage.version",               "" },
-		{ "ro.lineage.build.version",         "" },
-		{ "ro.lineage.build.version.plat.rev", "" },
-		{ "ro.lineage.build.version.plat.sdk", "" },
-		{ "ro.lineage.device",                "" },
-		{ "ro.lineage.display.version",       "" },
-		{ "ro.lineage.releasetype",           "" },
-		{ "ro.lineagelegal.url",              "" },
-		{ "ro.modversion",                    "" },
 		{ NULL, NULL },
 	};
 	int i;
